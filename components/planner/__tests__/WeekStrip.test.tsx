@@ -178,7 +178,10 @@ describe("WeekStrip", () => {
     await waitFor(async () =>
       expect(await getDay(WED)).toMatchObject({ status: "moved", moved_to: FRI, skip_reason: "tired" }),
     );
-    expect(await getDay(FRI)).toMatchObject({ status: "planned", routine_id: pushId, moved_from: WED });
+    // moveDay writes the two days separately, so Friday can land after Wednesday.
+    await waitFor(async () =>
+      expect(await getDay(FRI)).toMatchObject({ status: "planned", routine_id: pushId, moved_from: WED }),
+    );
     expect(await getDay(THU)).toMatchObject({ status: "planned", routine_id: legsId });
     await waitFor(() => expect(dayButton(WED).textContent).toContain("→"));
     await waitFor(() => expect(dayButton(FRI).textContent).toContain("•"));
