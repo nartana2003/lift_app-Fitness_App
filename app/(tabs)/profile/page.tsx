@@ -6,6 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { PageHeader } from "@/components/PageHeader";
 import { Collapsible } from "@/components/Collapsible";
 import { LyftaImport } from "@/components/LyftaImport";
+import { DataBackup } from "@/components/DataBackup";
 import { GoalsSection } from "@/components/goals/GoalsSection";
 import { SplitEditor } from "@/components/goals/SplitEditor";
 import { useSplit } from "@/lib/splits";
@@ -25,6 +26,7 @@ const ICONS = {
   body: "M12 3.5a1.6 1.6 0 110 3.2 1.6 1.6 0 010-3.2zM7 9h10M9.5 9v4l-1 7.5M14.5 9v4l1 7.5",
   sliders: "M4 7h10M18 7h2M4 17h4M12 17h8",
   download: "M12 3v12M7.5 10.5L12 15l4.5-4.5M4 20h16",
+  archive: "M4 4h16v4H4zM5 8v12h14V8M10 12h4",
   key: "M15 7a4 4 0 110 8 4 4 0 010-8zM11.5 12.5L3 21M6 18l2 2M9 15l2 2",
   split: "M4 6h7M4 12h7M4 18h7M15 6h5M15 12h5M15 18h5",
   target: "M12 21a9 9 0 110-18 9 9 0 010 18zM12 16.5a4.5 4.5 0 110-9 4.5 4.5 0 010 9zM12 13a1 1 0 110-2 1 1 0 010 2z",
@@ -265,6 +267,10 @@ export default function ProfilePage() {
             ))}
           </select>
         </label>
+      </Collapsible>
+
+      <Collapsible title="Backup" icon={<Icon d={ICONS.archive} />} subtitle="Export or restore all your data">
+        <DataBackup />
       </Collapsible>
 
       <Collapsible title="Import data" icon={<Icon d={ICONS.download} />} subtitle="Bring in your Lyfta workout history">
