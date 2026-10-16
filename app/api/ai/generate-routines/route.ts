@@ -1,6 +1,7 @@
 import catalogueJson from "@/data/exercises.json";
 import { runAi } from "@/lib/ai/client";
 import { aiFailure, aiOk, withAiClient } from "@/lib/ai/respond";
+import { invalidRequest, readJsonBody } from "@/lib/ai/request";
 import {
   MAX_BODY_BYTES,
   buildContext,
@@ -14,8 +15,6 @@ export const dynamic = "force-dynamic";
 
 const catalogue = catalogueJson as unknown as Exercise[];
 
-const invalid = (status: 400 | 413 = 400) => Response.json({ error: "invalid_request" }, { status });
-
 /**
  * POST { split, equipment, history } -> 200 { plan } with a 3-day plan whose
  * exercise ids are all in the built-in catalogue.
@@ -24,23 +23,11 @@ const invalid = (status: 400 | 413 = 400) => Response.json({ error: "invalid_req
  */
 export async function POST(req: Request): Promise<Response> {
   return withAiClient(async (client) => {
-    const declared = Number(req.headers.get("content-length") ?? "0");
-    if (declared > MAX_BODY_BYTES) return invalid(413);
-    let text: string;
-    try {
-      text = await req.text();
-    } catch {
-      return invalid();
-    }
-    if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) return invalid(413);
-    let raw: unknown;
-    try {
-      raw = JSON.parse(text);
-    } catch {
-      return invalid();
-    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
+    if (!body.ok) return invalidRequest(body.status);
+    const raw = body.value;
     const checked = validateInput(raw);
-    if (!checked.ok) return invalid();
+    if (!checked.ok) return invalidRequest();
 
     const ctx = buildContext(checked.input, catalogue);
     const result = await runAi(client, buildPrompt(ctx));
