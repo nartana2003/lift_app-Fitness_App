@@ -16,7 +16,8 @@ import { getRestSec, setRestSec } from "@/lib/workout";
 import { fmtClock } from "@/lib/restTimer";
 import { ageFrom, emptyProfile, loadProfile, saveProfile, type Gender, type Profile } from "@/lib/profile";
 import { bmi, bmiLabel, latestMeasurement, saveMeasurement } from "@/lib/measurements";
-import { saveSettings, useSettings } from "@/lib/settings";
+import { saveSettings, saveTheme, useSettings, useThemePref } from "@/lib/settings";
+import { THEME_LABELS, THEME_PREFS } from "@/lib/theme";
 import { dispNum, fromDisplay } from "@/lib/units";
 
 const ICONS = {
@@ -45,6 +46,7 @@ const GENDERS: { v: Gender; label: string }[] = [
 export default function ProfilePage() {
   const router = useRouter();
   const { unit, weekStart } = useSettings();
+  const theme = useThemePref();
   const goals = useGoals();
   const split = useSplit();
   const [profile, setProfile] = useState<Profile>(emptyProfile());
@@ -118,7 +120,7 @@ export default function ProfilePage() {
   const b = h > 0 && w > 0 ? bmi(w, h) : 0;
   const age = ageFrom(profile.birth_date);
 
-  const prefSummary = `${unit} · Week starts ${weekStart === 1 ? "Monday" : "Sunday"} · Rest ${fmtClock(rest)}`;
+  const prefSummary = `${unit} · Week starts ${weekStart === 1 ? "Monday" : "Sunday"} · Rest ${fmtClock(rest)} · ${THEME_LABELS[theme]} theme`;
   const bodySummary = [h > 0 ? `${h} cm` : null, num(weight) > 0 ? `${num(weight)} ${unit}` : null, b > 0 ? `BMI ${b}` : null]
     .filter(Boolean)
     .join(" · ");
@@ -223,6 +225,23 @@ export default function ProfilePage() {
             {([1, 0] as const).map((d) => (
               <button key={d} className={weekStart === d ? "chip-on justify-center py-2" : "chip justify-center py-2"} onClick={() => saveSettings({ weekStart: d })}>
                 {d === 1 ? "Monday" : "Sunday"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="font-semibold block mb-2">Theme</span>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Theme">
+            {THEME_PREFS.map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="radio"
+                aria-checked={theme === t}
+                className={theme === t ? "chip-on justify-center py-2" : "chip justify-center py-2"}
+                onClick={() => saveTheme(t)}
+              >
+                {THEME_LABELS[t]}
               </button>
             ))}
           </div>
