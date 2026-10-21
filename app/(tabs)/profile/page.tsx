@@ -9,6 +9,8 @@ import { LyftaImport } from "@/components/LyftaImport";
 import { DataBackup } from "@/components/DataBackup";
 import { GoalsSection } from "@/components/goals/GoalsSection";
 import { SplitEditor } from "@/components/goals/SplitEditor";
+import { EquipmentChecklist } from "@/components/EquipmentChecklist";
+import { equipmentSummary, useEquipment } from "@/lib/equipment";
 import { useSplit } from "@/lib/splits";
 import { allTargets, GOAL_LABELS, useGoals } from "@/lib/goals";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -28,6 +30,7 @@ const ICONS = {
   download: "M12 3v12M7.5 10.5L12 15l4.5-4.5M4 20h16",
   archive: "M4 4h16v4H4zM5 8v12h14V8M10 12h4",
   key: "M15 7a4 4 0 110 8 4 4 0 010-8zM11.5 12.5L3 21M6 18l2 2M9 15l2 2",
+  dumbbell: "M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11",
   split: "M4 6h7M4 12h7M4 18h7M15 6h5M15 12h5M15 18h5",
   target: "M12 21a9 9 0 110-18 9 9 0 010 18zM12 16.5a4.5 4.5 0 110-9 4.5 4.5 0 010 9zM12 13a1 1 0 110-2 1 1 0 010 2z",
 } as const;
@@ -51,6 +54,7 @@ export default function ProfilePage() {
   const theme = useThemePref();
   const goals = useGoals();
   const split = useSplit();
+  const equipment = useEquipment();
   const [profile, setProfile] = useState<Profile>(emptyProfile());
   const [height, setHeight] = useState("");
   const [weight, setWeight] = useState("");
@@ -208,6 +212,10 @@ export default function ProfilePage() {
         subtitle={split.days.length ? `${split.name || "Split"} · ${split.days.map((d) => d.name).join(" · ")}` : "Not set up yet"}
       >
         <SplitEditor />
+      </Collapsible>
+
+      <Collapsible title="My gym equipment" icon={<Icon d={ICONS.dumbbell} />} subtitle={equipmentSummary(equipment)}>
+        <EquipmentChecklist />
       </Collapsible>
 
       <Collapsible title="Preferences" icon={<Icon d={ICONS.sliders} />} subtitle={prefSummary}>
