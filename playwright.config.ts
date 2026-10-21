@@ -22,6 +22,9 @@ export default defineConfig({
     command: `npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
+    // lift/.env may hold a real key. Blank it so the AI routes answer 503
+    // "unavailable" (the path the specs assert) and tests never spend API credit.
+    env: { ANTHROPIC_API_KEY: "" },
     timeout: 60_000,
   },
 });

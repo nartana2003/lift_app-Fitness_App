@@ -45,6 +45,8 @@ test("the last ticked item cannot be unticked", async ({ page }) => {
   }
   const last = group.getByRole("checkbox", { name: keep, exact: true });
   await expect(page.getByText("Keep at least one ticked.")).toBeVisible();
-  await last.click();
+  // The last item is disabled, so a normal click is refused; force it to prove nothing changes.
+  await expect(last).toHaveAttribute("aria-disabled", "true");
+  await last.click({ force: true });
   await expect(last).toHaveAttribute("aria-checked", "true");
 });

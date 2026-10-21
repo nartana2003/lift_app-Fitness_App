@@ -8,6 +8,7 @@ test("Suggest weekly targets falls back to a plain message without AI", async ({
   page.on("pageerror", (e) => errors.push(e.message));
 
   await page.goto("/profile");
+  await page.waitForLoadState("networkidle"); // let React hydrate before clicking
   await page.getByRole("button", { name: /^Goals/ }).click();
 
   await expect(page.getByText("Suggest weekly targets")).toBeVisible();

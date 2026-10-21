@@ -6,6 +6,7 @@ import { test, expect } from "@playwright/test";
 // must show the plain unavailable/failure note and leave the chips in place.
 test("weekly goals card shows catch-up chips and a plain note when AI is unavailable", async ({ page }) => {
   await page.goto("/progress");
+  await page.waitForLoadState("networkidle"); // let React hydrate before clicking
 
   const card = page.locator("section").filter({ has: page.getByRole("heading", { name: "Weekly goals" }) });
   await expect(card.getByRole("heading", { name: "Weekly goals" })).toBeVisible();
