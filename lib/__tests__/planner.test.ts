@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db, type PlannedDayRow } from "../offline/db";
 import { clearDay, dayKey, getDay, markDone, moveDay, moveOptions, planDay, skipDay, undoSkip, weekDays } from "../planner";
 
@@ -54,6 +54,16 @@ describe("skipping and moving", () => {
     expect(await getDay(THU)).toMatchObject({ status: "planned", routine_id: "r1", moved_from: MON });
   });
 
+  it("queues both days in order, in the outbox", async () => {
+    await planDay(MON, "r1");
+    await db.outbox.clear();
+    await moveDay(MON, THU, "busy", " meeting ");
+    const outbox = await db.outbox.orderBy("seq").toArray();
+    expect(outbox).toHaveLength(2);
+    expect(outbox[0]).toMatchObject({ table: "planned_days", op: "upsert", row: { date: MON, status: "moved", skip_note: "meeting" } });
+    expect(outbox[1]).toMatchObject({ table: "planned_days", op: "upsert", row: { date: THU, status: "planned", moved_from: MON } });
+  });
+
   it("undoing a move removes the new day again", async () => {
     await planDay(MON, "r1");
     await moveDay(MON, THU, "busy");
@@ -77,6 +87,48 @@ describe("skipping and moving", () => {
     await skipDay(MON, "tired");
     await undoSkip(MON);
     expect(await getDay(MON)).toMatchObject({ status: "planned", skip_reason: null, routine_id: "r1" });
+  });
+});
+
+describe("moveDay is atomic", () => {
+  // Make the write to the target day fail, after the original day was written.
+  const failTarget = (date: string) => {
+    if (date === THU) throw new Error("disk full");
+  };
+  const onCreating = (_k: unknown, obj: PlannedDayRow) => failTarget(obj.date);
+  const onUpdating = (_m: unknown, _k: unknown, obj: PlannedDayRow) => failTarget(obj.date);
+
+  afterEach(() => {
+    db.planned_days.hook("creating").unsubscribe(onCreating);
+    db.planned_days.hook("updating").unsubscribe(onUpdating);
+  });
+
+  it("leaves neither day changed when the second write fails (new target day)", async () => {
+    await planDay(MON, "r1");
+    const before = await getDay(MON);
+    const outboxBefore = await db.outbox.count();
+    db.planned_days.hook("creating", onCreating);
+
+    await expect(moveDay(MON, THU, "busy")).rejects.toThrow();
+
+    expect(await getDay(MON)).toEqual(before);
+    expect(await getDay(THU)).toBeUndefined();
+    expect(await db.outbox.count()).toBe(outboxBefore);
+  });
+
+  it("leaves neither day changed when the second write fails (existing target day)", async () => {
+    await planDay(MON, "r1");
+    await skipDay(THU, "rest");
+    const monBefore = await getDay(MON);
+    const thuBefore = await getDay(THU);
+    const outboxBefore = await db.outbox.count();
+    db.planned_days.hook("updating", onUpdating);
+
+    await expect(moveDay(MON, THU, "busy")).rejects.toThrow();
+
+    expect(await getDay(MON)).toEqual(monBefore);
+    expect(await getDay(THU)).toEqual(thuBefore);
+    expect(await db.outbox.count()).toBe(outboxBefore);
   });
 });
 

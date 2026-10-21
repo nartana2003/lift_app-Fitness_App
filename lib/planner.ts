@@ -2,7 +2,7 @@
 
 // The weekly plan: which routine is planned for each day, plus skipping and moving days.
 import { db, uuid, type PlannedDayRow, type SkipReason } from "./offline/db";
-import { enqueue } from "./offline/sync";
+import { enqueue, flush } from "./offline/sync";
 import { addDays, startOfWeek } from "./stats";
 
 export const SKIP_REASONS: { v: SkipReason; label: string }[] = [
@@ -71,10 +71,23 @@ export async function skipDay(date: string, reason: SkipReason, note?: string) {
  * The original day shows "skipped → moved to Thu".
  */
 export async function moveDay(from: string, to: string, reason: SkipReason, note?: string) {
-  const cur = (await getDay(from)) ?? blank(from);
-  const target = (await getDay(to)) ?? blank(to);
-  await save({ ...cur, status: "moved", skip_reason: reason, skip_note: note?.trim() || null, moved_to: to });
-  await save({ ...target, routine_id: cur.routine_id, status: "planned", skip_reason: null, skip_note: null, moved_from: from });
+  // Both days and their outbox entries are written in one transaction, so a
+  // failure part-way leaves neither day changed (no half-finished move).
+  await db.transaction("rw", db.planned_days, db.outbox, async () => {
+    const cur = (await getDay(from)) ?? blank(from);
+    const target = (await getDay(to)) ?? blank(to);
+    const origin: PlannedDayRow = { ...cur, status: "moved", skip_reason: reason, skip_note: note?.trim() || null, moved_to: to };
+    const dest: PlannedDayRow = { ...target, routine_id: cur.routine_id, status: "planned", skip_reason: null, skip_note: null, moved_from: from };
+    await db.planned_days.put(origin);
+    await db.planned_days.put(dest);
+    const at = new Date().toISOString();
+    await db.outbox.bulkAdd([
+      { table: "planned_days", op: "upsert", row: origin, created_at: at },
+      { table: "planned_days", op: "upsert", row: dest, created_at: at },
+    ]);
+  });
+  // Push only after the transaction has committed (flush runs outside it).
+  void flush();
 }
 
 /** Undo a skip or move, putting the day back to planned. */
