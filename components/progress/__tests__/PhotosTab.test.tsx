@@ -20,8 +20,17 @@ import {
   MSG_ANALYSIS_NO_PHOTO,
   MSG_ANALYSIS_OFFLINE,
   MSG_ANALYSIS_UNAVAILABLE,
+  COMPARE_MODES,
+  CompareSlider,
   MonthlyAnalysis,
+  PhotosTab,
+  REVEAL_DEFAULT,
+  REVEAL_LABEL,
   analysisKey,
+  clampReveal,
+  orderPair,
+  revealAt,
+  revealClip,
   blobToBase64,
   countPrs,
   monthStats,
@@ -353,5 +362,126 @@ describe("MonthlyAnalysis", () => {
   it("renders nothing without photos", () => {
     const { container } = render(<MonthlyAnalysis photos={[]} unit="kg" loadStats={async () => STATS} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+// ---------- slider overlay compare ----------
+
+describe("slider helpers", () => {
+  it("clamps the reveal to a whole percentage", () => {
+    expect(clampReveal(42.4)).toBe(42);
+    expect(clampReveal(-5)).toBe(0);
+    expect(clampReveal(250)).toBe(100);
+    expect(clampReveal(Number.NaN)).toBe(REVEAL_DEFAULT);
+    expect(clampReveal(Infinity)).toBe(REVEAL_DEFAULT);
+  });
+
+  it("builds the clip path from the reveal", () => {
+    expect(revealClip(30)).toBe("inset(0 70% 0 0)");
+    expect(revealClip(0)).toBe("inset(0 100% 0 0)");
+    expect(revealClip(100)).toBe("inset(0 0% 0 0)");
+  });
+
+  it("maps a pointer position over the photos to a reveal", () => {
+    expect(revealAt(150, 100, 200)).toBe(25);
+    expect(revealAt(50, 100, 200)).toBe(0);
+    expect(revealAt(400, 100, 200)).toBe(100);
+    expect(revealAt(150, 100, 0)).toBe(REVEAL_DEFAULT);
+  });
+
+  it("orders the pair oldest first", () => {
+    const early = photo("e", at(9, 1));
+    const late = photo("l", at(9, 20));
+    expect(orderPair(late, early).map((p) => p.id)).toEqual(["e", "l"]);
+    expect(orderPair(early, late).map((p) => p.id)).toEqual(["e", "l"]);
+  });
+
+  it("offers side by side and slider, side by side first", () => {
+    expect(COMPARE_MODES.map((m) => m.label)).toEqual(["Side by side", "Slider"]);
+  });
+});
+
+describe("CompareSlider and the compare overlay", () => {
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  beforeEach(async () => {
+    URL.createObjectURL = vi.fn(() => "blob:test");
+    URL.revokeObjectURL = vi.fn();
+    await db.photos.clear();
+  });
+  afterEach(() => {
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+  });
+
+  const top = () => screen.getByTestId("compare-slider-top");
+
+  it("starts at half, labelled, and moves with the range input", () => {
+    render(<CompareSlider a={photo("l", at(9, 20))} b={photo("e", at(9, 1))} />);
+    const range = screen.getByRole("slider", { name: REVEAL_LABEL });
+    expect(range).toHaveValue(String(REVEAL_DEFAULT));
+    expect(range).toHaveAttribute("min", "0");
+    expect(range).toHaveAttribute("max", "100");
+    expect(range.getAttribute("aria-valuetext")).toMatch(/^50% of .+ over .+$/);
+    expect(top().style.clipPath).toBe("inset(0 50% 0 0)");
+
+    fireEvent.change(range, { target: { value: "80" } });
+    expect(range).toHaveValue("80");
+    expect(top().style.clipPath).toBe("inset(0 20% 0 0)");
+    expect(range.getAttribute("aria-valuetext")).toMatch(/^80% of /);
+  });
+
+  it("puts the later photo on top and labels both dates", () => {
+    const early = photo("e", at(9, 1));
+    const late = photo("l", at(9, 20));
+    render(<CompareSlider a={late} b={early} />);
+    const label = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    expect(screen.getByText(label(early.taken_at))).toBeInTheDocument();
+    expect(screen.getByText(label(late.taken_at))).toBeInTheDocument();
+    expect(screen.getByRole("slider").getAttribute("aria-valuetext")).toBe(`50% of ${label(late.taken_at)} over ${label(early.taken_at)}`);
+  });
+
+  it("follows a pointer drag on the photos", () => {
+    render(<CompareSlider a={photo("e", at(9, 1))} b={photo("l", at(9, 20))} />);
+    const stage = screen.getByTestId("compare-slider-stage");
+    stage.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 300, right: 200, bottom: 300, x: 0, y: 0, toJSON: () => ({}) });
+    fireEvent.pointerDown(stage, { clientX: 40, pointerId: 1 });
+    expect(screen.getByRole("slider")).toHaveValue("20");
+    fireEvent.pointerMove(stage, { clientX: 150, pointerId: 1 });
+    expect(screen.getByRole("slider")).toHaveValue("75");
+    fireEvent.pointerUp(stage, { pointerId: 1 });
+    fireEvent.pointerMove(stage, { clientX: 10, pointerId: 1 });
+    expect(screen.getByRole("slider")).toHaveValue("75");
+  });
+
+  it("keeps side by side as the default compare and switches to the slider", async () => {
+    await db.photos.bulkPut([photo("e", at(9, 1), "front"), photo("l", at(9, 20), "side")]);
+    render(<PhotosTab />);
+    fireEvent.click(await screen.findByRole("button", { name: "Compare two photos" }));
+    fireEvent.click(screen.getByRole("button", { name: /· front/ }));
+    fireEvent.click(screen.getByRole("button", { name: /· side/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Compare (2/2)" }));
+
+    expect(screen.getByRole("heading", { name: "Compare" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Side by side" })).toBeInTheDocument();
+    expect(screen.queryByRole("slider")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slider" }));
+    const range = screen.getByRole("slider", { name: REVEAL_LABEL });
+    fireEvent.change(range, { target: { value: "10" } });
+    expect(top().style.clipPath).toBe("inset(0 90% 0 0)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Side by side" }));
+    expect(screen.queryByRole("slider")).toBeNull();
+
+    // Closing resets to side by side for the next compare.
+    fireEvent.click(screen.getByRole("button", { name: "Slider" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("heading", { name: "Compare" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Compare two photos" }));
+    fireEvent.click(screen.getByRole("button", { name: /· front/ }));
+    fireEvent.click(screen.getByRole("button", { name: /· side/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Compare (2/2)" }));
+    expect(screen.queryByRole("slider")).toBeNull();
   });
 });
