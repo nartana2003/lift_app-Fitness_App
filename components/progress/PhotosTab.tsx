@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, uuid, type PhotoRow } from "@/lib/offline/db";
+import { db, uuid, type MeasurementRow, type PhotoRow } from "@/lib/offline/db";
+import { loadCatalogue } from "@/lib/catalogue";
+import { allWorkouts } from "@/lib/history";
+import type { MuscleGroup } from "@/lib/muscles";
+import { dayKey, periodStats, type WorkoutLite } from "@/lib/progress";
+import { applySet, emptyBests, setPrs, type Bests } from "@/lib/prs";
+import { useSettings } from "@/lib/settings";
+import { addMonths } from "@/lib/stats";
+import type { Unit } from "@/lib/units";
+import { toBaseStats } from "./RecapCard";
 
 type Pose = "front" | "side" | "back";
 const POSES: { v: Pose; label: string }[] = [
@@ -42,6 +51,346 @@ function Photo({ p, className = "" }: { p: PhotoRow; className?: string }) {
 
 const dateLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
+// ---------------------------------------------------------------------------
+// Monthly analysis (POST /api/ai/photo-analysis)
+//
+// On tap, the first and last photo of the chosen month (same pose when there
+// is one) and that month's training stats go to the route, which answers with
+// a short progress comment and a few tips. Nothing is fetched on render, and
+// nothing is sent unless the user taps. Any failure (no key, offline, bad
+// answer) shows a short plain message; the gallery and compare are untouched.
+// The last answer per month is kept on this device in db.meta.
+// ---------------------------------------------------------------------------
+
+export const ANALYSIS_ROUTE = "/api/ai/photo-analysis";
+export const MSG_ANALYSIS_UNAVAILABLE = "The monthly analysis is not available right now. Your photos are unchanged.";
+export const MSG_ANALYSIS_OFFLINE = "The monthly analysis is available when back online.";
+export const MSG_ANALYSIS_FAILED = "Could not get the monthly analysis. Try again later.";
+export const MSG_ANALYSIS_NO_PHOTO = "No photo from this month can be sent. Add a new photo and try again.";
+
+/** Same bounds the route validates (lib/ai/photo-analysis.ts). */
+export const ANALYSIS_MEDIA_TYPES = ["image/jpeg", "image/png"] as const;
+export type AnalysisMediaType = (typeof ANALYSIS_MEDIA_TYPES)[number];
+export const MAX_ANALYSIS_IMAGE_BYTES = 1_500_000;
+export const MAX_ANALYSIS_TOTAL_BYTES = 2_500_000;
+const MIN_ANALYSIS_IMAGE_BYTES = 32;
+const MAX_PR_COUNT = 100;
+const MIN_BODYWEIGHT = 20;
+const MAX_BODYWEIGHT = 400;
+/** What the card keeps from the answer. */
+const MAX_COMMENT_LINES = 4;
+const MAX_COMMENT_LINE = 240;
+const MAX_FOCUS = 3;
+const MAX_FOCUS_TEXT = 200;
+
+export const analysisKey = (month: string) => `photo_analysis:${month}`;
+
+export type AnalysisPhoto = { taken_on: string; pose: Pose | null; media_type: AnalysisMediaType; data: string };
+export type AnalysisStats = {
+  sessions: number;
+  duration_sec: number;
+  volume: number;
+  sets_by_muscle: Partial<Record<MuscleGroup, number>>;
+  pr_count: number;
+  bodyweight_start: number | null;
+  bodyweight_end: number | null;
+};
+export type AnalysisBody = { month: string; unit: Unit; photos: AnalysisPhoto[]; stats: AnalysisStats };
+export type Analysis = { month: string; comment: string[]; focus: string[] };
+
+/** "YYYY-MM" of a timestamp, in local time. */
+export const monthOf = (iso: string) => dayKey(new Date(iso)).slice(0, 7);
+
+export const monthTitle = (month: string) =>
+  new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+/** Months that have photos, newest first. */
+export function photoMonths(photos: { taken_at: string }[]): string[] {
+  return [...new Set(photos.map((p) => monthOf(p.taken_at)))].sort((a, b) => b.localeCompare(a));
+}
+
+const isMediaType = (t: string): t is AnalysisMediaType => (ANALYSIS_MEDIA_TYPES as readonly string[]).includes(t);
+const sendable = (p: PhotoRow) =>
+  isMediaType(p.blob.type) && p.blob.size >= MIN_ANALYSIS_IMAGE_BYTES && p.blob.size <= MAX_ANALYSIS_IMAGE_BYTES;
+
+/**
+ * First and last sendable photo of the month, oldest first. The last photo
+ * decides the pose: the first one is the earliest photo with the same pose
+ * when there is one. One photo when the month has only one (or the pair is
+ * over the total size cap).
+ */
+export function pickAnalysisPhotos(photos: PhotoRow[], month: string): PhotoRow[] {
+  const list = photos.filter((p) => monthOf(p.taken_at) === month && sendable(p)).sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+  const last = list.at(-1);
+  if (!last) return [];
+  const first = (last.pose ? list.find((p) => p.pose === last.pose && p.id !== last.id) : undefined) ?? list[0];
+  if (first.id === last.id || first.blob.size + last.blob.size > MAX_ANALYSIS_TOTAL_BYTES) return [last];
+  return [first, last];
+}
+
+/** Bounds of the month as local dates, [from, to). */
+export function monthRange(month: string): { from: Date; to: Date } {
+  const from = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1);
+  return { from, to: addMonths(from, 1) };
+}
+
+/**
+ * Exercise sessions in [from, to) that beat the heaviest weight or best e1RM
+ * of every earlier session of that exercise. A first-ever session is not a PR.
+ */
+export function countPrs(workouts: WorkoutLite[], from: Date, to: Date): number {
+  const sorted = [...workouts].sort((a, b) => a.started_at.localeCompare(b.started_at));
+  const bests = new Map<string, Bests>();
+  let n = 0;
+  for (const w of sorted) {
+    const t = Date.parse(w.started_at);
+    if (t >= to.getTime()) break;
+    const inMonth = t >= from.getTime();
+    for (const e of w.exercises) {
+      const prior = bests.get(e.exercise_id);
+      if (inMonth && prior && prior.weight > 0 && e.sets.some((s) => setPrs(s, prior).some((k) => k === "weight" || k === "e1rm"))) n++;
+      bests.set(e.exercise_id, e.sets.reduce(applySet, prior ?? emptyBests()));
+    }
+  }
+  return n;
+}
+
+const bodyweight = (v: number | undefined) => (v !== undefined && Number.isFinite(v) && v >= MIN_BODYWEIGHT && v <= MAX_BODYWEIGHT ? Math.round(v * 100) / 100 : null);
+
+/** The month's stats in the route's shape, clamped to its bounds. */
+export function monthStats(
+  workouts: WorkoutLite[],
+  month: string,
+  muscleOf: (exerciseId: string) => string[],
+  measurements: MeasurementRow[],
+): AnalysisStats {
+  const { from, to } = monthRange(month);
+  const base = toBaseStats(periodStats(workouts, from, to, muscleOf));
+  const weights = measurements
+    .filter((m) => m.type === "body_weight" && m.date.startsWith(`${month}-`))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const two = weights.length >= 2;
+  return {
+    sessions: base.sessions,
+    duration_sec: base.duration_sec,
+    volume: base.volume,
+    sets_by_muscle: base.sets_by_muscle,
+    pr_count: Math.min(MAX_PR_COUNT, countPrs(workouts, from, to)),
+    bodyweight_start: two ? bodyweight(weights[0].value) : null,
+    bodyweight_end: two ? bodyweight(weights[weights.length - 1].value) : null,
+  };
+}
+
+/** Base64 of a blob (no data: prefix). */
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result);
+      const i = s.indexOf(",");
+      resolve(i >= 0 ? s.slice(i + 1) : "");
+    };
+    r.onerror = () => reject(r.error ?? new Error("read failed"));
+    r.readAsDataURL(blob);
+  });
+}
+
+export async function toAnalysisPhoto(p: PhotoRow): Promise<AnalysisPhoto> {
+  return { taken_on: dayKey(new Date(p.taken_at)), pose: p.pose, media_type: p.blob.type as AnalysisMediaType, data: await blobToBase64(p.blob) };
+}
+
+export function buildAnalysisBody(month: string, unit: Unit, photos: AnalysisPhoto[], stats: AnalysisStats): AnalysisBody {
+  return { month, unit, photos, stats };
+}
+
+/** One plain line: control characters dropped, whitespace collapsed, capped. */
+function plainLine(v: unknown, max: number): string {
+  if (typeof v !== "string") return "";
+  return v.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max).trim();
+}
+
+/** Checks the route's 200 body. Null when there is no usable comment line. */
+export function parseAnalysis(json: unknown, month: string): Analysis | null {
+  if (typeof json !== "object" || json === null) return null;
+  const { comment, focus } = json as { comment?: unknown; focus?: unknown };
+  if (!Array.isArray(comment)) return null;
+  const lines: string[] = [];
+  for (const l of comment) {
+    const s = plainLine(l, MAX_COMMENT_LINE);
+    if (s && !lines.includes(s) && lines.length < MAX_COMMENT_LINES) lines.push(s);
+  }
+  if (lines.length === 0) return null;
+  const tips: string[] = [];
+  if (Array.isArray(focus)) {
+    for (const f of focus) {
+      if (typeof f !== "object" || f === null || tips.length >= MAX_FOCUS) continue;
+      const text = plainLine((f as { text?: unknown }).text, MAX_FOCUS_TEXT);
+      if (text && !tips.includes(text)) tips.push(text);
+    }
+  }
+  return { month, comment: lines, focus: tips };
+}
+
+/** A saved answer from db.meta, re-checked. */
+export function readSavedAnalysis(value: unknown, month: string): Analysis | null {
+  if (typeof value !== "object" || value === null || (value as { month?: unknown }).month !== month) return null;
+  return parseAnalysis(value, month);
+}
+
+/** Default stats loader: workouts, catalogue muscles and body weight from this device. */
+export async function loadMonthStats(month: string): Promise<AnalysisStats> {
+  const [workouts, measurements, custom] = await Promise.all([
+    allWorkouts(),
+    db.measurements.where("type").equals("body_weight").toArray(),
+    db.custom_exercises.toArray(),
+  ]);
+  let byId = new Map<string, string[]>();
+  try {
+    const cat = await loadCatalogue();
+    byId = new Map([...cat.byId].map(([id, e]) => [id, e.muscle_groups as string[]]));
+  } catch {
+    // catalogue not reachable: sets_by_muscle only covers custom exercises
+  }
+  for (const c of custom) byId.set(c.id, c.muscle_groups);
+  return monthStats(workouts, month, (id) => byId.get(id) ?? [], measurements);
+}
+
+type AnalysisState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "done"; analysis: Analysis };
+
+const isOffline = () => typeof navigator !== "undefined" && navigator.onLine === false;
+
+/** "Monthly analysis" card under the gallery. */
+export function MonthlyAnalysis({
+  photos,
+  unit,
+  loadStats = loadMonthStats,
+}: {
+  photos: PhotoRow[];
+  unit: Unit;
+  loadStats?: (month: string) => Promise<AnalysisStats>;
+}) {
+  const months = useMemo(() => photoMonths(photos), [photos]);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const month = chosen && months.includes(chosen) ? chosen : (months[0] ?? null);
+  const [state, setState] = useState<AnalysisState>({ kind: "idle" });
+
+  // Show the last saved answer for the month, if any.
+  useEffect(() => {
+    let live = true;
+    setState({ kind: "idle" });
+    if (!month) return;
+    db.meta
+      .get(analysisKey(month))
+      .then((row) => {
+        const saved = readSavedAnalysis(row?.value, month);
+        if (live && saved) setState((s) => (s.kind === "idle" ? { kind: "done", analysis: saved } : s));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [month]);
+
+  if (!month) return null;
+
+  const run = async () => {
+    if (isOffline()) {
+      setState({ kind: "error", message: MSG_ANALYSIS_OFFLINE });
+      return;
+    }
+    const picked = pickAnalysisPhotos(photos, month);
+    if (picked.length === 0) {
+      setState({ kind: "error", message: MSG_ANALYSIS_NO_PHOTO });
+      return;
+    }
+    setState({ kind: "loading" });
+    try {
+      const [stats, sent] = await Promise.all([loadStats(month), Promise.all(picked.map(toAnalysisPhoto))]);
+      const res = await fetch(ANALYSIS_ROUTE, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(buildAnalysisBody(month, unit, sent, stats)),
+      });
+      if (res.status === 503) {
+        setState({ kind: "error", message: MSG_ANALYSIS_UNAVAILABLE });
+        return;
+      }
+      if (!res.ok) {
+        setState({ kind: "error", message: MSG_ANALYSIS_FAILED });
+        return;
+      }
+      const analysis = parseAnalysis(await res.json(), month);
+      if (!analysis) {
+        setState({ kind: "error", message: MSG_ANALYSIS_FAILED });
+        return;
+      }
+      setState({ kind: "done", analysis });
+      await db.meta.put({ key: analysisKey(month), value: analysis }).catch(() => {});
+    } catch {
+      setState({ kind: "error", message: isOffline() ? MSG_ANALYSIS_OFFLINE : MSG_ANALYSIS_FAILED });
+    }
+  };
+
+  return (
+    <section className="card p-3 mt-4" aria-label="Monthly analysis">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-semibold">Monthly analysis</h3>
+        <button type="button" className="btn-ghost text-sm" onClick={run} disabled={state.kind === "loading"}>
+          {state.kind === "loading" ? "Analysing..." : state.kind === "done" ? "Refresh" : "Analyse month"}
+        </button>
+      </div>
+      {months.length > 1 && (
+        <select
+          aria-label="Analysis month"
+          className="mt-2 w-full rounded-lg border border-border bg-bg px-2 py-1.5 text-sm"
+          value={month}
+          onChange={(e) => setChosen(e.target.value)}
+          disabled={state.kind === "loading"}
+        >
+          {months.map((m) => (
+            <option key={m} value={m}>
+              {monthTitle(m)}
+            </option>
+          ))}
+        </select>
+      )}
+      {state.kind !== "done" && (
+        <p className="text-xs text-muted mt-1">
+          Compares the first and last photo of {monthTitle(month)} with that month&apos;s training. Only those two photos are sent, on tap, and they are not stored.
+        </p>
+      )}
+      {state.kind === "error" && (
+        <p role="status" className="text-sm text-muted mt-2">
+          {state.message}
+        </p>
+      )}
+      {state.kind === "done" && (
+        <div className="mt-2 space-y-2">
+          <div className="space-y-1 text-sm" aria-label="Analysis comment">
+            {state.analysis.comment.map((l) => (
+              <p key={l}>{l}</p>
+            ))}
+          </div>
+          {state.analysis.focus.length > 0 && (
+            <>
+              <h4 className="text-xs font-semibold text-muted uppercase tracking-wide">Next month</h4>
+              <ul aria-label="Next month focus" className="space-y-1 text-sm list-disc pl-5">
+                {state.analysis.focus.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function PhotosTab() {
   const photos = useLiveQuery(async () => (await db.photos.toArray()).sort((a, b) => b.taken_at.localeCompare(a.taken_at)), []);
   const input = useRef<HTMLInputElement>(null);
@@ -51,6 +400,7 @@ export function PhotosTab() {
   const [comparing, setComparing] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   const [showCompare, setShowCompare] = useState(false);
+  const { unit } = useSettings();
 
   async function onFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -123,7 +473,8 @@ export function PhotosTab() {
           )}
         </div>
       )}
-      <p className="text-xs text-muted mt-4">Photos stay on this device for now. Cloud backup and the monthly AI progress comment come with the online setup.</p>
+      {photos.length > 0 && <MonthlyAnalysis photos={photos} unit={unit} />}
+      <p className="text-xs text-muted mt-4">Photos stay on this device for now. Cloud backup comes with the online setup.</p>
 
       {view && (
         <div className="fixed inset-0 z-[60] bg-black flex flex-col" onClick={() => setView(null)}>
