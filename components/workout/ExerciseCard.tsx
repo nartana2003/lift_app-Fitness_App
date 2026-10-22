@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import type { ActiveExercise } from "@/lib/offline/db";
+import { db, type ActiveExercise } from "@/lib/offline/db";
 import type { Exercise } from "@/lib/exercises";
-import { lastSession } from "@/lib/history";
-import { formatSets, parseRepRange, suggest } from "@/lib/overload";
+import { exerciseSessions, lastSession, type ExerciseSession } from "@/lib/history";
+import { formatSets, parseRepRange, suggest, type RepRange, type Suggestion } from "@/lib/overload";
+import type { Goals } from "@/lib/goals";
+import { EQUIPMENT, MUSCLE_GROUPS } from "@/lib/muscles";
+import { dayKey } from "@/lib/planner";
 import { PR_LABEL, type PrType } from "@/lib/prs";
 import { restTimer } from "@/lib/restTimer";
 import {
@@ -53,7 +56,10 @@ export function ExerciseCard({
   const name = info?.name ?? ex.exercise_id;
 
   const lastWork = last?.sets.filter((s) => !s.is_warmup) ?? [];
-  const sug = last ? suggest(last.sets, parseRepRange(repTarget ?? ex.target_reps), info?.equipment ?? "Other") : null;
+  const range = parseRepRange(repTarget ?? ex.target_reps);
+  const sug = last ? suggest(last.sets, range, info?.equipment ?? "Other") : null;
+  const allDone = ex.sets.every((s) => s.done);
+  const ai = useAiRefinement(ex.exercise_id, range, info?.equipment ?? null, !!sug && !allDone);
   // Ask for effort on the most recently ticked working set, until it's rated.
   const lastDone = ex.sets.findLast((s) => s.done && !s.is_warmup);
   const rateSet = lastDone?.rir === null ? lastDone : undefined;
@@ -64,10 +70,10 @@ export function ExerciseCard({
     if (prs.length) onPr(name, prs);
   }
 
-  function applySuggestion() {
-    if (!sug) return;
+  function applySuggestion(to: Suggestion | null = sug) {
+    if (!to) return;
     for (const s of ex.sets) {
-      if (!s.done && !s.is_warmup) void updateSet(ex.id, s.id, { weight: sug.weight, reps: sug.reps });
+      if (!s.done && !s.is_warmup) void updateSet(ex.id, s.id, { weight: to.weight, reps: to.reps });
     }
   }
 
@@ -119,12 +125,25 @@ export function ExerciseCard({
         </div>
       )}
 
-      {sug && !ex.sets.every((s) => s.done) && (
-        <button onClick={applySuggestion} className="mt-3 w-full text-left rounded-xl bg-accent/10 border border-accent/30 px-3 py-2">
+      {sug && !allDone && (
+        <button onClick={() => applySuggestion()} className="mt-3 w-full text-left rounded-xl bg-accent/10 border border-accent/30 px-3 py-2">
           <p className="text-xs text-accent font-semibold">
             Today: {sug.sets}×{sug.reps} @ {fmtWeight(sug.weight, unit)} <span className="text-muted font-normal">· tap to use</span>
           </p>
           <p className="text-[11px] text-muted">{sug.reason}</p>
+        </button>
+      )}
+
+      {sug && !allDone && ai && (
+        <button
+          onClick={() => applySuggestion(ai)}
+          className="mt-2 w-full text-left rounded-xl border border-border px-3 py-2"
+        >
+          <p className="text-xs font-semibold">
+            AI refined: {ai.sets}×{ai.reps} @ {fmtWeight(ai.weight, unit)}{" "}
+            <span className="text-muted font-normal">· tap to use</span>
+          </p>
+          <p className="text-[11px] text-muted">{ai.reason}</p>
         </button>
       )}
 
@@ -238,4 +257,173 @@ export function ExerciseCard({
 
 export function prText(prs: PrType[]) {
   return prs.map((p) => PR_LABEL[p]).join(" · ");
+}
+
+// ---------------------------------------------------------------------------
+// AI refinement (POST /api/ai/overload-suggestion). The rule-based "Today"
+// suggestion is always shown as it is; when the route answers with a
+// model-refined target, one extra line with its numbers and a one-line reason
+// is added under it. Offline, 503 unavailable or any failure adds nothing.
+// ---------------------------------------------------------------------------
+
+/** Mirrors the route's limits in lib/ai/overload-suggestion.ts (client code may not import lib/ai). */
+export const OVERLOAD_AI = {
+  maxSessions: 5,
+  maxSetsPerSession: 20,
+  maxReps: 100,
+  maxWeight: 1000,
+  maxRir: 5,
+  maxRangeReps: 50,
+  maxSets: 10,
+  maxReason: 200,
+  maxId: 80,
+} as const;
+
+const ID_RE = /^[A-Za-z0-9_-]+$/;
+const intIn = (n: unknown, lo: number, hi: number): n is number =>
+  typeof n === "number" && Number.isInteger(n) && n >= lo && n <= hi;
+const numIn = (n: unknown, lo: number, hi: number): n is number =>
+  typeof n === "number" && Number.isFinite(n) && n >= lo && n <= hi;
+
+export type OverloadGoals = Pick<Goals, "goalType" | "experience" | "sessionsPerWeek" | "focusMuscles">;
+
+/**
+ * The request body the overload-suggestion route accepts, built from the
+ * exercise's recent sessions (newest first, as exerciseSessions returns them).
+ * Out-of-range sets are dropped. Null when the id cannot be sent or the most
+ * recent usable session has no working set (then there is nothing to refine).
+ */
+export function buildOverloadRequest(
+  exerciseId: string,
+  sessions: ExerciseSession[],
+  range: RepRange,
+  equipment: string | null,
+  goals: OverloadGoals | null,
+) {
+  const L = OVERLOAD_AI;
+  if (exerciseId.length > L.maxId || !ID_RE.test(exerciseId)) return null;
+  const out: { date: string; sets: { reps: number; weight: number; rir: number | null; is_warmup: boolean }[] }[] = [];
+  for (const s of sessions.slice(0, L.maxSessions)) {
+    const sets = s.sets
+      .filter((x) => intIn(x.reps, 0, L.maxReps) && numIn(x.weight, 0, L.maxWeight))
+      .slice(0, L.maxSetsPerSession)
+      .map((x) => ({
+        reps: x.reps,
+        weight: x.weight,
+        rir: intIn(x.rir, 0, L.maxRir) ? x.rir : null,
+        is_warmup: x.is_warmup === true,
+      }));
+    const date = new Date(s.workout.started_at);
+    if (sets.length && !Number.isNaN(date.getTime())) out.push({ date: dayKey(date), sets });
+  }
+  if (!out.length || !out[0].sets.some((x) => !x.is_warmup && x.reps > 0)) return null;
+  out.reverse(); // the route wants oldest first
+  const rangeOk = intIn(range.min, 1, L.maxRangeReps) && intIn(range.max, 1, L.maxRangeReps) && range.min <= range.max;
+  return {
+    exercise_id: exerciseId,
+    sessions: out,
+    ...(equipment && (EQUIPMENT as readonly string[]).includes(equipment) ? { equipment } : {}),
+    ...(rangeOk ? { rep_range: { min: range.min, max: range.max } } : {}),
+    ...(goals
+      ? {
+          goals: {
+            goalType: goals.goalType,
+            experience: goals.experience,
+            sessionsPerWeek: Math.max(1, Math.min(7, Math.round(goals.sessionsPerWeek || 3))),
+            focusMuscles: goals.focusMuscles.filter((m) => (MUSCLE_GROUPS as readonly string[]).includes(m)),
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * The model-refined suggestion from the route's 200 body, or null when the body
+ * is unusable, is for another exercise, or carries only the rule-based answer.
+ */
+export function parseOverloadResponse(json: unknown, exerciseId: string): Suggestion | null {
+  const L = OVERLOAD_AI;
+  if (typeof json !== "object" || json === null) return null;
+  const { exercise_id, suggestion } = json as Record<string, unknown>;
+  if (exercise_id !== exerciseId || typeof suggestion !== "object" || suggestion === null) return null;
+  const { sets, reps, weight, reason, source } = suggestion as Record<string, unknown>;
+  if (source !== "ai" || !intIn(sets, 1, L.maxSets) || !intIn(reps, 1, L.maxReps) || !numIn(weight, 0, L.maxWeight)) {
+    return null;
+  }
+  if (typeof reason !== "string") return null;
+  const text = reason.replace(/\s+/g, " ").trim().slice(0, L.maxReason).trim();
+  return text ? { sets, reps, weight, reason: text } : null;
+}
+
+/** Answers per request body, so remounting a card does not ask again. "none" means no refinement. */
+const aiCache = new Map<string, Suggestion | "none">();
+/** Set once the route says AI is unavailable; no more requests this page session. */
+let aiOff = false;
+
+/** Clears the in-memory AI answers (tests). */
+export function resetOverloadAi() {
+  aiCache.clear();
+  aiOff = false;
+}
+
+/** Fetches the refinement in the background, once per distinct request. Null until (and unless) one arrives. */
+function useAiRefinement(
+  exerciseId: string,
+  range: RepRange,
+  equipment: string | null,
+  enabled: boolean,
+): Suggestion | null {
+  const data = useLiveQuery(
+    async () => ({
+      sessions: await exerciseSessions(exerciseId, OVERLOAD_AI.maxSessions),
+      // The record lib/goals.ts useGoals() reads; read here so the request is built once, with goals loaded.
+      goals: ((await db.meta.get("goals"))?.value as Partial<Goals> | undefined) ?? null,
+    }),
+    [exerciseId],
+  );
+  const { min, max } = range;
+  const body = useMemo(() => {
+    if (!enabled || !data) return null;
+    const g = data.goals;
+    const goals: OverloadGoals | null =
+      g && g.goalType && g.experience
+        ? { goalType: g.goalType, experience: g.experience, sessionsPerWeek: g.sessionsPerWeek ?? 3, focusMuscles: g.focusMuscles ?? [] }
+        : null;
+    const b = buildOverloadRequest(exerciseId, data.sessions, { min, max }, equipment, goals);
+    return b ? JSON.stringify(b) : null;
+  }, [enabled, data, exerciseId, min, max, equipment]);
+  const [result, setResult] = useState<{ key: string; value: Suggestion | null } | null>(null);
+
+  useEffect(() => {
+    if (!body || aiOff) return;
+    const cached = aiCache.get(body);
+    if (cached !== undefined) {
+      setResult({ key: body, value: cached === "none" ? null : cached });
+      return;
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    let live = true;
+    void (async () => {
+      let value: Suggestion | null = null;
+      try {
+        const res = await fetch("/api/ai/overload-suggestion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+        if (res.status === 503) aiOff = true;
+        else if (res.ok) value = parseOverloadResponse(await res.json(), exerciseId);
+        else return; // other failures: nothing shown, a later mount may try again
+      } catch {
+        return; // network error: the rule-based suggestion stays as it is
+      }
+      aiCache.set(body, value ?? "none");
+      if (live) setResult({ key: body, value });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [body, exerciseId]);
+
+  return body && result?.key === body ? result.value : null;
 }
