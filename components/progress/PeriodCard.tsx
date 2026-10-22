@@ -8,6 +8,7 @@ import { isoWeek, periodStats, type WorkoutLite } from "@/lib/progress";
 import { addDays, addMonths, compare, formatDuration, startOfMonth, startOfWeek, type Delta } from "@/lib/stats";
 import { fmtVolume, type Unit } from "@/lib/units";
 import { Segmented } from "./Segmented";
+import { RecapCard } from "./RecapCard";
 
 function DeltaTag({ d }: { d: Delta }) {
   if (d.pct === null) return <span className="text-[11px] text-muted">new</span>;
@@ -25,7 +26,7 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
   const [mode, setMode] = useState<"week" | "month">("week");
   const { get } = useCatalogue();
 
-  const { cur, prev, title, sub } = useMemo(() => {
+  const { cur, prev, title, sub, from, to } = useMemo(() => {
     const now = new Date();
     const muscleOf = (id: string) => get(id)?.muscle_groups ?? [];
     if (mode === "week") {
@@ -36,6 +37,8 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
         prev: periodStats(workouts, prevFrom, from, muscleOf),
         title: "This week",
         sub: `Week ${isoWeek(from)}`,
+        from,
+        to: addDays(from, 7),
       };
     }
     const from = startOfMonth(now);
@@ -45,6 +48,8 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
       prev: periodStats(workouts, prevFrom, from, muscleOf),
       title: "This month",
       sub: from.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+      from,
+      to: addMonths(from, 1),
     };
   }, [workouts, mode, weekStart, get]);
 
@@ -129,6 +134,8 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
           </div>
         </>
       )}
+
+      <RecapCard key={mode} period={mode} unit={unit} current={cur} previous={prev} workouts={workouts} from={from} to={to} />
     </section>
   );
 }
