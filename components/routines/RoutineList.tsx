@@ -10,6 +10,16 @@ import { startWorkout } from "@/lib/workout";
 import { db } from "@/lib/offline/db";
 import { GeneratePlan } from "./GeneratePlan";
 import { SaveFromLink } from "./SaveFromLink";
+import {
+  MiniWorkoutCard,
+  NO_FILTER,
+  filterRoutines,
+  musclesIn,
+  platformLabel,
+  platformsIn,
+  type Platform,
+  type RoutineFilter,
+} from "./MiniWorkoutCard";
 
 /** "My routines" on Home: tap one to start it with your last weights pre-filled. */
 export function RoutineList() {
@@ -17,8 +27,24 @@ export function RoutineList() {
   const { get } = useCatalogue();
   const routines = useLiveQuery(() => listRoutines(), []);
   const [busy, setBusy] = useState<string | null>(null);
+  const [filter, setFilter] = useState<RoutineFilter>(NO_FILTER);
 
   if (!routines) return null;
+
+  const musclesOf = (r: (typeof routines)[number]) => [
+    ...new Set(r.exercises.flatMap((e) => get(e.exercise_id)?.muscle_groups ?? [])),
+  ];
+  const platformChips = platformsIn(routines);
+  const muscleChips = musclesIn(routines, musclesOf);
+  // A chosen chip that no longer exists (its routines were deleted) stops filtering.
+  const active: RoutineFilter = {
+    platform: filter.platform !== null && platformChips.includes(filter.platform) ? filter.platform : null,
+    muscle: filter.muscle !== null && muscleChips.includes(filter.muscle) ? filter.muscle : null,
+  };
+  const filtering = active.platform !== null || active.muscle !== null;
+  const shown = filterRoutines(routines, active, musclesOf);
+  const pickPlatform = (p: Platform | null) => setFilter((f) => ({ ...f, platform: f.platform === p ? null : p }));
+  const pickMuscle = (m: string | null) => setFilter((f) => ({ ...f, muscle: f.muscle === m ? null : m }));
 
   async function start(id: string) {
     if (busy) return;
@@ -59,9 +85,81 @@ export function RoutineList() {
       {routines.length === 0 ? (
         <p className="card p-4 text-sm text-muted">No routines yet.</p>
       ) : (
+        <>
+        {(platformChips.length > 0 || muscleChips.length > 0) && (
+          <div className="mb-2 space-y-1.5">
+            {platformChips.length > 0 && (
+              <div role="group" aria-label="Filter by platform" className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
+                <button
+                  type="button"
+                  className={active.platform === null ? "chip-on text-xs shrink-0" : "chip text-xs shrink-0"}
+                  aria-pressed={active.platform === null}
+                  onClick={() => pickPlatform(null)}
+                >
+                  All sources
+                </button>
+                {platformChips.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={active.platform === p ? "chip-on text-xs shrink-0" : "chip text-xs shrink-0"}
+                    aria-pressed={active.platform === p}
+                    onClick={() => pickPlatform(p)}
+                  >
+                    {platformLabel(p)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {muscleChips.length > 0 && (
+              <div role="group" aria-label="Filter by muscle" className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
+                <button
+                  type="button"
+                  className={active.muscle === null ? "chip-on text-xs shrink-0" : "chip text-xs shrink-0"}
+                  aria-pressed={active.muscle === null}
+                  onClick={() => pickMuscle(null)}
+                >
+                  All muscles
+                </button>
+                {muscleChips.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    className={active.muscle === m ? "chip-on text-xs shrink-0" : "chip text-xs shrink-0"}
+                    aria-pressed={active.muscle === m}
+                    onClick={() => pickMuscle(m)}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {filtering && shown.length === 0 ? (
+          <div className="card p-4 text-sm text-muted flex items-center justify-between gap-2">
+            <p>No routines match these filters.</p>
+            <button type="button" className="text-text font-semibold underline shrink-0" onClick={() => setFilter(NO_FILTER)}>
+              Clear filters
+            </button>
+          </div>
+        ) : (
         <ul className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1">
-          {routines.map((r) => {
-            const muscles = [...new Set(r.exercises.flatMap((e) => get(e.exercise_id)?.muscle_groups ?? []))];
+          {shown.map((r) => {
+            const muscles = musclesOf(r);
+            if (r.kind === "mini") {
+              return (
+                <li key={r.id} className="w-56 shrink-0">
+                  <MiniWorkoutCard
+                    routine={r}
+                    exerciseCount={r.exercises.length}
+                    muscles={muscles}
+                    busy={busy === r.id}
+                    onStart={() => start(r.id)}
+                  />
+                </li>
+              );
+            }
             return (
               <li key={r.id} className="w-56 shrink-0">
                 <div className="card h-full p-3 flex flex-col">
@@ -83,6 +181,8 @@ export function RoutineList() {
             );
           })}
         </ul>
+        )}
+        </>
       )}
 
       <GeneratePlan />
