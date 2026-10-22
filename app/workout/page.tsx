@@ -13,6 +13,7 @@ import type { PrType } from "@/lib/prs";
 import { ExerciseCard, prText } from "@/components/workout/ExerciseCard";
 import { ExercisePicker } from "@/components/workout/ExercisePicker";
 import { PrToast } from "@/components/workout/PrToast";
+import { QuickLog } from "@/components/workout/QuickLog";
 import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
 import { routineExercisesFromActive, type RoutineExerciseInput } from "@/lib/routines";
 import { RestTimer } from "@/components/RestTimer";
@@ -112,6 +113,8 @@ export default function WorkoutPage() {
       <button className="btn-ghost w-full mt-3 py-4 border border-dashed border-border" onClick={() => setPicker(true)}>
         + Add exercise
       </button>
+
+      <QuickLog unit={unit} nameOf={(id) => get(id)?.name} />
 
       <button
         className="w-full mt-6 text-sm text-bad py-3"
