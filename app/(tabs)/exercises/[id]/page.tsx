@@ -7,6 +7,7 @@ import { ExerciseHistory } from "@/components/ExerciseHistory";
 import { PrHistory } from "@/components/PrHistory";
 import { useCatalogue } from "@/lib/catalogue";
 import { renameExercise } from "@/lib/renames";
+import { safeHttpUrl } from "@/components/routines/MiniWorkoutCard";
 
 export default function ExerciseDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -17,6 +18,7 @@ export default function ExerciseDetail({ params }: { params: Promise<{ id: strin
 
   if (loading) return <p className="text-muted pt-8">Loading…</p>;
   if (!ex) return <PageHeader title="Not found" back="/exercises" />;
+  const originalVideo = "video_url" in ex && typeof ex.video_url === "string" ? safeHttpUrl(ex.video_url) : null;
 
   return (
     <>
@@ -48,8 +50,9 @@ export default function ExerciseDetail({ params }: { params: Promise<{ id: strin
         <span className="chip text-muted">{ex.equipment}</span>
       </div>
 
-      {"video_url" in ex && typeof ex.video_url === "string" && ex.video_url && (
-        <a href={ex.video_url} target="_blank" rel="noopener noreferrer" className="btn-primary w-full mt-4">
+      {/* Custom exercises saved from a video link: only http(s) links are shown. */}
+      {originalVideo && (
+        <a href={originalVideo} target="_blank" rel="noopener noreferrer" className="btn-primary w-full mt-4">
           ▶ Watch the original video
         </a>
       )}

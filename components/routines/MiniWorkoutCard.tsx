@@ -5,7 +5,11 @@
 // artwork), the creator and a link to the original video. Also the pure
 // filter helpers the routine list uses for its platform and muscle chips.
 import Link from "next/link";
+import { useState } from "react";
 import type { RoutineRow } from "@/lib/offline/db";
+import { dayKey, getDay, planDay } from "@/lib/planner";
+import { createRoutine, getRoutine, updateRoutine } from "@/lib/routines";
+import { addExercises, getActive } from "@/lib/workout";
 
 export type Platform = NonNullable<RoutineRow["platform"]>;
 
@@ -76,6 +80,79 @@ export function musclesIn<R>(routines: readonly R[], musclesOf: (r: R) => readon
   return [...new Set(routines.flatMap((r) => [...musclesOf(r)]))].sort((a, b) => a.localeCompare(b));
 }
 
+export const ADD_MESSAGES = {
+  empty: "This mini workout has no exercises.",
+  workout: "Added to your current workout.",
+  inWorkout: "Already in your current workout.",
+  closed: "Today's workout is already done, skipped or moved.",
+  already: "Already planned for today.",
+  planned: "Planned for today.",
+} as const;
+
+/**
+ * Notes prefix marking a routine as a copy addMiniToToday made for today's
+ * plan. Later adds on a day planned with such a copy go into it (updateRoutine)
+ * instead of making another copy.
+ */
+export const TODAY_COPY_NOTE = "Today's plan:";
+
+export const isTodayCopy = (r: Pick<RoutineRow, "notes">) =>
+  typeof r.notes === "string" && r.notes.startsWith(TODAY_COPY_NOTE);
+
+/**
+ * "Add to today's workout" for a mini workout, local-first, with the existing
+ * workout and planner helpers:
+ * - a workout in progress: its exercises are appended with addExercises
+ *   (exercises already in the workout are skipped);
+ * - today planned with a routine: a copy of that routine plus the mini's
+ *   exercises is planned today instead, so the saved routine never changes.
+ *   The copy is marked with TODAY_COPY_NOTE; when today's routine is already
+ *   such a copy, the mini's new exercises are appended to it, so repeated adds
+ *   never pile up copies;
+ * - nothing planned today: the mini workout itself is planned today.
+ * A day already done, skipped or moved is left alone. Returns a plain message.
+ */
+export async function addMiniToToday(routineId: string, now = new Date()): Promise<string> {
+  const mini = await getRoutine(routineId);
+  if (!mini || mini.exercises.length === 0) return ADD_MESSAGES.empty;
+
+  const active = await getActive();
+  if (active) {
+    const have = new Set(active.exercises.map((e) => e.exercise_id));
+    const ids = [...new Set(mini.exercises.map((e) => e.exercise_id))].filter((id) => !have.has(id));
+    if (ids.length === 0) return ADD_MESSAGES.inWorkout;
+    await addExercises(ids);
+    return ADD_MESSAGES.workout;
+  }
+
+  const today = dayKey(now);
+  const planned = await getDay(today);
+  if (planned && planned.status !== "planned") return ADD_MESSAGES.closed;
+  if (planned?.routine_id === mini.id) return ADD_MESSAGES.already;
+  const base = planned?.routine_id ? await getRoutine(planned.routine_id) : undefined;
+  if (base) {
+    const have = new Set(base.exercises.map((e) => e.exercise_id));
+    const extra = mini.exercises
+      .filter((e, i, all) => !have.has(e.exercise_id) && all.findIndex((x) => x.exercise_id === e.exercise_id) === i)
+      .map((e) => ({ exercise_id: e.exercise_id, target_sets: e.target_sets, target_reps: e.target_reps }));
+    if (extra.length === 0) return ADD_MESSAGES.already;
+    const exercises = [
+      ...base.exercises.map((e) => ({ exercise_id: e.exercise_id, target_sets: e.target_sets, target_reps: e.target_reps })),
+      ...extra,
+    ];
+    const name = `${base.name} + ${mini.name}`;
+    if (isTodayCopy(base)) {
+      await updateRoutine(base.id, { name, notes: `${TODAY_COPY_NOTE} ${name}`, exercises });
+      return `Added to ${base.name} today.`;
+    }
+    const id = await createRoutine({ name, notes: `${TODAY_COPY_NOTE} ${name}`, exercises });
+    await planDay(today, id);
+    return `Added to ${base.name} today.`;
+  }
+  await planDay(today, mini.id);
+  return ADD_MESSAGES.planned;
+}
+
 type Props = {
   routine: Pick<RoutineRow, "id" | "name" | "platform" | "creator" | "source_url" | "thumbnail_url">;
   exerciseCount: number;
@@ -90,6 +167,20 @@ export function MiniWorkoutCard({ routine, exerciseCount, muscles, busy = false,
   const href = safeHttpUrl(routine.source_url);
   const thumb = safeThumbnailUrl(routine.thumbnail_url);
   const creator = routine.creator?.trim() || null;
+  const [adding, setAdding] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function addToToday() {
+    if (adding) return;
+    setAdding(true);
+    try {
+      setNotice(await addMiniToToday(routine.id));
+    } catch {
+      setNotice("Could not add this mini workout. Try again.");
+    } finally {
+      setAdding(false);
+    }
+  }
 
   return (
     <article className="card h-full p-3 flex flex-col" aria-label={`Mini workout: ${routine.name}`}>
@@ -137,6 +228,17 @@ export function MiniWorkoutCard({ routine, exerciseCount, muscles, busy = false,
           {busy ? "Starting…" : "Start"}
         </button>
       )}
+      <button
+        type="button"
+        className="btn-ghost w-full mt-1.5 py-2 text-xs"
+        disabled={adding || busy}
+        onClick={addToToday}
+      >
+        {adding ? "Adding…" : "Add to today's workout"}
+      </button>
+      <p role="status" className="text-xs text-muted mt-1 empty:hidden">
+        {notice}
+      </p>
     </article>
   );
 }

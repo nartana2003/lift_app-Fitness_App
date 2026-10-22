@@ -1,9 +1,22 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { Suspense } from "react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db, type RoutineExerciseRow, type RoutineRow } from "@/lib/offline/db";
+import { dayKey, getDay, planDay } from "@/lib/planner";
+import { getRoutine, listRoutines } from "@/lib/routines";
+import { finishWorkout, getActive, startWorkout, toggleSetDone, updateSet } from "@/lib/workout";
+import { allWorkouts } from "@/lib/history";
+import { periodStats } from "@/lib/progress";
+import { addDays, goalProgress, startOfWeek } from "@/lib/stats";
+import { createCustomExercise } from "@/lib/customExercises";
+import ExerciseDetail from "@/app/(tabs)/exercises/[id]/page";
 import {
+  ADD_MESSAGES,
   MiniWorkoutCard,
+  addMiniToToday,
+  isTodayCopy,
+  TODAY_COPY_NOTE,
   NO_FILTER,
   PLATFORMS,
   filterRoutines,
@@ -306,5 +319,196 @@ describe("RoutineList with mini workouts and filters", () => {
     expect(await screen.findByText("No routines yet.")).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Filter by platform" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Filter by muscle" })).not.toBeInTheDocument();
+  });
+});
+
+// ---------- SOC-05: start on its own, Add to today's workout ----------
+
+const today = () => dayKey(new Date());
+
+describe("addMiniToToday", () => {
+  async function seedMini() {
+    await seed([mini("m1", "Core 10")], [rex("m1", "crunch"), rex("m1", "pushup", 1)]);
+  }
+
+  it("appends the mini's exercises to the running workout, skipping ones already in it", async () => {
+    await seedMini();
+    await startWorkout({ name: "Push", exercises: [{ exercise_id: "pushup" }] });
+    expect(await addMiniToToday("m1")).toBe(ADD_MESSAGES.workout);
+    const w = (await getActive())!;
+    expect(w.name).toBe("Push");
+    expect(w.exercises.map((e) => e.exercise_id)).toEqual(["pushup", "crunch"]);
+    expect(await addMiniToToday("m1")).toBe(ADD_MESSAGES.inWorkout);
+    expect((await getActive())!.exercises).toHaveLength(2);
+    expect(await getDay(today())).toBeUndefined();
+  });
+
+  it("plans the mini on today when nothing is planned and no workout is running", async () => {
+    await seedMini();
+    expect(await addMiniToToday("m1")).toBe(ADD_MESSAGES.planned);
+    const day = (await getDay(today()))!;
+    expect(day.routine_id).toBe("m1");
+    expect(day.status).toBe("planned");
+    expect(await addMiniToToday("m1")).toBe(ADD_MESSAGES.already);
+  });
+
+  it("appends to today's planned routine as a copy, leaving the saved routine unchanged", async () => {
+    await seedMini();
+    await seed([routine("r1", "Push day")], [rex("r1", "pushup"), rex("r1", "squat", 1)]);
+    await planDay(today(), "r1");
+    const before = await getRoutine("r1");
+
+    expect(await addMiniToToday("m1")).toBe("Added to Push day today.");
+    const day = (await getDay(today()))!;
+    expect(day.routine_id).not.toBe("r1");
+    const combined = (await getRoutine(day.routine_id!))!;
+    expect(combined.name).toBe("Push day + Core 10");
+    expect(combined.kind).toBe("routine");
+    expect(combined.exercises.map((e) => e.exercise_id)).toEqual(["pushup", "squat", "crunch"]);
+    expect(await getRoutine("r1")).toEqual(before);
+    expect(await getRoutine("m1")).toBeTruthy();
+  });
+
+  it("leaves a finished or skipped day alone", async () => {
+    await seedMini();
+    await planDay(today(), "m1");
+    const cur = (await getDay(today()))!;
+    await db.planned_days.put({ ...cur, routine_id: null, status: "skipped", skip_reason: "busy" });
+    expect(await addMiniToToday("m1")).toBe(ADD_MESSAGES.closed);
+    expect((await getDay(today()))!.status).toBe("skipped");
+  });
+
+  it("leaves a moved day alone, with a message that covers done, skipped and moved", async () => {
+    expect(ADD_MESSAGES.closed).toBe("Today's workout is already done, skipped or moved.");
+    await seedMini();
+    await seed([routine("r1", "Push day")], [rex("r1", "pushup")]);
+    await planDay(today(), "r1");
+    const cur = (await getDay(today()))!;
+    await db.planned_days.put({ ...cur, status: "moved", skip_reason: "busy", moved_to: "2099-01-01" });
+    const before = await db.planned_days.toArray();
+    const routinesBefore = await db.routines.count();
+    expect(await addMiniToToday("m1")).toBe("Today's workout is already done, skipped or moved.");
+    expect(await db.planned_days.toArray()).toEqual(before);
+    expect(await db.routines.count()).toBe(routinesBefore);
+  });
+
+  it("marks the copy and reuses it, so two minis on one day leave exactly one extra routine", async () => {
+    await seed(
+      [routine("r1", "Push day"), mini("m1", "Core 10"), mini("m2", "Abs")],
+      [rex("r1", "pushup"), rex("m1", "crunch"), rex("m1", "pushup", 1), rex("m2", "squat"), rex("m2", "crunch", 1)],
+    );
+    await planDay(today(), "r1");
+    const before = await getRoutine("r1");
+    const count = (await listRoutines()).length;
+
+    expect(await addMiniToToday("m1")).toBe("Added to Push day today.");
+    const copyId = (await getDay(today()))!.routine_id!;
+    const copy = (await getRoutine(copyId))!;
+    expect(isTodayCopy(copy)).toBe(true);
+    expect(copy.notes?.startsWith(TODAY_COPY_NOTE)).toBe(true);
+
+    expect(await addMiniToToday("m2")).toBe("Added to Push day + Core 10 today.");
+    expect((await listRoutines()).length).toBe(count + 1);
+    expect((await getDay(today()))!.routine_id).toBe(copyId);
+    const after = (await getRoutine(copyId))!;
+    expect(after.name).toBe("Push day + Core 10 + Abs");
+    expect(after.exercises.map((e) => e.exercise_id)).toEqual(["pushup", "crunch", "squat"]);
+    expect(await getRoutine("r1")).toEqual(before);
+    expect(isTodayCopy(before!)).toBe(false);
+
+    // Adding the same mini again changes nothing.
+    expect(await addMiniToToday("m2")).toBe(ADD_MESSAGES.already);
+    expect((await listRoutines()).length).toBe(count + 1);
+  });
+
+  it("does nothing for a missing or empty mini workout", async () => {
+    await seed([mini("m2", "Empty")], []);
+    expect(await addMiniToToday("m2")).toBe(ADD_MESSAGES.empty);
+    expect(await addMiniToToday("nope")).toBe(ADD_MESSAGES.empty);
+    expect(await getDay(today())).toBeUndefined();
+  });
+});
+
+describe("MiniWorkoutCard Add to today's workout", () => {
+  it("adds to today and shows a plain message", async () => {
+    await seed([mini("m1", "Core 10")], [rex("m1", "crunch")]);
+    const { container } = render(<MiniWorkoutCard routine={mini("m1", "Core 10")} exerciseCount={1} muscles={["Abs/Core"]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add to today's workout" }));
+    expect(await screen.findByText(ADD_MESSAGES.planned)).toHaveAttribute("role", "status");
+    expect((await getDay(today()))!.routine_id).toBe("m1");
+    expect(container.textContent ?? "").not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it("is disabled while the card is starting", () => {
+    render(<MiniWorkoutCard routine={mini("m1", "Core 10")} exerciseCount={1} muscles={[]} busy onStart={() => {}} />);
+    expect(screen.getByRole("button", { name: "Add to today's workout" })).toBeDisabled();
+  });
+
+  it("starts on its own from the routine list with the existing start flow", async () => {
+    await seed([mini("m1", "Core 10")], [rex("m1", "crunch"), rex("m1", "pushup", 1)]);
+    render(<RoutineList />);
+    const card = await screen.findByRole("article", { name: "Mini workout: Core 10" });
+    fireEvent.click(within(card).getByRole("button", { name: "Start" }));
+    await waitFor(async () => expect(await getActive()).toBeTruthy());
+    const w = (await getActive())!;
+    expect(w.routine_id).toBe("m1");
+    expect(w.name).toBe("Core 10");
+    expect(w.exercises.map((e) => [e.exercise_id, e.sets.length, e.target_reps])).toEqual([
+      ["crunch", 3, "10"],
+      ["pushup", 3, "10"],
+    ]);
+  });
+});
+
+describe("mini workout sets and weekly muscle targets", () => {
+  it("count like any other session", async () => {
+    await seed([mini("m1", "Core 10")], [rex("m1", "crunch")]);
+    const r = (await getRoutine("m1"))!;
+    await startWorkout({
+      name: r.name,
+      routineId: r.id,
+      exercises: r.exercises.map((e) => ({ exercise_id: e.exercise_id, target_sets: e.target_sets, target_reps: e.target_reps })),
+    });
+    const ex = (await getActive())!.exercises[0];
+    for (const s of ex.sets) {
+      await updateSet(ex.id, s.id, { reps: 15, weight: 0 });
+      await toggleSetDone(ex.id, s.id);
+    }
+    await finishWorkout();
+
+    const from = startOfWeek(new Date(), 1);
+    const muscleOf = (id: string) => CATALOGUE.find((e) => e.id === id)?.muscle_groups ?? [];
+    const stats = periodStats(await allWorkouts(), from, addDays(from, 7), muscleOf);
+    expect(stats.sets_by_muscle["Abs/Core"]).toBe(3);
+    const abs = goalProgress(stats.sets_by_muscle, { "Abs/Core": 10 }).find((g) => g.muscle === "Abs/Core")!;
+    expect(abs).toMatchObject({ done: 3, remaining: 7, status: "partial" });
+  });
+});
+
+describe("Watch original on custom exercises from a video link", () => {
+  async function renderPage(id: string) {
+    await act(async () => {
+      render(
+        <Suspense fallback={null}>
+          <ExerciseDetail params={Promise.resolve({ id })} />
+        </Suspense>,
+      );
+    });
+  }
+
+  it("shows a Watch original link that opens the video in a new tab", async () => {
+    const ex = await createCustomExercise({ name: "Hollow hold", muscle_groups: ["Abs/Core"], video_url: LINK });
+    await renderPage(ex.id);
+    const link = await screen.findByRole("link", { name: /Watch the original video/ });
+    expect(link).toHaveAttribute("href", LINK);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("shows no link for an unsafe video url", async () => {
+    const bad = await createCustomExercise({ name: "Bad link", video_url: "javascript:alert(1)" });
+    await renderPage(bad.id);
+    expect(await screen.findByRole("heading", { name: "Bad link" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Watch the original video/ })).not.toBeInTheDocument();
   });
 });
