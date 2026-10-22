@@ -1,7 +1,7 @@
 "use client";
 
 // The weekly plan: which routine is planned for each day, plus skipping and moving days.
-import { db, uuid, type PlannedDayRow, type SkipReason } from "./offline/db";
+import { db, uuid, type OutboxItem, type PlannedDayRow, type SkipReason } from "./offline/db";
 import { enqueue, flush } from "./offline/sync";
 import { addDays, startOfWeek } from "./stats";
 
@@ -88,6 +88,87 @@ export async function moveDay(from: string, to: string, reason: SkipReason, note
   });
   // Push only after the transaction has committed (flush runs outside it).
   void flush();
+}
+
+/**
+ * If `row` is the target of an earlier skip-and-move, point the original day's
+ * `moved_to` at `to` instead. Must run inside a planned_days transaction.
+ */
+async function relink(row: PlannedDayRow, to: string, out: OutboxItem[], at: string) {
+  if (!row.moved_from) return;
+  const origin = await getDay(row.moved_from);
+  if (!origin || origin.moved_to !== row.date) return;
+  const next: PlannedDayRow = { ...origin, moved_to: to };
+  await db.planned_days.put(next);
+  out.push({ table: "planned_days", op: "upsert", row: next, created_at: at });
+}
+
+/**
+ * Drag-to-reschedule: move a planned day's routine to a free day (no skip reason).
+ * Every write and its outbox entries happen in one transaction, so a failure
+ * part-way leaves both days as they were. If the dragged day was itself the
+ * target of a skip-and-move, the link travels with it (the original day's
+ * `moved_to` points at the new day). Returns false when the drop is not valid.
+ */
+export async function rescheduleDay(from: string, to: string): Promise<boolean> {
+  if (from === to) return false;
+  const ok = await db.transaction("rw", db.planned_days, db.outbox, async () => {
+    const src = await getDay(from);
+    if (!src?.routine_id || src.status !== "planned") return false;
+    const target = await getDay(to);
+    if (target && (target.routine_id || target.status === "done")) return false;
+    const at = new Date().toISOString();
+    const out: OutboxItem[] = [];
+    await relink(src, to, out, at);
+    const dest: PlannedDayRow = {
+      ...(target ?? blank(to)),
+      routine_id: src.routine_id,
+      status: "planned",
+      skip_reason: null,
+      skip_note: null,
+      moved_to: null,
+      moved_from: src.moved_from,
+    };
+    await db.planned_days.put(dest);
+    out.push({ table: "planned_days", op: "upsert", row: dest, created_at: at });
+    await db.planned_days.delete(src.id);
+    out.push({ table: "planned_days", op: "delete", row: { id: src.id }, created_at: at });
+    await db.outbox.bulkAdd(out);
+    return true;
+  });
+  if (ok) void flush();
+  return ok;
+}
+
+/**
+ * Swap the routines of two planned days, in one transaction. Skip-and-move
+ * links travel with the routines: each day takes the other's `moved_from`, and
+ * the original days' `moved_to` are pointed at the new dates. Returns false
+ * when either day is not a planned day with a routine.
+ */
+export async function swapDays(a: string, b: string): Promise<boolean> {
+  if (a === b) return false;
+  const ok = await db.transaction("rw", db.planned_days, db.outbox, async () => {
+    const ra = await getDay(a);
+    const rb = await getDay(b);
+    if (!ra?.routine_id || ra.status !== "planned" || !rb?.routine_id || rb.status !== "planned") return false;
+    const at = new Date().toISOString();
+    const out: OutboxItem[] = [];
+    await relink(ra, b, out, at);
+    await relink(rb, a, out, at);
+    const na: PlannedDayRow = { ...ra, routine_id: rb.routine_id, moved_from: rb.moved_from, skip_reason: null, skip_note: null, moved_to: null };
+    const nb: PlannedDayRow = { ...rb, routine_id: ra.routine_id, moved_from: ra.moved_from, skip_reason: null, skip_note: null, moved_to: null };
+    await db.planned_days.put(na);
+    await db.planned_days.put(nb);
+    out.push(
+      { table: "planned_days", op: "upsert", row: na, created_at: at },
+      { table: "planned_days", op: "upsert", row: nb, created_at: at },
+    );
+    await db.outbox.bulkAdd(out);
+    return true;
+  });
+  if (ok) void flush();
+  return ok;
 }
 
 /** Undo a skip or move, putting the day back to planned. */
