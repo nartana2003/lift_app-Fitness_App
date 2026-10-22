@@ -17,6 +17,7 @@ import { QuickLog } from "@/components/workout/QuickLog";
 import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
 import { routineExercisesFromActive, type RoutineExerciseInput } from "@/lib/routines";
 import { RestTimer } from "@/components/RestTimer";
+import { FinishPhotos } from "@/components/progress/PhotosTab";
 
 function Elapsed({ since }: { since: string }) {
   const [now, setNow] = useState(() => Date.now());
@@ -39,6 +40,8 @@ export default function WorkoutPage() {
   const [finishedId, setFinishedId] = useState<string | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [saveRoutine, setSaveRoutine] = useState<{ exercises: RoutineExerciseInput[]; name: string } | null>(null);
+  // Finish screen: progress photo prompt for the saved workout, shown before "save as routine?".
+  const [photosFor, setPhotosFor] = useState<string | null>(null);
   const clearPr = useCallback(() => setPr(null), []);
 
   const leaving = useRef(false);
@@ -48,7 +51,19 @@ export default function WorkoutPage() {
   }, [active, router]);
 
   if (!active) {
-    // The workout is saved; the "save as routine?" sheet is still open over it.
+    // The workout is saved; the progress photo prompt comes first.
+    if (photosFor) {
+      return (
+        <FinishPhotos
+          workoutId={photosFor}
+          onDone={() => {
+            setPhotosFor(null);
+            if (!saveRoutine) router.push(`/history/${photosFor}`);
+          }}
+        />
+      );
+    }
+    // Then the "save as routine?" sheet, when there is one.
     return saveRoutine ? (
       <SaveRoutineSheet
         exercises={saveRoutine.exercises}
@@ -71,13 +86,15 @@ export default function WorkoutPage() {
     const asRoutine = active.routine_id ? [] : routineExercisesFromActive(active);
     leaving.current = true;
     const id = await finishWorkout();
-    if (id && asRoutine.length > 0) {
+    if (id) {
+      // Offer progress photos (front / side / back) linked to this workout.
       setConfirmFinish(false);
       setFinishedId(id);
-      setSaveRoutine({ exercises: asRoutine, name: active.name ?? "" });
+      if (asRoutine.length > 0) setSaveRoutine({ exercises: asRoutine, name: active.name ?? "" });
+      setPhotosFor(id);
       return;
     }
-    router.push(id ? `/history/${id}` : "/");
+    router.push("/");
   }
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, uuid, type MeasurementRow, type PhotoRow } from "@/lib/offline/db";
 import { loadCatalogue } from "@/lib/catalogue";
@@ -391,6 +392,151 @@ export function MonthlyAnalysis({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Finish-screen photo prompt
+//
+// After a workout is saved, the Finish screen offers one photo per pose
+// (front, side, back). The camera opens through a file input with `capture`.
+// Each photo is kept on this device like the gallery's, tagged with its pose
+// and linked to the workout through `workout_id` (an extra, unindexed field
+// on the photos row, so no schema change). Retaking a pose replaces that
+// photo. Skipping saves nothing.
+// ---------------------------------------------------------------------------
+
+/** A photos row; `workout_id` is set when the photo was taken on the Finish screen. */
+export type ProgressPhotoRow = PhotoRow & { workout_id?: string };
+
+export const FINISH_POSES: readonly { v: Pose; label: string }[] = POSES;
+export const MSG_FINISH_PHOTO_FAILED = "Could not read that photo. Try another one.";
+
+/** The row saved for a Finish-screen photo. */
+export function finishPhotoRow(p: { id: string; workoutId: string; pose: Pose; blob: Blob; takenAt: string }): ProgressPhotoRow {
+  return { id: p.id, taken_at: p.takenAt, pose: p.pose, blob: p.blob, workout_id: p.workoutId };
+}
+
+/** Photos linked to a workout, in front, side, back order. */
+export async function workoutPhotos(workoutId: string): Promise<ProgressPhotoRow[]> {
+  const order = (p: PhotoRow) => (p.pose ? POSES.findIndex((x) => x.v === p.pose) : POSES.length);
+  const all = (await db.photos.toArray()) as ProgressPhotoRow[];
+  return all.filter((p) => p.workout_id === workoutId).sort((a, b) => order(a) - order(b));
+}
+
+/**
+ * Saves (or replaces, when `id` is given) the photo for one pose of a workout.
+ * Returns the row id.
+ */
+export async function saveFinishPhoto(workoutId: string, pose: Pose, blob: Blob, id: string = uuid(), takenAt: string = new Date().toISOString()): Promise<string> {
+  await db.photos.put(finishPhotoRow({ id, workoutId, pose, blob, takenAt }));
+  return id;
+}
+
+function PoseSlot({
+  pose,
+  label,
+  photo,
+  busy,
+  onFile,
+}: {
+  pose: Pose;
+  label: string;
+  photo: PhotoRow | undefined;
+  busy: boolean;
+  onFile: (pose: Pose, file: File) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex flex-col gap-1">
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        aria-label={`${label} photo file`}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(pose, f);
+          e.target.value = "";
+        }}
+      />
+      <button
+        type="button"
+        className={`relative aspect-[3/4] rounded-xl overflow-hidden grid place-items-center text-muted ${photo ? "" : "border border-dashed border-border"}`}
+        onClick={() => input.current?.click()}
+        disabled={busy}
+        aria-label={photo ? `Retake ${label.toLowerCase()} photo` : `Take ${label.toLowerCase()} photo`}
+      >
+        {photo ? <Photo p={photo} className="size-full" /> : <span className="text-2xl leading-none">{busy ? "…" : "+"}</span>}
+      </button>
+      <span className="text-xs text-center text-muted">{label}</span>
+    </div>
+  );
+}
+
+/** Bottom sheet shown after Finish: front, side and back photos linked to the workout. */
+export function FinishPhotos({
+  workoutId,
+  onDone,
+  prepare = shrink,
+}: {
+  workoutId: string;
+  onDone: () => void;
+  /** Turns the picked file into the stored blob (downscaled JPEG by default). */
+  prepare?: (file: File) => Promise<Blob>;
+}) {
+  const [taken, setTaken] = useState<Partial<Record<Pose, PhotoRow>>>({});
+  const [busy, setBusy] = useState<Pose | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const count = Object.keys(taken).length;
+
+  async function onFile(pose: Pose, file: File) {
+    setBusy(pose);
+    setError(null);
+    try {
+      const blob = await prepare(file);
+      const takenAt = new Date().toISOString();
+      const id = await saveFinishPhoto(workoutId, pose, blob, taken[pose]?.id ?? uuid(), takenAt);
+      setTaken((t) => ({ ...t, [pose]: { id, taken_at: takenAt, pose, blob } }));
+    } catch {
+      setError(MSG_FINISH_PHOTO_FAILED);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/40 flex items-end">
+      <section
+        className="w-full max-w-lg mx-auto card rounded-b-none p-5 pb-safe space-y-3"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="finish-photos-title"
+      >
+        <h2 id="finish-photos-title" className="text-lg font-semibold">Progress photos</h2>
+        <p className="text-sm text-muted">Take a front, side and back photo to track your progress. They stay on this device and are linked to this workout.</p>
+        <div className="grid grid-cols-3 gap-2">
+          {FINISH_POSES.map((p) => (
+            <PoseSlot key={p.v} pose={p.v} label={p.label} photo={taken[p.v]} busy={busy !== null} onFile={onFile} />
+          ))}
+        </div>
+        {error && (
+          <p role="status" className="text-sm text-muted">
+            {error}
+          </p>
+        )}
+        <button type="button" className="btn-primary w-full" disabled={busy !== null || count === 0} onClick={onDone}>
+          {count === 0 ? "Done" : `Done (${count}/${FINISH_POSES.length})`}
+        </button>
+        {count === 0 && (
+          <button type="button" className="btn-ghost w-full" disabled={busy !== null} onClick={onDone}>
+            Skip
+          </button>
+        )}
+      </section>
+    </div>
+  );
+}
+
 export function PhotosTab() {
   const photos = useLiveQuery(async () => (await db.photos.toArray()).sort((a, b) => b.taken_at.localeCompare(a.taken_at)), []);
   const input = useRef<HTMLInputElement>(null);
@@ -480,6 +626,15 @@ export function PhotosTab() {
         <div className="fixed inset-0 z-[60] bg-black flex flex-col" onClick={() => setView(null)}>
           <div className="flex items-center justify-between p-4 pt-safe text-white">
             <span className="text-sm">{dateLabel(view.taken_at)}{view.pose ? ` · ${view.pose}` : ""}</span>
+            {(view as ProgressPhotoRow).workout_id && (
+              <Link
+                href={`/history/${(view as ProgressPhotoRow).workout_id}`}
+                className="text-sm underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                View workout
+              </Link>
+            )}
             <button
               className="text-sm"
               onClick={async (e) => {
