@@ -16,6 +16,16 @@ import {
   MSG_OFFLINE,
   MSG_SHARED,
   MSG_UNAVAILABLE,
+  MSG_DETAILS_FAILED,
+  MSG_DETAILS_MANUAL,
+  MSG_DETAILS_OFFLINE,
+  MSG_DETAILS_OK,
+  MAX_CREATOR,
+  MAX_TITLE,
+  DETAILS_ROUTE,
+  buildDetailsBody,
+  cleanThumbnailUrl,
+  parseDetails,
   initialFromUrl,
   ROUTE,
   SaveFromLink,
@@ -397,5 +407,243 @@ describe("RoutineList", () => {
     expect(screen.getByRole("link", { name: "New routine" })).toHaveAttribute("href", "/routines/new");
     expect(screen.getByText("Generate 3-day plan")).toBeInTheDocument();
     expect(screen.getByText("Save from link")).toBeInTheDocument();
+  });
+});
+
+// ---------- SOC-03: Fetch details (oEmbed) ----------
+
+describe("parseDetails", () => {
+  const link = { url: LINK, platform: "tiktok" as const };
+
+  it("reads title, creator and an https thumbnail", () => {
+    expect(
+      parseDetails({ platform: "tiktok", title: "10 min abs", thumbnail_url: "https://p16.example.com/t.jpg", creator: "@coach" }, link),
+    ).toEqual({ url: LINK, title: "10 min abs", thumbnail_url: "https://p16.example.com/t.jpg", creator: "@coach" });
+  });
+
+  it("answers manual for manual, a mismatched platform or nothing usable", () => {
+    expect(parseDetails({ platform: "tiktok", manual: true }, link)).toBe("manual");
+    expect(parseDetails({ platform: "youtube", title: "x", thumbnail_url: null, creator: null }, link)).toBe("manual");
+    expect(parseDetails({ platform: "tiktok", title: "  ", thumbnail_url: "http://x.com/t.jpg", creator: 5 }, link)).toBe("manual");
+  });
+
+  it("returns null for a body that is not an object", () => {
+    expect(parseDetails(null, link)).toBeNull();
+    expect(parseDetails("x", link)).toBeNull();
+    expect(parseDetails([1], link)).toBeNull();
+  });
+
+  it("cleans and caps text and only keeps https thumbnails", () => {
+    const d = parseDetails(
+      {
+        platform: "tiktok",
+        title: `Abs\u0000 \u{1F525} ${"a".repeat(500)}`,
+        creator: "c".repeat(300),
+        thumbnail_url: "javascript:alert(1)",
+      },
+      link,
+    );
+    if (!d || d === "manual") throw new Error("expected details");
+    expect(d.title!.length).toBeLessThanOrEqual(MAX_TITLE);
+    expect(d.title).not.toMatch(/[\u0000\u{1F525}]/u);
+    expect(d.creator!.length).toBe(MAX_CREATOR);
+    expect(d.thumbnail_url).toBeNull();
+  });
+
+  it("cleanThumbnailUrl allows https only within the cap", () => {
+    expect(cleanThumbnailUrl("https://p16.example.com/t.jpg")).toBe("https://p16.example.com/t.jpg");
+    expect(cleanThumbnailUrl("http://p16.example.com/t.jpg")).toBeNull();
+    expect(cleanThumbnailUrl("data:image/png;base64,AAAA")).toBeNull();
+    expect(cleanThumbnailUrl(`https://x.com/${"a".repeat(3000)}`)).toBeNull();
+    expect(cleanThumbnailUrl(7)).toBeNull();
+  });
+
+  it("only sends the link", () => {
+    expect(buildDetailsBody(LINK)).toEqual({ url: LINK });
+  });
+});
+
+describe("saveMiniWorkout details", () => {
+  it("stores the thumbnail and creator when given, and drops an unsafe thumbnail", async () => {
+    const r = parseImport(okBody(), known)!;
+    const a = await saveMiniWorkout({
+      name: "A",
+      notes: null,
+      url: LINK,
+      platform: "tiktok",
+      exercises: r.exercises,
+      thumbnail_url: "https://p16.example.com/t.jpg",
+      creator: "@coach",
+    });
+    expect(await getRoutine(a)).toMatchObject({ thumbnail_url: "https://p16.example.com/t.jpg", creator: "@coach" });
+    const b = await saveMiniWorkout({
+      name: "B",
+      notes: null,
+      url: LINK,
+      platform: "tiktok",
+      exercises: r.exercises,
+      thumbnail_url: "javascript:alert(1)",
+      creator: null,
+    });
+    expect(await getRoutine(b)).toMatchObject({ thumbnail_url: null, creator: null });
+  });
+});
+
+function mockBoth(details: (init?: RequestInit) => Response | Promise<Response>) {
+  const fn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (u.endsWith("/exercises.json")) return json(CATALOGUE);
+    if (u === ROUTE) return json(okBody());
+    if (u === DETAILS_ROUTE) return details(init);
+    throw new Error(`unexpected fetch ${u}`);
+  });
+  vi.stubGlobal("fetch", fn);
+  return fn;
+}
+const detailCalls = (fn: ReturnType<typeof mockBoth>) => fn.mock.calls.filter((c) => String(c[0]) === DETAILS_ROUTE);
+
+const DETAILS = { platform: "tiktok", title: "3x20 crunches", thumbnail_url: "https://p16.example.com/t.jpg", creator: "@coach" };
+
+function openWithLink(link = LINK) {
+  render(<SaveFromLink />);
+  fireEvent.click(screen.getByRole("button", { name: "Paste link" }));
+  fireEvent.change(screen.getByLabelText("Video link"), { target: { value: link } });
+}
+
+describe("SaveFromLink Fetch details", () => {
+  it("prefills caption and notes, sends only the link, and saves thumbnail and creator", async () => {
+    const fn = mockBoth(() => json(DETAILS));
+    openWithLink();
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(MSG_DETAILS_OK);
+    expect(screen.getByLabelText("Caption")).toHaveValue("3x20 crunches");
+    expect(screen.getByLabelText("Notes (optional)")).toHaveValue("By @coach");
+    expect(JSON.parse(String(detailCalls(fn)[0][1]!.body))).toEqual({ url: LINK });
+
+    fireEvent.click(screen.getByRole("button", { name: "Read workout" }));
+    await screen.findByRole("list", { name: "Imported exercises" });
+    const sent = JSON.parse(String(routeCalls(fn)[0][1]!.body));
+    expect(sent).toEqual({ platform: "tiktok", caption: "3x20 crunches", notes: "By @coach" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save mini workout" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a mini workout.");
+    const saved = await listRoutines();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ source_url: LINK, thumbnail_url: "https://p16.example.com/t.jpg", creator: "@coach" });
+  });
+
+  it("does not overwrite a caption or notes the user already typed", async () => {
+    mockBoth(() => json(DETAILS));
+    openWithLink();
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "my own caption" } });
+    fireEvent.change(screen.getByLabelText("Notes (optional)"), { target: { value: "mine" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(MSG_DETAILS_OK);
+    expect(screen.getByLabelText("Caption")).toHaveValue("my own caption");
+    expect(screen.getByLabelText("Notes (optional)")).toHaveValue("mine");
+  });
+
+  it("falls back to the paste flow on manual, and saves no thumbnail or creator", async () => {
+    mockBoth(() => json({ platform: "instagram", manual: true }));
+    openWithLink("https://www.instagram.com/reel/abc/");
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(MSG_DETAILS_MANUAL);
+    expect(screen.getByLabelText("Caption")).toHaveValue("");
+
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "3x20 crunches" } });
+    fireEvent.click(screen.getByRole("button", { name: "Read workout" }));
+    await screen.findByRole("list", { name: "Imported exercises" });
+    fireEvent.click(screen.getByRole("button", { name: "Save mini workout" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a mini workout.");
+    const saved = await listRoutines();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ platform: "instagram", thumbnail_url: null, creator: null });
+  });
+
+  it("shows a plain message on 4xx, 5xx, a bad body or a network error", async () => {
+    for (const details of [
+      () => json({ error: "invalid" }, 400),
+      () => json({ error: "error" }, 502),
+      () => new Response("not json", { status: 200 }),
+      () => {
+        throw new TypeError("network");
+      },
+    ]) {
+      mockBoth(details);
+      const { unmount } = render(<SaveFromLink />);
+      fireEvent.click(screen.getByRole("button", { name: "Paste link" }));
+      fireEvent.change(screen.getByLabelText("Video link"), { target: { value: LINK } });
+      fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+      expect(await screen.findByRole("status")).toHaveTextContent(MSG_DETAILS_FAILED);
+      expect(screen.getByLabelText("Caption")).toHaveValue("");
+      expect(screen.getByRole("button", { name: "Read workout" })).toBeEnabled();
+      unmount();
+    }
+    expect(await listRoutines()).toEqual([]);
+  });
+
+  it("checks the link and does not call the route offline", async () => {
+    const fn = mockBoth(() => json(DETAILS));
+    openWithLink("https://example.com/video");
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(MSG_BAD_LINK);
+
+    setOnline(false);
+    fireEvent.change(screen.getByLabelText("Video link"), { target: { value: LINK } });
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(MSG_DETAILS_OFFLINE);
+    expect(detailCalls(fn)).toHaveLength(0);
+  });
+});
+
+describe("SaveFromLink Fetch details while pending", () => {
+  /** A details mock answered by hand, so the test controls when it lands. */
+  function pendingDetails() {
+    let resolve: (r: Response) => void = () => {};
+    const pending = new Promise<Response>((r) => {
+      resolve = r;
+    });
+    const fn = mockBoth(() => pending);
+    return { fn, resolve };
+  }
+
+  it("drops a late result when the link changed during the fetch", async () => {
+    const { fn, resolve } = pendingDetails();
+    openWithLink();
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+    expect(await screen.findByRole("button", { name: "Fetching..." })).toBeDisabled();
+    expect(detailCalls(fn)).toHaveLength(1);
+
+    const other = "https://www.tiktok.com/@other/video/456";
+    fireEvent.change(screen.getByLabelText("Video link"), { target: { value: other } });
+    resolve(json(DETAILS));
+    expect(await screen.findByRole("button", { name: "Fetch details" })).toBeEnabled();
+
+    expect(screen.getByLabelText("Caption")).toHaveValue("");
+    expect(screen.getByLabelText("Notes (optional)")).toHaveValue("");
+    expect(screen.queryByText("3x20 crunches · @coach")).toBeNull();
+    expect(screen.queryByText(MSG_DETAILS_OK)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "3x20 crunches" } });
+    fireEvent.click(screen.getByRole("button", { name: "Read workout" }));
+    await screen.findByRole("list", { name: "Imported exercises" });
+    fireEvent.click(screen.getByRole("button", { name: "Save mini workout" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a mini workout.");
+    const saved = await listRoutines();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ source_url: other, thumbnail_url: null, creator: null });
+  });
+
+  it("keeps a caption typed while the request is pending and still fills empty notes", async () => {
+    const { resolve } = pendingDetails();
+    openWithLink();
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+    expect(await screen.findByRole("button", { name: "Fetching..." })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "my own caption" } });
+    resolve(json(DETAILS));
+    expect(await screen.findByRole("status")).toHaveTextContent(MSG_DETAILS_OK);
+    expect(screen.getByLabelText("Caption")).toHaveValue("my own caption");
+    expect(screen.getByLabelText("Notes (optional)")).toHaveValue("By @coach");
   });
 });

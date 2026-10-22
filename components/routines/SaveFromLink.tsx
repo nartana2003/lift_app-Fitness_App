@@ -8,15 +8,24 @@
 // never gets the link: it stays on the device and is stored on the routine.
 // Any failure (no key, offline, bad answer) shows a short plain message; the
 // manual routine flow is untouched.
-import { useState } from "react";
+//
+// "Fetch details" (optional) sends ONLY the link to POST /api/social/import,
+// which reads the platform's public oEmbed. The title prefills an empty
+// caption, the creator an empty notes box, and the thumbnail and creator are
+// stored on the saved mini workout. Manual, offline or any failure shows a
+// short plain message and the paste-the-caption flow works as before.
+import { useEffect, useRef, useState } from "react";
 import { EQUIPMENT, MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "@/lib/muscles";
 import { loadCatalogue, useCatalogue } from "@/lib/catalogue";
 import { createRoutine } from "@/lib/routines";
 import { ensureCustomExercise } from "@/lib/customExercises";
 import { db, type RoutineRow } from "@/lib/offline/db";
 import { enqueue } from "@/lib/offline/sync";
+import { safeThumbnailUrl } from "@/components/routines/MiniWorkoutCard";
 
 export const ROUTE = "/api/ai/social-import";
+/** The oEmbed details route (SOC-01). Gets only { url }. */
+export const DETAILS_ROUTE = "/api/social/import";
 /** Same caps the route enforces. */
 export const MAX_CAPTION = 4_000;
 export const MAX_NOTES = 1_000;
@@ -24,6 +33,10 @@ export const MAX_URL = 2_048;
 export const MAX_EXERCISES = 12;
 export const MAX_SETS = 6;
 export const MAX_NAME = 60;
+/** Same caps as the details route. */
+export const MAX_TITLE = 200;
+export const MAX_CREATOR = 100;
+export const MAX_THUMBNAIL_URL = 2_048;
 const MAX_NOTE = 240;
 const DEFAULT_SETS = 3;
 const DEFAULT_REPS = "8-12";
@@ -38,6 +51,10 @@ export const MSG_EMPTY = "No exercises found in that post. You can still build r
 export const MSG_SAVE_FAILED = "Could not save the workout. Try again.";
 export const MSG_SHARED = "Link added. Paste the caption or describe the workout, then tap Read workout.";
 export const MSG_NO_SHARED_LINK = "No link came through. Paste a TikTok, Instagram or YouTube link.";
+export const MSG_DETAILS_OK = "Details added from the post. Check the caption, then tap Read workout.";
+export const MSG_DETAILS_MANUAL = "No details for this link. Paste the caption or describe the workout.";
+export const MSG_DETAILS_OFFLINE = "You are offline. Paste the caption or describe the workout.";
+export const MSG_DETAILS_FAILED = "Could not fetch details. Paste the caption or describe the workout.";
 
 export type Platform = NonNullable<RoutineRow["platform"]>;
 
@@ -161,6 +178,37 @@ export function parseImport(json: unknown, known: (id: string) => boolean): Impo
   };
 }
 
+/** Title, thumbnail and creator read from the details route for one link. */
+export type LinkDetails = { url: string; title: string | null; thumbnail_url: string | null; creator: string | null };
+
+/** An https thumbnail URL within the cap, or null. */
+export function cleanThumbnailUrl(v: unknown): string | null {
+  if (typeof v !== "string" || v.length > MAX_THUMBNAIL_URL) return null;
+  const u = safeThumbnailUrl(v);
+  return u && u.length <= MAX_THUMBNAIL_URL ? u : null;
+}
+
+/**
+ * Checks the details route's 200 body for `link`. "manual" for
+ * { manual: true }, a platform that does not match the link, or a body with
+ * nothing usable; null for a body that is not an object. Text is cleaned and
+ * capped, the thumbnail must be https.
+ */
+export function parseDetails(json: unknown, link: { url: string; platform: Platform }): LinkDetails | "manual" | null {
+  if (!isObj(json)) return null;
+  if (json.manual === true || json.platform !== link.platform) return "manual";
+  const title = plainText(json.title, MAX_TITLE);
+  const creator = plainText(json.creator, MAX_CREATOR);
+  const thumbnail_url = cleanThumbnailUrl(json.thumbnail_url);
+  if (!title && !creator && !thumbnail_url) return "manual";
+  return { url: link.url, title, thumbnail_url, creator };
+}
+
+/** The details body: only the link. */
+export function buildDetailsBody(url: string) {
+  return { url };
+}
+
 /** Request body in the route's shape. The link is never sent. */
 export function buildRequestBody(platform: Platform, caption: string, notes: string) {
   return { platform, caption: caption.slice(0, MAX_CAPTION), notes: notes.slice(0, MAX_NOTES) };
@@ -177,6 +225,9 @@ export async function saveMiniWorkout(input: {
   url: string;
   platform: Platform;
   exercises: ImportItem[];
+  /** From Fetch details; optional. */
+  thumbnail_url?: string | null;
+  creator?: string | null;
 }): Promise<string> {
   const exercises: { exercise_id: string; target_sets: number; target_reps: string }[] = [];
   for (const e of input.exercises) {
@@ -202,7 +253,13 @@ export async function saveMiniWorkout(input: {
   // createRoutine has no link fields: add them to the saved row and queue it again (upserts are idempotent).
   const row = await db.routines.get(id);
   if (row) {
-    const next: RoutineRow = { ...row, source_url: input.url, platform: input.platform };
+    const next: RoutineRow = {
+      ...row,
+      source_url: input.url,
+      platform: input.platform,
+      thumbnail_url: cleanThumbnailUrl(input.thumbnail_url) ?? row.thumbnail_url ?? null,
+      creator: plainText(input.creator, MAX_CREATOR) ?? row.creator ?? null,
+    };
     await db.routines.put(next);
     await enqueue([{ table: "routines", op: "upsert", row: next }]);
   }
@@ -244,6 +301,56 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
   const [link, setLink] = useState(initial.link);
   const [caption, setCaption] = useState("");
   const [notes, setNotes] = useState("");
+  const [details, setDetails] = useState<LinkDetails | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const linkRef = useRef(link);
+  useEffect(() => {
+    linkRef.current = link;
+  }, [link]);
+
+  const fetchDetails = async () => {
+    const parsed = parseLink(link);
+    if (!parsed) {
+      setState({ kind: "form", message: MSG_BAD_LINK });
+      return;
+    }
+    if (offline()) {
+      setState({ kind: "form", message: MSG_DETAILS_OFFLINE });
+      return;
+    }
+    setFetching(true);
+    let message = MSG_DETAILS_FAILED;
+    let found: LinkDetails | null = null;
+    try {
+      const res = await fetch(DETAILS_ROUTE, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(buildDetailsBody(parsed.url)),
+      });
+      if (res.ok) {
+        const d = parseDetails(await res.json(), parsed);
+        if (d === "manual") message = MSG_DETAILS_MANUAL;
+        else if (d) {
+          found = d;
+          message = MSG_DETAILS_OK;
+        }
+      }
+    } catch {
+      message = offline() ? MSG_DETAILS_OFFLINE : MSG_DETAILS_FAILED;
+    }
+    setFetching(false);
+    // The link changed while fetching: these details belong to another post.
+    if (parseLink(linkRef.current)?.url !== parsed.url) return;
+    if (found) {
+      const d = found;
+      setDetails(d);
+      const title = d.title;
+      const creator = d.creator;
+      if (title) setCaption((c) => (c.trim() ? c : title.slice(0, MAX_CAPTION)));
+      if (creator) setNotes((n) => (n.trim() ? n : `By ${creator}`.slice(0, MAX_NOTES)));
+    }
+    setState((s) => (s.kind === "form" ? { kind: "form", message } : s));
+  };
 
   const read = async () => {
     const parsed = parseLink(link);
@@ -308,11 +415,21 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
     if (chosen.length === 0) return;
     setState({ ...r, kind: "saving" });
     try {
-      await saveMiniWorkout({ name: r.result.name, notes: r.result.notes, url: r.url, platform: r.platform, exercises: chosen });
+      const d = details && details.url === r.url ? details : null;
+      await saveMiniWorkout({
+        name: r.result.name,
+        notes: r.result.notes,
+        url: r.url,
+        platform: r.platform,
+        exercises: chosen,
+        thumbnail_url: d?.thumbnail_url ?? null,
+        creator: d?.creator ?? null,
+      });
       setState({ kind: "saved", name: plainText(r.result.name, MAX_NAME) ?? DEFAULT_NAME });
       setLink("");
       setCaption("");
       setNotes("");
+      setDetails(null);
     } catch {
       setState({ ...r, kind: "review", error: MSG_SAVE_FAILED });
     }
@@ -362,6 +479,17 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
               onChange={(e) => setLink(e.target.value)}
             />
           </label>
+          <button
+            type="button"
+            className="chip text-xs"
+            disabled={fetching || state.kind === "loading"}
+            onClick={() => void fetchDetails()}
+          >
+            {fetching ? "Fetching..." : "Fetch details"}
+          </button>
+          {details && details.url === parseLink(link)?.url && (details.title || details.creator) && (
+            <p className="text-xs text-muted">{[details.title, details.creator].filter(Boolean).join(" · ")}</p>
+          )}
           <label className="block">
             <span className="block text-xs text-muted mb-1">Caption</span>
             <textarea
