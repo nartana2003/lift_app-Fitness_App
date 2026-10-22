@@ -11,6 +11,8 @@ import { GoalsSection } from "@/components/goals/GoalsSection";
 import { SplitEditor } from "@/components/goals/SplitEditor";
 import { EquipmentChecklist } from "@/components/EquipmentChecklist";
 import { equipmentSummary, useEquipment } from "@/lib/equipment";
+import { ReminderSettings } from "@/components/ReminderSettings";
+import { reminderSummary, useReminders } from "@/lib/reminders";
 import { useSplit } from "@/lib/splits";
 import { allTargets, GOAL_LABELS, useGoals } from "@/lib/goals";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -33,6 +35,7 @@ const ICONS = {
   dumbbell: "M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11",
   split: "M4 6h7M4 12h7M4 18h7M15 6h5M15 12h5M15 18h5",
   target: "M12 21a9 9 0 110-18 9 9 0 010 18zM12 16.5a4.5 4.5 0 110-9 4.5 4.5 0 010 9zM12 13a1 1 0 110-2 1 1 0 010 2z",
+  bell: "M6 16V11a6 6 0 1112 0v5l1.5 2h-15L6 16zM10 20.5a2 2 0 004 0",
 } as const;
 
 const Icon = ({ d }: { d: string }) => (
@@ -55,6 +58,7 @@ export default function ProfilePage() {
   const goals = useGoals();
   const split = useSplit();
   const equipment = useEquipment();
+  const reminders = useReminders();
   const [profile, setProfile] = useState<Profile>(emptyProfile());
   const [height, setHeight] = useState("");
   const [weight, setWeight] = useState("");
@@ -216,6 +220,10 @@ export default function ProfilePage() {
 
       <Collapsible title="My gym equipment" icon={<Icon d={ICONS.dumbbell} />} subtitle={equipmentSummary(equipment)}>
         <EquipmentChecklist />
+      </Collapsible>
+
+      <Collapsible title="Reminders" icon={<Icon d={ICONS.bell} />} subtitle={reminderSummary(reminders, weekStart)}>
+        <ReminderSettings />
       </Collapsible>
 
       <Collapsible title="Preferences" icon={<Icon d={ICONS.sliders} />} subtitle={prefSummary}>
