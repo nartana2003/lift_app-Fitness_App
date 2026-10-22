@@ -9,6 +9,7 @@ import { listRoutines } from "@/lib/routines";
 import { startWorkout } from "@/lib/workout";
 import { db } from "@/lib/offline/db";
 import { GeneratePlan } from "./GeneratePlan";
+import { SaveFromLink } from "./SaveFromLink";
 
 /** "My routines" on Home: tap one to start it with your last weights pre-filled. */
 export function RoutineList() {
@@ -85,6 +86,7 @@ export function RoutineList() {
       )}
 
       <GeneratePlan />
+      <SaveFromLink />
     </section>
   );
 }
