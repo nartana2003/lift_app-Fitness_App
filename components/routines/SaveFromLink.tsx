@@ -36,6 +36,8 @@ export const MSG_BAD_LINK = "Paste a TikTok, Instagram or YouTube link.";
 export const MSG_NO_TEXT = "Paste the caption or describe the workout.";
 export const MSG_EMPTY = "No exercises found in that post. You can still build routines by hand.";
 export const MSG_SAVE_FAILED = "Could not save the workout. Try again.";
+export const MSG_SHARED = "Link added. Paste the caption or describe the workout, then tap Read workout.";
+export const MSG_NO_SHARED_LINK = "No link came through. Paste a TikTok, Instagram or YouTube link.";
 
 export type Platform = NonNullable<RoutineRow["platform"]>;
 
@@ -221,11 +223,25 @@ type State =
 
 const offline = () => typeof navigator !== "undefined" && navigator.onLine === false;
 
+/**
+ * Opening state for a link handed in from outside (the /save?url= page used
+ * by the iOS Shortcut). Undefined keeps the normal closed card. A valid link
+ * is prefilled; no or an invalid link opens the empty paste box with a hint.
+ * Nothing is fetched or saved until the user taps the existing buttons.
+ */
+export function initialFromUrl(initialUrl: string | undefined): { state: State; link: string } {
+  if (initialUrl === undefined) return { state: { kind: "closed" }, link: "" };
+  const parsed = parseLink(initialUrl);
+  if (!parsed) return { state: { kind: "form", message: MSG_NO_SHARED_LINK }, link: "" };
+  return { state: { kind: "form", message: MSG_SHARED }, link: parsed.url };
+}
+
 /** Save a workout from a TikTok, Instagram or YouTube post as a mini workout. */
-export function SaveFromLink() {
+export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
   const { get } = useCatalogue();
-  const [state, setState] = useState<State>({ kind: "closed" });
-  const [link, setLink] = useState("");
+  const [initial] = useState(() => initialFromUrl(initialUrl));
+  const [state, setState] = useState<State>(initial.state);
+  const [link, setLink] = useState(initial.link);
   const [caption, setCaption] = useState("");
   const [notes, setNotes] = useState("");
 

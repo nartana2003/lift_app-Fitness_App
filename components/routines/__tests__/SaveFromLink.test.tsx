@@ -12,8 +12,11 @@ import {
   MSG_EMPTY,
   MSG_FAILED,
   MSG_NO_TEXT,
+  MSG_NO_SHARED_LINK,
   MSG_OFFLINE,
+  MSG_SHARED,
   MSG_UNAVAILABLE,
+  initialFromUrl,
   ROUTE,
   SaveFromLink,
   buildRequestBody,
@@ -332,6 +335,57 @@ describe("SaveFromLink", () => {
     fireEvent.click(screen.getByRole("button", { name: "Read workout" }));
     expect(await screen.findByRole("status")).toHaveTextContent(MSG_OFFLINE);
     expect(routeCalls(fn)).toHaveLength(0);
+  });
+});
+
+describe("initialFromUrl", () => {
+  it("keeps the closed card when no link is handed in", () => {
+    expect(initialFromUrl(undefined)).toEqual({ state: { kind: "closed" }, link: "" });
+  });
+
+  it("prefills a valid link and opens the form", () => {
+    expect(initialFromUrl(` ${LINK} `)).toEqual({ state: { kind: "form", message: MSG_SHARED }, link: LINK });
+  });
+
+  it("opens the empty paste box with a hint for no or an invalid link", () => {
+    for (const bad of ["", "not a link", "javascript:alert(1)", "https://example.com/x", `https://tiktok.com/${"a".repeat(3000)}`]) {
+      expect(initialFromUrl(bad)).toEqual({ state: { kind: "form", message: MSG_NO_SHARED_LINK }, link: "" });
+    }
+  });
+});
+
+describe("SaveFromLink initialUrl", () => {
+  it("prefills the link, fetches nothing until Read workout is tapped, then reads as usual", async () => {
+    const fn = mockFetch(() => json(okBody()));
+    render(<SaveFromLink initialUrl={LINK} />);
+    expect(screen.getByLabelText("Video link")).toHaveValue(LINK);
+    expect(screen.getByRole("status")).toHaveTextContent(MSG_SHARED);
+    expect(screen.getByRole("button", { name: "Read workout" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Paste link" })).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(routeCalls(fn)).toHaveLength(0);
+    expect(await listRoutines()).toEqual([]);
+
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "3x20 crunches" } });
+    fireEvent.click(screen.getByRole("button", { name: "Read workout" }));
+    await screen.findByRole("list", { name: "Imported exercises" });
+    expect(routeCalls(fn)).toHaveLength(1);
+    expect(await listRoutines()).toEqual([]);
+  });
+
+  it("shows the empty paste box and a hint for an invalid link", async () => {
+    const fn = mockFetch(() => json(okBody()));
+    render(<SaveFromLink initialUrl="https://example.com/video" />);
+    expect(screen.getByLabelText("Video link")).toHaveValue("");
+    expect(screen.getByRole("status")).toHaveTextContent(MSG_NO_SHARED_LINK);
+    expect(routeCalls(fn)).toHaveLength(0);
+  });
+
+  it("is unchanged without the prop", () => {
+    mockFetch(() => json(okBody()));
+    render(<SaveFromLink />);
+    expect(screen.getByRole("button", { name: "Paste link" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Video link")).toBeNull();
   });
 });
 
