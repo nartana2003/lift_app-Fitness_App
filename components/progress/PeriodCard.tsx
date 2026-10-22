@@ -1,10 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { BodyMap } from "@/components/MuscleIcon";
 import { useCatalogue } from "@/lib/catalogue";
 import { MUSCLE_GROUPS } from "@/lib/muscles";
-import { isoWeek, periodStats, type WorkoutLite } from "@/lib/progress";
+import { db } from "@/lib/offline/db";
+import { SKIP_LABEL } from "@/lib/planner";
+import { isoWeek, periodStats, skipStats, type WorkoutLite } from "@/lib/progress";
 import { addDays, addMonths, compare, formatDuration, startOfMonth, startOfWeek, type Delta } from "@/lib/stats";
 import { fmtVolume, type Unit } from "@/lib/units";
 import { Segmented } from "./Segmented";
@@ -25,6 +28,7 @@ function DeltaTag({ d }: { d: Delta }) {
 export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLite[]; unit: Unit; weekStart: 0 | 1 }) {
   const [mode, setMode] = useState<"week" | "month">("week");
   const { get } = useCatalogue();
+  const planRows = useLiveQuery(() => db.planned_days.toArray(), [], []);
 
   const { cur, prev, title, sub, from, to } = useMemo(() => {
     const now = new Date();
@@ -57,6 +61,7 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
   const sets = Object.entries(cur.sets_by_muscle).sort((a, b) => b[1] - a[1]);
   const max = Math.max(1, ...sets.map(([, n]) => n));
   const notHit = MUSCLE_GROUPS.filter((m) => !cur.sets_by_muscle[m]);
+  const skips = useMemo(() => skipStats(planRows, from, to), [planRows, from, to]);
 
   return (
     <section className="card p-4">
@@ -104,6 +109,38 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
         </div>
       </div>
       <p className="text-[11px] text-muted mt-1.5 text-center">vs last {mode}</p>
+
+      <section aria-label="Skipped workouts" className="mt-4">
+        <h3 className="font-semibold mb-2">Skipped workouts</h3>
+        {skips.skipped + skips.moved === 0 ? (
+          <p className="text-sm text-muted">No skipped or moved workouts this {mode}.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <div>
+                <p className="text-xl font-bold">{skips.skipped}</p>
+                <p className="text-xs text-muted">skipped</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold">{skips.moved}</p>
+                <p className="text-xs text-muted">moved</p>
+              </div>
+            </div>
+            {skips.topReasons.length > 0 && (
+              <>
+                <p className="text-xs text-muted mt-3 mb-1.5">Top reasons</p>
+                <ul className="flex flex-wrap gap-1.5" aria-label="Top skip reasons">
+                  {skips.topReasons.map((r) => (
+                    <li key={r.reason} className="chip text-xs">
+                      {SKIP_LABEL[r.reason]} · {r.count}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
+        )}
+      </section>
 
       <h3 className="font-semibold mt-4 mb-2">
         Muscles hit <span className="text-muted font-normal">· {sets.length} of {MUSCLE_GROUPS.length}</span>

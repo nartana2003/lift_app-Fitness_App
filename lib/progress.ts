@@ -1,6 +1,7 @@
 // Pure calculations behind the Progress tab (no I/O, easy to test).
 import { e1rm } from "./prs";
 import { addDays, startOfWeek, type PeriodStats } from "./stats";
+import type { PlannedDayRow, SkipReason } from "./offline/db";
 
 type SetLite = { reps: number; weight: number; is_warmup?: boolean };
 
@@ -106,6 +107,54 @@ export function periodStats(
     sets_by_muscle: sets,
     workout_days: [...new Set(inRange.map((w) => w.started_at.slice(0, 10)))],
   };
+}
+
+// ---------- skipped / moved planned days ----------
+
+/** Structural subset of PlannedDayRow that skipStats needs (date is local YYYY-MM-DD). */
+export type PlannedDayLite = {
+  date: string;
+  status: PlannedDayRow["status"];
+  skip_reason: SkipReason | null;
+};
+
+export type SkipStats = {
+  /** Planned days skipped entirely. */
+  skipped: number;
+  /** Planned days moved to another day (counted on the original day). */
+  moved: number;
+  /** Reasons across skipped and moved days, most common first (ties keep the app's reason order). */
+  topReasons: { reason: SkipReason; count: number }[];
+};
+
+/** Canonical reason order, used only to break ties. Same values as SkipReason (checked both ways below). */
+const REASON_ORDER = ["busy", "tired", "sore", "sick", "injury", "travel", "rest", "other"] as const satisfies readonly SkipReason[];
+const REASON_ORDER_COMPLETE: [Exclude<SkipReason, (typeof REASON_ORDER)[number]>] extends [never] ? true : never = true;
+void REASON_ORDER_COMPLETE;
+
+/**
+ * Skip and move counts for planned days in [from, to), plus the top `limit`
+ * reasons. A moved day counts once, on the day it was moved from; the day it
+ * landed on is a normal planned day and is not counted.
+ */
+export function skipStats(days: PlannedDayLite[], from: Date, to: Date, limit = 3): SkipStats {
+  const lo = dayKey(from);
+  const hi = dayKey(to);
+  let skipped = 0;
+  let moved = 0;
+  const counts = new Map<SkipReason, number>();
+  for (const d of days) {
+    if (d.date < lo || d.date >= hi) continue;
+    if (d.status === "skipped") skipped++;
+    else if (d.status === "moved") moved++;
+    else continue;
+    if (d.skip_reason) counts.set(d.skip_reason, (counts.get(d.skip_reason) ?? 0) + 1);
+  }
+  const topReasons = [...counts.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count || REASON_ORDER.indexOf(a.reason) - REASON_ORDER.indexOf(b.reason))
+    .slice(0, Math.max(0, limit));
+  return { skipped, moved, topReasons };
 }
 
 // ---------- per-exercise charts ----------
