@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, uuid, type MeasurementRow, type PhotoRow } from "@/lib/offline/db";
@@ -13,6 +13,7 @@ import { useSettings } from "@/lib/settings";
 import { addMonths } from "@/lib/stats";
 import type { Unit } from "@/lib/units";
 import { toBaseStats } from "./RecapCard";
+import { Segmented } from "./Segmented";
 
 type Pose = "front" | "side" | "back";
 const POSES: { v: Pose; label: string }[] = [
@@ -537,6 +538,99 @@ export function FinishPhotos({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Slider overlay compare
+//
+// The two picked photos are stacked: the earlier one underneath, the later one
+// on top, clipped from the right. A labelled range input (keyboard, touch and
+// mouse) sets how much of the later photo shows; dragging on the photos does
+// the same. The side-by-side view stays the default.
+// ---------------------------------------------------------------------------
+
+export type CompareMode = "side" | "slider";
+export const COMPARE_MODES: { value: CompareMode; label: string }[] = [
+  { value: "side", label: "Side by side" },
+  { value: "slider", label: "Slider" },
+];
+export const REVEAL_DEFAULT = 50;
+export const REVEAL_LABEL = "Reveal later photo";
+
+/** A reveal percentage as a whole number in 0..100 (default when not a number). */
+export function clampReveal(v: number): number {
+  if (!Number.isFinite(v)) return REVEAL_DEFAULT;
+  return Math.min(100, Math.max(0, Math.round(v)));
+}
+
+/** CSS clip-path that shows the left `reveal` percent of the top photo. */
+export const revealClip = (reveal: number) => `inset(0 ${100 - clampReveal(reveal)}% 0 0)`;
+
+/** Reveal percentage for a pointer at `x` over a box starting at `left` with `width`. */
+export function revealAt(x: number, left: number, width: number): number {
+  if (!(width > 0)) return REVEAL_DEFAULT;
+  return clampReveal(((x - left) / width) * 100);
+}
+
+/** The pair oldest first: [before, after]. */
+export function orderPair<T extends { taken_at: string }>(a: T, b: T): [T, T] {
+  return a.taken_at.localeCompare(b.taken_at) <= 0 ? [a, b] : [b, a];
+}
+
+export function CompareSlider({ a, b, initial = REVEAL_DEFAULT }: { a: PhotoRow; b: PhotoRow; initial?: number }) {
+  const [before, after] = orderPair(a, b);
+  const [reveal, setReveal] = useState(() => clampReveal(initial));
+  const dragging = useRef(false);
+
+  const fromPointer = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setReveal(revealAt(e.clientX, r.left, r.width));
+  };
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col gap-3 p-2">
+      <div
+        className="relative flex-1 min-h-0 rounded-xl overflow-hidden bg-surface-2 select-none touch-none"
+        data-testid="compare-slider-stage"
+        onPointerDown={(e) => {
+          dragging.current = true;
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          fromPointer(e);
+        }}
+        onPointerMove={(e) => {
+          if (dragging.current) fromPointer(e);
+        }}
+        onPointerUp={() => {
+          dragging.current = false;
+        }}
+        onPointerCancel={() => {
+          dragging.current = false;
+        }}
+      >
+        <Photo p={before} className="absolute inset-0 size-full" />
+        <div className="absolute inset-0" style={{ clipPath: revealClip(reveal) }} data-testid="compare-slider-top">
+          <Photo p={after} className="size-full" />
+        </div>
+        <div className="absolute inset-y-0 w-0.5 -ml-px bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)] pointer-events-none" style={{ left: `${reveal}%` }} aria-hidden="true" />
+        <span className="absolute top-2 left-2 bg-black/55 text-white text-[10px] px-1.5 py-1 rounded">{dateLabel(after.taken_at)}</span>
+        <span className="absolute top-2 right-2 bg-black/55 text-white text-[10px] px-1.5 py-1 rounded">{dateLabel(before.taken_at)}</span>
+      </div>
+      <label className="flex flex-col gap-1 text-xs text-muted">
+        <span>{REVEAL_LABEL}</span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={reveal}
+          aria-label={REVEAL_LABEL}
+          aria-valuetext={`${reveal}% of ${dateLabel(after.taken_at)} over ${dateLabel(before.taken_at)}`}
+          className="w-full accent-accent"
+          onChange={(e) => setReveal(clampReveal(Number(e.target.value)))}
+        />
+      </label>
+    </div>
+  );
+}
+
 export function PhotosTab() {
   const photos = useLiveQuery(async () => (await db.photos.toArray()).sort((a, b) => b.taken_at.localeCompare(a.taken_at)), []);
   const input = useRef<HTMLInputElement>(null);
@@ -546,6 +640,7 @@ export function PhotosTab() {
   const [comparing, setComparing] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   const [showCompare, setShowCompare] = useState(false);
+  const [compareMode, setCompareMode] = useState<CompareMode>("side");
   const { unit } = useSettings();
 
   async function onFiles(files: FileList | null) {
@@ -658,8 +753,14 @@ export function PhotosTab() {
         <div className="fixed inset-0 z-[60] bg-bg flex flex-col">
           <div className="flex items-center justify-between p-4 pt-safe">
             <h2 className="font-semibold">Compare</h2>
-            <button className="text-sm" onClick={() => { setShowCompare(false); setComparing(false); setPicked([]); }}>Close</button>
+            <button className="text-sm" onClick={() => { setShowCompare(false); setComparing(false); setPicked([]); setCompareMode("side"); }}>Close</button>
           </div>
+          <div className="px-4 pb-2">
+            <Segmented options={COMPARE_MODES} value={compareMode} onChange={setCompareMode} />
+          </div>
+          {compareMode === "slider" ? (
+            <CompareSlider a={pair[0]} b={pair[1]} />
+          ) : (
           <div className="flex-1 min-h-0 grid grid-cols-2 gap-2 p-2">
             {[...pair].sort((a, b) => a.taken_at.localeCompare(b.taken_at)).map((p) => (
               <div key={p.id} className="flex flex-col min-h-0">
@@ -668,6 +769,7 @@ export function PhotosTab() {
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
     </>
