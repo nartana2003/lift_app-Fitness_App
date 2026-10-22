@@ -1,10 +1,22 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseConfigured } from "@/lib/supabase/configured";
+import { isCronAuthorized, isCronPath } from "@/lib/cronAuth";
 
-const PUBLIC = ["/login", "/auth", "/manifest.webmanifest", "/sw.js", "/icons", "/api/cron"];
+// /api/cron is not on this list: cron routes have no user session and are
+// gated by CRON_SECRET below instead of being open to everyone.
+const PUBLIC = ["/login", "/auth", "/manifest.webmanifest", "/sw.js", "/icons"];
 
 export async function middleware(request: NextRequest) {
+  // Cron routes: require `Authorization: Bearer <CRON_SECRET>` in every mode,
+  // including local-only. Route handlers must also check it (lib/cronAuth.ts).
+  if (isCronPath(request.nextUrl.pathname)) {
+    if (!isCronAuthorized(request.headers.get("authorization"), process.env.CRON_SECRET)) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
   if (!supabaseConfigured) return response; // local-only mode until keys are added
 

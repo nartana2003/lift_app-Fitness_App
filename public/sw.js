@@ -106,18 +106,11 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const { url, kind } = event.notification.data || {};
-  if (event.action === "skip" || event.action === "snooze") {
-    event.waitUntil(
-      fetch("/api/reminders/snooze", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: event.action, kind }),
-        credentials: "include",
-      }).catch(() => {}),
-    );
-    return;
-  }
+  const { url } = event.notification.data || {};
+  // Skip / snooze actions: there is no server snooze route yet (reminders are
+  // local only, see lib/reminders.ts), so the action just dismisses the
+  // notification. Skip and snooze are set in Profile > Reminders.
+  if (event.action === "skip" || event.action === "snooze") return;
   event.waitUntil(
     self.clients.matchAll({ type: "window" }).then((list) => {
       const open = list.find((c) => "focus" in c);
