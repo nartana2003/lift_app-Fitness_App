@@ -402,7 +402,7 @@ describe("helpers", () => {
 
 describe("lib/splitBuilder.ts stays client-safe", () => {
   const src = readFileSync(join(__dirname, "..", "splitBuilder.ts"), "utf8");
-  const imports = [...src.matchAll(/^\s*(?:import|export)\s+(type\s+)?[^;]*?from\s+["']([^"']+)["']/gms)].map((m) => ({ type: !!m[1], from: m[2] }));
+  const imports = [...src.matchAll(/^\s*(?:import|export)\s+(type\s+)?[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => ({ type: !!m[1], from: m[2] }));
 
   it("imports nothing from lib/ai, React, Dexie, offline, supabase or next", () => {
     expect(imports.length).toBeGreaterThan(0);
