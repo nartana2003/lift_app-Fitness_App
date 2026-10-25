@@ -7,6 +7,7 @@ import { db, type PlannedDayRow, type SkipReason } from "@/lib/offline/db";
 import {
   clearDay,
   dayKey,
+  markGymDay,
   moveDay,
   moveOptions,
   planDay,
@@ -16,13 +17,23 @@ import {
   SKIP_REASONS,
   skipDay,
   undoSkip,
+  unmarkGymDay,
   weekDays,
 } from "@/lib/planner";
 import { listRoutines, type Routine } from "@/lib/routines";
 import { useSettings } from "@/lib/settings";
 import { useSplit } from "@/lib/splits";
 import { startWorkout } from "@/lib/workout";
-import { autoFillPlan, canDrag, defaultGymDays, dropAction, splitRoutineOrder, weekdayOf } from "@/lib/autofill";
+import {
+  autoFillPlan,
+  canDrag,
+  defaultPickedDays,
+  dropAction,
+  isGymDay,
+  markedOpenDates,
+  splitRoutineOrder,
+  weekdayOf,
+} from "@/lib/autofill";
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -30,6 +41,38 @@ const DOW = ["S", "M", "T", "W", "T", "F", "S"];
 const DRAG_START = 8;
 
 const shortDay = (key: string) => new Date(key + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" });
+
+/**
+ * Classes for one day circle (round, equal width and height, no box around it).
+ * Monochrome: outlined when unmarked, solid black when a gym day, a heavier
+ * ring for today, dashed outline for a valid drop target, muted when past.
+ */
+export function circleClass(s: {
+  gym: boolean;
+  isToday: boolean;
+  isPast: boolean;
+  open: boolean;
+  target: boolean;
+  over: boolean;
+  dragging: boolean;
+}): string {
+  const base =
+    "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold select-none " +
+    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  let look: string;
+  if (s.target) {
+    look = `border-2 border-dashed border-accent text-text ${s.over ? "bg-surface-2" : "bg-transparent"}`;
+  } else if (s.gym) {
+    look = `border border-accent bg-accent text-accent-ink${s.isToday ? " ring-2 ring-accent ring-offset-2 ring-offset-bg" : ""}`;
+  } else if (s.isToday) {
+    look = "border-2 border-accent bg-surface-2 text-text";
+  } else {
+    look = `border ${s.open ? "border-accent" : "border-border"} bg-transparent text-text`;
+  }
+  const muted = s.isPast && !s.target ? " opacity-50" : "";
+  const drag = s.dragging ? " opacity-40" : "";
+  return `${base} ${look}${muted}${drag}`;
+}
 
 /** The day cell under a screen point, if any. */
 function dayAt(x: number, y: number): string | null {
@@ -100,10 +143,24 @@ export function WeekStrip() {
           const draggable = canDrag(p);
           const dragging = drag?.from === k;
           const target = drag && drag.from !== k ? dropAction(drag.from, k, plan, today) : null;
+          const gym = isGymDay(p);
+          const isPast = k < today;
+          const longName = `${d.toLocaleDateString(undefined, { weekday: "long" })} ${d.getDate()}`;
+          const state = gym
+            ? "gym day, tap to change"
+            : p?.status === "skipped"
+              ? "skipped, tap to change"
+              : p?.status === "moved"
+                ? "moved, tap to change"
+                : isPast
+                  ? "not a gym day"
+                  : "not a gym day, tap to mark";
           return (
-            <li key={k}>
+            <li key={k} className="flex justify-center pt-4 pb-5">
               <button
                 data-day={k}
+                aria-label={`${longName}, ${state}`}
+                aria-pressed={gym}
                 style={draggable ? { touchAction: "pan-y" } : undefined}
                 onPointerDown={(e) => {
                   if (!draggable || e.button > 0) return;
@@ -143,15 +200,30 @@ export function WeekStrip() {
                 onClick={() => {
                   if (suppressClick.current) return;
                   setFilling(false);
-                  setOpen(open === k ? null : k);
+                  if (open === k) {
+                    setOpen(null);
+                    return;
+                  }
+                  setOpen(k);
+                  // Tapping an unmarked date from today on marks it as a gym day.
+                  if (!p && !isPast) void markGymDay(k);
                 }}
-                className={`w-full rounded-xl border px-1 py-2 text-center select-none ${
-                  open === k || (target && drag?.over === k) ? "border-accent" : "border-border"
-                } ${target ? "border-dashed" : ""} ${dragging ? "opacity-40" : ""} ${isToday ? "bg-surface-2" : ""}`}
+                className={circleClass({
+                  gym,
+                  isToday,
+                  isPast,
+                  open: open === k,
+                  target: !!target,
+                  over: !!target && drag?.over === k,
+                  dragging,
+                })}
               >
-                <span className="block text-[10px] text-muted">{DOW[d.getDay()]}</span>
-                <span className={`block text-sm font-semibold ${isToday ? "" : ""}`}>{d.getDate()}</span>
-                <span className="block h-4 mt-0.5 text-[13px] leading-4">
+                {/* Weekday letter above and status marker below sit outside the circle. */}
+                <span aria-hidden className="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] font-normal leading-3 text-muted">
+                  {DOW[d.getDay()]}
+                </span>
+                <span>{d.getDate()}</span>
+                <span aria-hidden className="pointer-events-none absolute -bottom-5 left-1/2 h-4 -translate-x-1/2 text-[13px] font-normal leading-4 text-text">
                   {p?.status === "done" ? "✓" : p?.status === "skipped" ? "–" : p?.status === "moved" ? "→" : routine ? "•" : ""}
                 </span>
               </button>
@@ -244,6 +316,8 @@ function DayPanel({
         <p className="font-semibold">{label}</p>
         <button className="text-muted text-sm" onClick={onClose}>Close</button>
       </div>
+
+      <GymDayToggle date={date} row={row} routineName={routine?.name} isPast={isPast} />
 
       {row?.status === "done" && <p className="text-sm text-muted mb-2">Trained ✓</p>}
       {row?.status === "skipped" && (
@@ -352,6 +426,61 @@ function DayPanel({
   );
 }
 
+/**
+ * "Gym day: on/off" at the top of the day panel. Turning it off removes a
+ * planned date (asking first when a routine is planned on it); done, skipped
+ * and moved dates cannot be unmarked, and past dates cannot be marked.
+ */
+function GymDayToggle({
+  date,
+  row,
+  routineName,
+  isPast,
+}: {
+  date: string;
+  row: PlannedDayRow | null;
+  routineName: string | undefined;
+  isPast: boolean;
+}) {
+  const on = isGymDay(row ?? undefined);
+  const locked = !!row && row.status !== "planned";
+  const disabled = locked || (!row && isPast);
+  const hint = locked
+    ? row?.status === "done"
+      ? "Trained days stay marked."
+      : "Undo the skip or move to change this day."
+    : !row && isPast
+      ? "Past days cannot be marked."
+      : "";
+
+  async function toggle() {
+    if (disabled) return;
+    if (!row) {
+      await markGymDay(date);
+      return;
+    }
+    if (row.routine_id) {
+      const name = routineName ?? "the planned routine";
+      if (!confirm(`Unmark this gym day? This also removes ${name} from it.`)) return;
+    }
+    await unmarkGymDay(date);
+  }
+
+  return (
+    <div className="mb-2">
+      <button
+        className={`${on ? "chip-on" : "chip"} text-xs disabled:opacity-40`}
+        aria-pressed={on}
+        disabled={disabled}
+        onClick={() => void toggle()}
+      >
+        {on ? "Gym day: on" : "Gym day: off"}
+      </button>
+      {hint && <p className="mt-1 text-[11px] text-muted">{hint}</p>}
+    </div>
+  );
+}
+
 /** Lay the split's routines across chosen gym days of this week, filling free days only. */
 function AutoFillPanel({
   days,
@@ -372,8 +501,10 @@ function AutoFillPanel({
   const [picked, setPicked] = useState<number[] | null>(null);
   const [busy, setBusy] = useState(false);
   const order = splitRoutineOrder(split, routines);
-  const gymDays = picked ?? defaultGymDays(split.days.length || 3);
-  const fills = autoFillPlan({ days, gymDays, plan, today, routineIds: order });
+  // Dates already marked as gym days (no routine yet) are filled first and set the default pick.
+  const marked = markedOpenDates(days, plan, today);
+  const gymDays = picked ?? defaultPickedDays(marked, split.days.length || 3);
+  const fills = autoFillPlan({ days, gymDays, plan, today, routineIds: order, marked });
   const nameOf = (id: string) => routines.find((r) => r.id === id)?.name ?? "Workout";
 
   const toggle = (wd: number) =>
