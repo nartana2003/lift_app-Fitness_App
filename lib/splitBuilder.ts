@@ -115,6 +115,16 @@ const NEG_FILLERS = new Set([
   "on",
 ]);
 
+/**
+ * Verb fillers ("training", "hitting"...). They only count after an explicit
+ * negator ("skip", "no", "without", "don't want"), not after "not" or "nor":
+ * "I am not training chest enough" asks for more chest, it does not exclude it.
+ */
+const VERB_FILLERS = new Set(["to", "do", "doing", "train", "training", "hit", "hitting", "work", "working", "on"]);
+
+/** Negators that never take a verb filler before the term. */
+const BARE_NEGATORS = new Set(["not", "nor"]);
+
 /** Most filler words skipped between a negator and the term. */
 const MAX_NEG_FILLERS = 3;
 
@@ -155,14 +165,16 @@ function negatedAt(words: readonly string[], byEnd: ReadonlyMap<number, Hit[]>, 
   memo.set(start, false);
   let j = start - 1;
   let skipped = 0;
+  let verb = false;
   while (j >= 0 && skipped < MAX_NEG_FILLERS && NEG_FILLERS.has(words[j])) {
+    if (VERB_FILLERS.has(words[j])) verb = true;
     j--;
     skipped++;
   }
   let out = false;
   if (j >= 0) {
     const w = words[j];
-    if (NEGATORS.has(w)) out = true;
+    if (NEGATORS.has(w)) out = !(verb && BARE_NEGATORS.has(w));
     else if (w === "want" && j >= 1) {
       // "don't want" (textKey: "don t want"), "dont want", "do not want", "won't want".
       const p = words[j - 1];
@@ -206,8 +218,20 @@ function readMuscles(text: string): { named: Set<MuscleGroup>; negated: Set<Musc
 }
 
 /**
- * Muscle groups the text names. A negated mention ("no legs", "skip chest",
- * "without arms", "don't want abs") does not count.
+ * Muscle groups the text names, negations ignored ("Should I skip legs?" names
+ * the legs). This is the original ask-coach matcher: lib/ai/ask-coach
+ * re-exports it as its mentionedMuscles so coaching answers are unchanged.
+ */
+export function namedMuscles(question: string): MuscleGroup[] {
+  const q = textKey(question);
+  const has = (key: string) => key !== "" && ` ${q} `.includes(` ${key} `);
+  return MUSCLE_GROUPS.filter((m) => has(textKey(m)) || (MUSCLE_ALIASES[m] ?? []).some(has));
+}
+
+/**
+ * Muscle groups a split request names. A negated mention ("no legs", "skip
+ * chest", "without arms", "don't want abs") does not count. Used by the split
+ * builder only; ask-coach uses namedMuscles.
  */
 export function mentionedMuscles(question: string): MuscleGroup[] {
   const { named } = readMuscles(question);

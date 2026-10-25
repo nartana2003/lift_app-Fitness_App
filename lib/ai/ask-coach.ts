@@ -38,7 +38,7 @@ import { MUSCLE_GROUPS, type MuscleGroup } from "../muscles";
 import { suggest, type RepRange, type Suggestion } from "../overload";
 import type { Plateau } from "../plateau";
 import { e1rm } from "../prs";
-import { mentionedMuscles } from "../splitBuilder";
+import { namedMuscles as mentionedMuscles } from "../splitBuilder";
 import { dispNum, type Unit } from "../units";
 import { EXPERIENCES, GOAL_TYPES, MAX_USER_TARGET, MAX_WEEK_SETS } from "./goal-targets";
 import { SHORTHAND, isTagLike, normaliseText } from "./parse-log";
@@ -340,7 +340,7 @@ const NUMBER_WORDS = /\b(progress|increase|next|heavier|add weight|how much)\b/i
 
 const hasWords = (q: string, key: string) => key !== "" && ` ${q} `.includes(` ${key} `);
 
-/** Muscle groups the question names. Moved to lib/splitBuilder.ts (client-safe); re-exported here unchanged. */
+/** Muscle groups the question names, negations ignored. Moved to lib/splitBuilder.ts as namedMuscles (client-safe); re-exported here unchanged. */
 export { mentionedMuscles };
 
 /** Exercises from the request that the question names (full name or common shorthand). */

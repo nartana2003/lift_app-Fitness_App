@@ -12,6 +12,7 @@ import {
   excludedMuscles,
   mentionedMuscles,
   muscleWeights,
+  namedMuscles,
   textKey,
   type SuggestSplitInput,
 } from "../splitBuilder";
@@ -65,8 +66,8 @@ describe("re-exports", () => {
     }
   });
 
-  it("lib/ai/ask-coach still exports mentionedMuscles, the same function", () => {
-    expect(coachMentioned).toBe(mentionedMuscles);
+  it("lib/ai/ask-coach still exports mentionedMuscles: the negation-blind namedMuscles", () => {
+    expect(coachMentioned).toBe(namedMuscles);
     expect(coachMentioned("why are my arms and legs not growing?")).toEqual(["Biceps", "Triceps", "Quads", "Hamstrings", "Glutes"]);
   });
 
@@ -171,5 +172,36 @@ describe("negated requests", () => {
 
   it("is re-exported by lib/ai/suggest-split", () => {
     expect(viaAi.excludedMuscles).toBe(excludedMuscles);
+  });
+});
+
+describe("'not' + training verb is not a negation", () => {
+  it.each(["I am not training chest enough", "I am not training chest enough, 4 days", "Why am I not hitting my chest enough", "I do not train chest enough"])(
+    "%s: Chest is named, not excluded, and stays in the split",
+    (req) => {
+      expect(excludedMuscles(req)).toEqual([]);
+      expect(mentionedMuscles(req)).toContain("Chest");
+      expect(buildSplit(input({ request: req }), BY_ID).split.days.some((d) => d.muscles.includes("Chest"))).toBe(true);
+    },
+  );
+
+  it("I do not train arms enough: arms are named, not excluded", () => {
+    expect(excludedMuscles("I do not train arms enough")).toEqual([]);
+    expect(mentionedMuscles("I do not train arms enough")).toEqual(["Biceps", "Triceps"]);
+  });
+
+  it("explicit negators still take a verb", () => {
+    expect(excludedMuscles("skip training my legs")).toEqual(["Quads", "Hamstrings", "Glutes", "Hips/Adductors/Abductors", "Calves"]);
+    expect(excludedMuscles("I don't want to train chest")).toEqual(["Chest"]);
+    expect(excludedMuscles("not chest")).toEqual(["Chest"]);
+  });
+});
+
+describe("namedMuscles ignores negation", () => {
+  it("names every muscle the text mentions", () => {
+    expect(namedMuscles("no legs")).toEqual(["Quads", "Hamstrings", "Glutes"]);
+    expect(namedMuscles("Am I not training chest enough?")).toEqual(["Chest"]);
+    expect(namedMuscles("more chest, no biceps")).toEqual(["Chest", "Biceps"]);
+    expect(namedMuscles("hello")).toEqual([]);
   });
 });
