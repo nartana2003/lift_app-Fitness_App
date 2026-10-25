@@ -20,7 +20,7 @@ type Seed = {
 };
 
 const test = base.extend<{ errors: string[] }>({
-  errors: async ({ page }, use) => {
+  errors: async ({ page }, provide) => {
     const errors: string[] = [];
     // The fixed clock makes server-rendered date text differ from the client's, which React
     // reports as hydration error #418. That is an artifact of the pinned clock, not a bug, so
@@ -29,7 +29,7 @@ const test = base.extend<{ errors: string[] }>({
       if (!/Minified React error #418/.test(String(e))) errors.push(String(e));
     });
     await page.clock.setFixedTime(new Date("2026-10-14T12:00:00"));
-    await use(errors);
+    await provide(errors);
     expect(errors, "uncaught page errors").toEqual([]);
   },
 });
