@@ -51,6 +51,8 @@ export async function createRoutine(input: {
   source?: RoutineRow["source"];
   kind?: RoutineRow["kind"];
   notes?: string;
+  /** The split day this routine belongs to. Left out: no link (the field is not written). */
+  split_day_id?: string | null;
 }): Promise<string> {
   const row: RoutineRow = {
     id: uuid(),
@@ -65,6 +67,7 @@ export async function createRoutine(input: {
     notes: input.notes?.trim() || null,
     created_at: new Date().toISOString(),
   };
+  if (input.split_day_id !== undefined) row.split_day_id = input.split_day_id || null;
   const exercises = toRows(row.id, input.exercises);
   await db.transaction("rw", db.routines, db.routine_exercises, async () => {
     await db.routines.put(row);
@@ -80,7 +83,7 @@ export async function createRoutine(input: {
 /** Change the name/notes and/or replace the exercise list. */
 export async function updateRoutine(
   id: string,
-  patch: { name?: string; notes?: string | null; exercises?: RoutineExerciseInput[] },
+  patch: { name?: string; notes?: string | null; exercises?: RoutineExerciseInput[]; split_day_id?: string | null },
 ) {
   const cur = await db.routines.get(id);
   if (!cur) return;
@@ -89,6 +92,7 @@ export async function updateRoutine(
     name: patch.name !== undefined ? patch.name.trim() || cur.name : cur.name,
     notes: patch.notes !== undefined ? patch.notes?.trim() || null : cur.notes,
   };
+  if (patch.split_day_id !== undefined) next.split_day_id = patch.split_day_id || null;
   const items: Parameters<typeof enqueue>[0] = [{ table: "routines", op: "upsert", row: next }];
   let fresh: RoutineExerciseRow[] | undefined;
   let old: RoutineExerciseRow[] = [];
@@ -106,6 +110,20 @@ export async function updateRoutine(
     }
   });
   await enqueue(items);
+}
+
+/** Link a routine to a split day, or unlink it with null. Never touches its exercises. */
+export const linkRoutineToDay = (routineId: string, dayId: string | null) =>
+  updateRoutine(routineId, { split_day_id: dayId });
+
+/**
+ * Unlink every routine whose split day is not in `dayIds` (the day was deleted or
+ * the split replaced). The routines are kept and become unassigned. Returns how many.
+ */
+export async function unlinkRoutinesOutside(dayIds: ReadonlySet<string>): Promise<number> {
+  const stale = (await db.routines.toArray()).filter((r) => !!r.split_day_id && !dayIds.has(r.split_day_id));
+  for (const r of stale) await updateRoutine(r.id, { split_day_id: null });
+  return stale.length;
 }
 
 export async function deleteRoutine(id: string) {

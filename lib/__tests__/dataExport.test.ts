@@ -399,3 +399,50 @@ describe("validation happens before anything is written", () => {
     expect(b.tables.sets).toEqual([]);
   });
 });
+
+describe("routine split-day links", () => {
+  const SPLIT = { name: "PPL", days: [{ id: "day-push", name: "Push", muscles: ["Chest"] }, { id: "day-pull", name: "Pull", muscles: ["Back"] }] };
+
+  it("round-trips split_day_id and the split's day ids, and queues the link for sync", async () => {
+    await db.routines.bulkPut([
+      routine("r1", { split_day_id: "day-push" }),
+      routine("r2", { name: "Pull", split_day_id: null }),
+      routine("r3", { name: "Old" }),
+    ]);
+    await db.meta.put({ key: "split", value: SPLIT });
+    const before = await db.routines.toArray();
+    const text = await exportedText();
+    expect(text).toContain('"split_day_id":"day-push"');
+    await clearAll();
+
+    await importBackup(parsed(text));
+    expect(await db.routines.toArray()).toEqual(before);
+    expect((await db.routines.get("r1"))!.split_day_id).toBe("day-push");
+    expect((await db.routines.get("r2"))!.split_day_id).toBeNull();
+    expect("split_day_id" in (await db.routines.get("r3"))!).toBe(false);
+    expect((await db.meta.get("split"))!.value).toEqual(SPLIT);
+
+    const out = (await db.outbox.toArray()).filter((o) => o.table === "routines");
+    expect(out.find((o) => o.row.id === "r1")!.row.split_day_id).toBe("day-push");
+    expect(out.find((o) => o.row.id === "r2")!.row.split_day_id).toBeNull();
+  });
+
+  it("rejects a split_day_id that is not text or null", () => {
+    const text = JSON.stringify({
+      format: BACKUP_FORMAT,
+      version: 1,
+      exported_at: "2026-10-16T12:00:00.000Z",
+      tables: { routines: [{ ...routine("r1"), split_day_id: 5 }] },
+    });
+    const r = parseBackup(text);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? "" : r.error).toMatch(/routines row 1: "split_day_id"/);
+  });
+
+  it("leaves split_day_id out of older routine rows that never had it", () => {
+    const text = JSON.stringify({ format: BACKUP_FORMAT, version: 1, exported_at: "x", tables: { routines: [routine("r1")] } });
+    const b = parsed(text);
+    expect(b.tables.routines[0]).toEqual(routine("r1"));
+    expect("split_day_id" in b.tables.routines[0]).toBe(false);
+  });
+});

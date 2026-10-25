@@ -2,6 +2,7 @@
 // Pure: no Dexie, so it is tested in node. Types only from client modules.
 import type { PlannedDayRow, RoutineRow } from "./offline/db";
 import type { Split } from "./splits";
+import { nextRoutineForDay, splitDayIds, type LastDone } from "./splitRoutines";
 
 /** Day of week (0 = Sunday) of a local YYYY-MM-DD key. */
 export const weekdayOf = (key: string) => new Date(key + "T00:00:00").getDay();
@@ -28,7 +29,10 @@ export function defaultGymDays(sessions: number): number[] {
   }
 }
 
-type RoutineLike = Pick<RoutineRow, "id" | "name" | "day_label" | "created_at"> & { kind?: RoutineRow["kind"] };
+type RoutineLike = Pick<RoutineRow, "id" | "name" | "day_label" | "created_at"> & {
+  kind?: RoutineRow["kind"];
+  split_day_id?: string | null;
+};
 
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
@@ -51,21 +55,36 @@ function looseMatch(a: string, b: string) {
 }
 
 /**
- * Routine ids in the order of the user's split. Each split day is matched to a
- * routine by day label or name (exact first, then one name containing the other).
+ * Routine ids in the order of the user's split. A split day with routines
+ * linked to it (RoutineRow.split_day_id) uses the next of them (nextRoutineForDay:
+ * the one done longest ago per `lastDone`, ties oldest first). A day with no
+ * linked routine is matched by day label or name (exact first, then one name
+ * containing the other), skipping routines linked to another day of the split.
  * Mini routines are never used. With no split, or no day matching any routine,
  * every full routine is used, oldest first.
  */
-export function splitRoutineOrder(split: Pick<Split, "days">, routines: readonly RoutineLike[]): string[] {
+export function splitRoutineOrder(
+  split: Pick<Split, "days">,
+  routines: readonly RoutineLike[],
+  lastDone?: LastDone,
+): string[] {
   const full = routines.filter((r) => r.kind !== "mini").sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const dayIds = splitDayIds(split);
+  // Routines explicitly linked to a day of this split are not up for name matching.
+  const free = full.filter((r) => !r.split_day_id || !dayIds.has(r.split_day_id));
   const order: string[] = [];
   for (const day of split.days) {
+    const linked = day.id ? nextRoutineForDay(full, day.id, lastDone) : null;
+    if (linked) {
+      order.push(linked.id);
+      continue;
+    }
     const want = norm(day.name);
     if (!want) continue;
     const hit =
-      full.find((r) => norm(r.day_label) === want) ??
-      full.find((r) => norm(r.name) === want) ??
-      full.find((r) => looseMatch(r.name, day.name));
+      free.find((r) => norm(r.day_label) === want) ??
+      free.find((r) => norm(r.name) === want) ??
+      free.find((r) => looseMatch(r.name, day.name));
     if (hit) order.push(hit.id);
   }
   return order.length > 0 ? order : full.map((r) => r.id);
