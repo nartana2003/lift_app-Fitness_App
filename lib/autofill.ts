@@ -76,9 +76,30 @@ const isFree = (p: Pick<PlannedDayRow, "routine_id" | "status"> | undefined) =>
   !p || (!p.routine_id && p.status !== "done");
 
 /**
+ * Whether a date counts as a gym day on the strip: a planned row (with or
+ * without a routine) or a trained day. Skipped and moved dates do not.
+ */
+export const isGymDay = (p: Pick<PlannedDayRow, "status"> | undefined) =>
+  !!p && (p.status === "planned" || p.status === "done");
+
+/** Dates marked as gym days, from today on, that have no routine yet (in date order). */
+export function markedOpenDates(
+  days: readonly string[],
+  plan: ReadonlyMap<string, Pick<PlannedDayRow, "routine_id" | "status">>,
+  today: string,
+): string[] {
+  return days.filter((d) => {
+    const p = plan.get(d);
+    return d >= today && !!p && !p.routine_id && p.status === "planned";
+  });
+}
+
+/**
  * Lay routines across the chosen gym days of the week, in split order.
  * Only free days from today on are filled; planned, done, skipped and moved
- * days are left alone. Returns the days to plan.
+ * days are left alone. Dates in `marked` (gym days with no routine) are given
+ * the first routines of the split, then the other picked days. Returns the
+ * days to plan, in date order.
  */
 export function autoFillPlan(input: {
   days: readonly string[];
@@ -86,16 +107,22 @@ export function autoFillPlan(input: {
   plan: ReadonlyMap<string, Pick<PlannedDayRow, "routine_id" | "status">>;
   today: string;
   routineIds: readonly string[];
+  marked?: readonly string[];
 }): { date: string; routine_id: string }[] {
   const { days, gymDays, plan, today, routineIds } = input;
   if (routineIds.length === 0) return [];
   const gym = new Set(gymDays);
-  const out: { date: string; routine_id: string }[] = [];
-  for (const date of days) {
-    if (date < today || !gym.has(weekdayOf(date)) || !isFree(plan.get(date))) continue;
-    out.push({ date, routine_id: routineIds[out.length % routineIds.length] });
-  }
-  return out;
+  const marked = new Set(input.marked ?? []);
+  const open = days.filter((date) => date >= today && gym.has(weekdayOf(date)) && isFree(plan.get(date)));
+  const ordered = [...open.filter((d) => marked.has(d)), ...open.filter((d) => !marked.has(d))];
+  const out = ordered.map((date, i) => ({ date, routine_id: routineIds[i % routineIds.length] }));
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** The Auto-fill day picker default: the weekdays of marked dates, else the split's default. */
+export function defaultPickedDays(marked: readonly string[], sessions: number): number[] {
+  if (marked.length === 0) return defaultGymDays(sessions);
+  return [...new Set(marked.map(weekdayOf))];
 }
 
 export type DropAction = "move" | "swap" | null;

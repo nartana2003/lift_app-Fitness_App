@@ -53,6 +53,28 @@ export async function planDay(date: string, routineId: string) {
   await save({ ...(cur ?? blank(date)), routine_id: routineId, status: "planned", skip_reason: null, skip_note: null, moved_to: null });
 }
 
+/**
+ * Mark a date as a gym day with no routine yet (a planned row, routine_id null),
+ * through the same save/outbox path as planning. Never changes a date that
+ * already has a row. Returns true when a new mark was written.
+ */
+export async function markGymDay(date: string): Promise<boolean> {
+  if (await getDay(date)) return false;
+  await save(blank(date));
+  return true;
+}
+
+/**
+ * Unmark a gym day: removes a planned date's row (with its routine, if any).
+ * Done, skipped and moved dates cannot be unmarked. Returns true when removed.
+ */
+export async function unmarkGymDay(date: string): Promise<boolean> {
+  const cur = await getDay(date);
+  if (!cur || cur.status !== "planned") return false;
+  await clearDay(date);
+  return true;
+}
+
 export async function clearDay(date: string) {
   const cur = await getDay(date);
   if (!cur) return;
