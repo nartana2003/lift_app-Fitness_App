@@ -161,8 +161,9 @@ const isCompound = (e: Exercise) => e.mechanic === "compound";
  *    no exercise is repeated across the day).
  * 2. The rest come from unused pool exercises, longest ago first (never done
  *    counts as longest ago). Ties: compound first, then name, then id.
- * 3. Exercises done in the most recent session that trained this muscle are left
- *    out while the pool has any other unused option.
+ * 3. Exercises done in the most recent session that trained this muscle come
+ *    after every other unused option; they only top up the quota when the rest
+ *    run out (so each muscle gets min(perMuscle, pool size) picks).
  *
  * Each muscle's picks are then listed compounds before isolation (stable).
  * A muscle with an empty pool gets no picks and is listed in `missing`.
@@ -228,7 +229,9 @@ export function suggestToday(input: {
       const unused = list.filter((e) => !picked.has(e.id));
       const recent = recentFor(m);
       const fresh = unused.filter((e) => !recent.has(e.id));
-      const choose = (fresh.length ? fresh : unused).slice().sort(order).slice(0, per - picks.length);
+      // Fresh options first; top up from last session's only when fresh run out.
+      const stale = unused.filter((e) => recent.has(e.id));
+      const choose = [...fresh.sort(order), ...stale.sort(order)].slice(0, per - picks.length);
       for (const e of choose) {
         const t = last.get(e.id);
         const p: TodayPick = { exercise: e, lastDoneDaysAgo: t == null ? null : daysBetween(t, now), muscles: [m] };

@@ -159,11 +159,19 @@ describe("suggestToday", () => {
   });
 
   it("never picks the exercise from the latest session for that muscle while the pool has another", () => {
-    // Zottman is the oldest ever, but it was also done in the most recent biceps session.
+    // Zottman was done in the most recent biceps session, so it only tops up, last.
     const history = [w(2, ["zottman"]), w(4, ["incline"]), w(6, ["hammer"])];
     const r = suggestToday({ day: BI, pool: biPool, history, perMuscle: 3, now: NOW });
-    expect(ids(r.muscles[0].picks)).not.toContain("zottman");
-    expect(ids(r.muscles[0].picks)).toEqual(["hammer", "incline"]);
+    expect(ids(r.muscles[0].picks)[0]).not.toBe("zottman");
+    expect(ids(r.muscles[0].picks)).toEqual(["hammer", "incline", "zottman"]);
+    const one = suggestToday({ day: BI, pool: biPool, history, perMuscle: 1, now: NOW });
+    expect(ids(one.muscles[0].picks)).toEqual(["hammer"]);
+  });
+
+  it("tops up from the latest session when perMuscle exceeds the fresh options", () => {
+    const p = pool(["zottman", "hammer"]);
+    const r = suggestToday({ day: BI, pool: p, history: [w(1, ["zottman"])], perMuscle: 2, now: NOW });
+    expect(ids(r.muscles[0].picks)).toEqual(["hammer", "zottman"]);
   });
 
   it("falls back to the latest-session exercise only when it is the whole pool", () => {
