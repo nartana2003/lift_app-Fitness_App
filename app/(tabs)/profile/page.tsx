@@ -9,8 +9,6 @@ import { LyftaImport } from "@/components/LyftaImport";
 import { DataBackup } from "@/components/DataBackup";
 import { GoalsSection } from "@/components/goals/GoalsSection";
 import { SplitEditor } from "@/components/goals/SplitEditor";
-import { EquipmentChecklist } from "@/components/EquipmentChecklist";
-import { equipmentSummary, useEquipment } from "@/lib/equipment";
 import { ReminderSettings } from "@/components/ReminderSettings";
 import { reminderSummary, useReminders } from "@/lib/reminders";
 import { useSplit } from "@/lib/splits";
@@ -57,7 +55,6 @@ export default function ProfilePage() {
   const theme = useThemePref();
   const goals = useGoals();
   const split = useSplit();
-  const equipment = useEquipment();
   const reminders = useReminders();
   const [profile, setProfile] = useState<Profile>(emptyProfile());
   const [height, setHeight] = useState("");
@@ -216,10 +213,6 @@ export default function ProfilePage() {
         subtitle={split.days.length ? `${split.name || "Split"} · ${split.days.map((d) => d.name).join(" · ")}` : "Not set up yet"}
       >
         <SplitEditor />
-      </Collapsible>
-
-      <Collapsible title="My gym equipment" icon={<Icon d={ICONS.dumbbell} />} subtitle={equipmentSummary(equipment)}>
-        <EquipmentChecklist />
       </Collapsible>
 
       <Collapsible title="Reminders" icon={<Icon d={ICONS.bell} />} subtitle={reminderSummary(reminders, weekStart)}>

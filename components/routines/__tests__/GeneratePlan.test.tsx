@@ -396,7 +396,7 @@ describe("RoutineList", () => {
   it("keeps the existing list and adds the Generate 3-day plan control", async () => {
     mockFetch(() => json({ unavailable: true }, 503));
     render(<RoutineList />);
-    expect(await screen.findByText("No routines yet.")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "New routine" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "New routine" })).toHaveAttribute("href", "/routines/new");
     expect(screen.getByText("Generate 3-day plan")).toBeInTheDocument();
   });

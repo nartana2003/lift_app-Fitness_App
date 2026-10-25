@@ -82,9 +82,7 @@ export function RoutineList() {
         </Link>
       </div>
 
-      {routines.length === 0 ? (
-        <p className="card p-4 text-sm text-muted">No routines yet.</p>
-      ) : (
+      {routines.length === 0 ? null : (
         <>
         {(platformChips.length > 0 || muscleChips.length > 0) && (
           <div className="mb-2 space-y-1.5">

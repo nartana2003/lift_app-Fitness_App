@@ -85,7 +85,7 @@ describe("Profile reminders section", () => {
 
   it("keeps the existing Profile sections", () => {
     render(<ProfilePage />);
-    for (const name of ["Personal information", "Body", "Goals", "My split", "My gym equipment", "Preferences", "Backup", "Import data", "Account"]) {
+    for (const name of ["Personal information", "Body", "Goals", "My split", "Preferences", "Backup", "Import data", "Account"]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
   });

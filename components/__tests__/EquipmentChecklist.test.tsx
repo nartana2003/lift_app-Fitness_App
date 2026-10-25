@@ -12,8 +12,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import ProfilePage from "@/app/(tabs)/profile/page";
-
 beforeEach(async () => {
   await Promise.all(db.tables.map((t) => t.clear()));
   localStorage.clear();
@@ -49,25 +47,5 @@ describe("EquipmentChecklist", () => {
     fireEvent.click(bw);
     await waitFor(async () => expect(await stored()).toEqual(["Bodyweight"]));
     expect(bw).toHaveAttribute("aria-checked", "true");
-  });
-});
-
-describe("Profile equipment section", () => {
-  it("is collapsed by default, summarises and opens to the checklist", async () => {
-    await saveEquipment(["Dumbbell", "Bodyweight"]);
-    render(<ProfilePage />);
-    const header = screen.getByRole("button", { name: /My gym equipment/ });
-    expect(header).toHaveAttribute("aria-expanded", "false");
-    await waitFor(() => expect(header).toHaveTextContent("Dumbbell, Bodyweight"));
-    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-    fireEvent.click(header);
-    expect(screen.getAllByRole("checkbox")).toHaveLength(EQUIPMENT.length);
-  });
-
-  it("keeps the existing Profile sections", () => {
-    render(<ProfilePage />);
-    for (const name of ["Personal information", "Body", "Goals", "My split", "Preferences", "Backup", "Import data", "Account"]) {
-      expect(screen.getByRole("button", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
-    }
   });
 });
