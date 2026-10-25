@@ -47,22 +47,49 @@ const blank = (date: string): PlannedDayRow => ({
 
 export const getDay = (date: string) => db.planned_days.where("date").equals(date).first();
 
+/**
+ * Read one date's row and write its replacement (plus the outbox entry) in a
+ * single rw transaction, so overlapping calls on the same date are serialised
+ * and never both insert a row (the `&date` index would reject the second).
+ * `next` returns null to write nothing. Returns true when a row was written.
+ */
+async function writeDayAtomic(date: string, next: (cur: PlannedDayRow | undefined) => PlannedDayRow | null): Promise<boolean> {
+  const ok = await db.transaction("rw", db.planned_days, db.outbox, async () => {
+    const row = next(await getDay(date));
+    if (!row) return false;
+    await db.planned_days.put(row);
+    await db.outbox.add({ table: "planned_days", op: "upsert", row, created_at: new Date().toISOString() });
+    return true;
+  });
+  // Push only after the transaction has committed (flush runs outside it).
+  if (ok) void flush();
+  return ok;
+}
+
 /** Plan a routine on a day (replacing whatever was there). */
 export async function planDay(date: string, routineId: string) {
-  const cur = await getDay(date);
-  await save({ ...(cur ?? blank(date)), routine_id: routineId, status: "planned", skip_reason: null, skip_note: null, moved_to: null });
+  await writeDayAtomic(date, (cur) => ({
+    ...(cur ?? blank(date)),
+    routine_id: routineId,
+    status: "planned",
+    skip_reason: null,
+    skip_note: null,
+    moved_to: null,
+  }));
 }
 
 /**
  * Mark a date as a gym day with no routine yet (a planned row, routine_id null),
  * through the same save/outbox path as planning. Never changes a date that
- * already has a row. Returns true when a new mark was written.
+ * already has a row. Returns true when a new mark was written. The check and
+ * the write are one transaction, so rapid repeated taps write one row only.
  */
 export async function markGymDay(date: string): Promise<boolean> {
-  if (await getDay(date)) return false;
-  await save(blank(date));
-  return true;
+  return writeDayAtomic(date, (cur) => (cur ? null : blank(date)));
 }
+
+/** A routine-less planned row: a date the user marked as a gym day. */
+const isMarkedOnly = (row: PlannedDayRow | undefined) => !!row && row.status === "planned" && !row.routine_id;
 
 /**
  * Unmark a gym day: removes a planned date's row (with its routine, if any).
@@ -97,9 +124,12 @@ export async function moveDay(from: string, to: string, reason: SkipReason, note
   // failure part-way leaves neither day changed (no half-finished move).
   await db.transaction("rw", db.planned_days, db.outbox, async () => {
     const cur = (await getDay(from)) ?? blank(from);
-    const target = (await getDay(to)) ?? blank(to);
+    const existing = await getDay(to);
+    const target = existing ?? blank(to);
     const origin: PlannedDayRow = { ...cur, status: "moved", skip_reason: reason, skip_note: note?.trim() || null, moved_to: to };
     const dest: PlannedDayRow = { ...target, routine_id: cur.routine_id, status: "planned", skip_reason: null, skip_note: null, moved_from: from };
+    // Remember that the user had marked this date, so undo keeps the mark.
+    if (isMarkedOnly(existing)) dest.was_marked = true;
     await db.planned_days.put(origin);
     await db.planned_days.put(dest);
     const at = new Date().toISOString();
@@ -151,6 +181,9 @@ export async function rescheduleDay(from: string, to: string): Promise<boolean> 
       moved_to: null,
       moved_from: src.moved_from,
     };
+    // A mark on the drop date survives an undo of the move that now points here.
+    if (isMarkedOnly(target)) dest.was_marked = true;
+    else delete dest.was_marked;
     await db.planned_days.put(dest);
     out.push({ table: "planned_days", op: "upsert", row: dest, created_at: at });
     await db.planned_days.delete(src.id);
@@ -201,8 +234,16 @@ export async function undoSkip(date: string) {
     const moved = await getDay(cur.moved_to);
     if (moved && moved.moved_from === date) {
       if (moved.status === "done") return; // already trained on the new day; leave it alone
-      await db.planned_days.delete(moved.id);
-      await enqueue([{ table: "planned_days", op: "delete", row: { id: moved.id } }]);
+      if (moved.was_marked) {
+        // The user had marked that date before the move: put the mark back
+        // (a routine-less planned row) rather than deleting it.
+        const { was_marked: _drop, ...rest } = moved;
+        void _drop;
+        await save({ ...rest, routine_id: null, status: "planned", skip_reason: null, skip_note: null, moved_to: null, moved_from: null });
+      } else {
+        await db.planned_days.delete(moved.id);
+        await enqueue([{ table: "planned_days", op: "delete", row: { id: moved.id } }]);
+      }
     }
   }
   await save({ ...cur, status: "planned", skip_reason: null, skip_note: null, moved_to: null });
