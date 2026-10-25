@@ -20,6 +20,14 @@ import {
   MSG_DETAILS_MANUAL,
   MSG_DETAILS_OFFLINE,
   MSG_DETAILS_OK,
+  MSG_NO_MUSCLE,
+  MSG_NOTHING_NEW,
+  DEFAULT_SAVE_AS,
+  SAVE_AS_OPTIONS,
+  NoMuscleError,
+  saveExercisesFromLink,
+  saveExercisesLabel,
+  saveRoutineFromLink,
   MAX_CREATOR,
   MAX_TITLE,
   DETAILS_ROUTE,
@@ -270,7 +278,7 @@ describe("saveMiniWorkout", () => {
 // ---------- component ----------
 
 describe("SaveFromLink", () => {
-  it("reads a post, shows it for review and saves the kept exercises as a mini workout", async () => {
+  it("reads a post, shows it for review and saves the kept exercises as a routine (SOC-06 default)", async () => {
     const fn = mockFetch(() => json(okBody()));
     render(<SaveFromLink />);
     fillForm();
@@ -286,12 +294,12 @@ describe("SaveFromLink", () => {
     fireEvent.change(screen.getByLabelText("Workout name"), { target: { value: "Core 10" } });
     fireEvent.change(screen.getByLabelText("Sets for Crunch"), { target: { value: "4" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Keep Hollow hold" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save mini workout" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Saved Core 10 as a mini workout.");
+    fireEvent.click(screen.getByRole("button", { name: "Save routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Core 10 as a routine.");
 
     const saved = await listRoutines();
     expect(saved).toHaveLength(1);
-    expect(saved[0]).toMatchObject({ name: "Core 10", kind: "mini", source: "social", source_url: LINK, platform: "tiktok" });
+    expect(saved[0]).toMatchObject({ name: "Core 10", kind: "routine", source: "social", source_url: LINK, platform: "tiktok" });
     expect(saved[0].exercises.map((e) => [e.exercise_id, e.target_sets, e.target_reps])).toEqual([["crunch", 4, "20"]]);
     expect(await db.custom_exercises.count()).toBe(0);
   });
@@ -525,8 +533,8 @@ describe("SaveFromLink Fetch details", () => {
     const sent = JSON.parse(String(routeCalls(fn)[0][1]!.body));
     expect(sent).toEqual({ platform: "tiktok", caption: "3x20 crunches", notes: "By @coach" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save mini workout" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a mini workout.");
+    fireEvent.click(screen.getByRole("button", { name: "Save routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a routine.");
     const saved = await listRoutines();
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({ source_url: LINK, thumbnail_url: "https://p16.example.com/t.jpg", creator: "@coach" });
@@ -553,8 +561,8 @@ describe("SaveFromLink Fetch details", () => {
     fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "3x20 crunches" } });
     fireEvent.click(screen.getByRole("button", { name: "Read workout" }));
     await screen.findByRole("list", { name: "Imported exercises" });
-    fireEvent.click(screen.getByRole("button", { name: "Save mini workout" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a mini workout.");
+    fireEvent.click(screen.getByRole("button", { name: "Save routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a routine.");
     const saved = await listRoutines();
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({ platform: "instagram", thumbnail_url: null, creator: null });
@@ -627,8 +635,8 @@ describe("SaveFromLink Fetch details while pending", () => {
     fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "3x20 crunches" } });
     fireEvent.click(screen.getByRole("button", { name: "Read workout" }));
     await screen.findByRole("list", { name: "Imported exercises" });
-    fireEvent.click(screen.getByRole("button", { name: "Save mini workout" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a mini workout.");
+    fireEvent.click(screen.getByRole("button", { name: "Save routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a routine.");
     const saved = await listRoutines();
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({ source_url: other, thumbnail_url: null, creator: null });
@@ -645,5 +653,205 @@ describe("SaveFromLink Fetch details while pending", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(MSG_DETAILS_OK);
     expect(screen.getByLabelText("Caption")).toHaveValue("my own caption");
     expect(screen.getByLabelText("Notes (optional)")).toHaveValue("By @coach");
+  });
+});
+
+// ---------- SOC-06: Save as Routine or Exercise ----------
+
+describe("Save as options", () => {
+  it("offers exactly Routine (the default) and Exercise", () => {
+    expect(SAVE_AS_OPTIONS.map((o) => o.label)).toEqual(["Routine", "Exercise"]);
+    expect(DEFAULT_SAVE_AS).toBe("routine");
+    expect(saveExercisesLabel(1)).toBe("Save 1 exercise");
+    expect(saveExercisesLabel(2)).toBe("Save 2 exercises");
+  });
+});
+
+describe("saveRoutineFromLink", () => {
+  it("saves a normal social routine with the link, thumbnail and creator", async () => {
+    const r = parseImport(okBody(), known)!;
+    const id = await saveRoutineFromLink({
+      name: r.name,
+      notes: r.notes,
+      url: LINK,
+      platform: "tiktok",
+      exercises: r.exercises,
+      thumbnail_url: "https://p16.example.com/t.jpg",
+      creator: "@coach",
+    });
+    const saved = (await getRoutine(id))!;
+    expect(saved).toMatchObject({
+      name: "Ab finisher",
+      kind: "routine",
+      source: "social",
+      source_url: LINK,
+      platform: "tiktok",
+      thumbnail_url: "https://p16.example.com/t.jpg",
+      creator: "@coach",
+    });
+    expect(saved.exercises).toHaveLength(2);
+    const queued = await db.outbox.toArray();
+    expect(
+      queued.some((q) => q.table === "routines" && (q.row as { kind?: string; source_url?: string }).kind === "routine" && (q.row as { source_url?: string }).source_url === LINK),
+    ).toBe(true);
+  });
+
+  it("leaves saveMiniWorkout saving kind mini", async () => {
+    const r = parseImport(okBody(), known)!;
+    const id = await saveMiniWorkout({ name: "M", notes: null, url: LINK, platform: "tiktok", exercises: r.exercises });
+    expect((await getRoutine(id))!.kind).toBe("mini");
+  });
+});
+
+describe("saveExercisesFromLink", () => {
+  const item = (name: string, muscles: Exercise["muscle_groups"], exercise_id: string | null = null) => ({
+    exercise_id,
+    name,
+    custom: exercise_id === null,
+    muscle_groups: muscles,
+    equipment: "Bodyweight" as const,
+    target_sets: 3,
+    target_reps: "10",
+  });
+
+  it("saves new moves as custom exercises with the link as video and creates no routine", async () => {
+    const res = await saveExercisesFromLink({
+      url: LINK,
+      exercises: [item("Hollow hold", ["Abs/Core"]), item("Crunch", ["Abs/Core"], "crunch"), item("Bear crawl", ["Shoulders", "Abs/Core"])],
+      knownNames: CATALOGUE.map((e) => e.name),
+    });
+    expect(res).toEqual({ saved: ["Hollow hold", "Bear crawl"], existing: ["Crunch"] });
+    const custom = await db.custom_exercises.toArray();
+    expect(custom.map((c) => [c.name, c.video_url, c.muscle_groups, c.equipment]).sort()).toEqual(
+      [
+        ["Bear crawl", LINK, ["Shoulders", "Abs/Core"], "Bodyweight"],
+        ["Hollow hold", LINK, ["Abs/Core"], "Bodyweight"],
+      ].sort(),
+    );
+    expect(await listRoutines()).toEqual([]);
+    const queued = await db.outbox.toArray();
+    expect(queued.filter((q) => q.table === "exercises")).toHaveLength(2);
+    expect(queued.some((q) => q.table === "routines" || q.table === "routine_exercises")).toBe(false);
+  });
+
+  it("reports catalogue names and already-saved custom exercises without duplicating", async () => {
+    await saveExercisesFromLink({ url: LINK, exercises: [item("Hollow hold", ["Abs/Core"])] });
+    const res = await saveExercisesFromLink({
+      url: LINK,
+      exercises: [item("hollow HOLD", ["Abs/Core"]), item("push-up", ["Chest"])],
+      knownNames: ["Push-Up"],
+    });
+    expect(res).toEqual({ saved: [], existing: ["hollow HOLD", "push-up"] });
+    expect(await db.custom_exercises.count()).toBe(1);
+  });
+
+  it("writes nothing when a new move has no muscle group", async () => {
+    await expect(
+      saveExercisesFromLink({ url: LINK, exercises: [item("Hollow hold", ["Abs/Core"]), item("Bear crawl", [])] }),
+    ).rejects.toBeInstanceOf(NoMuscleError);
+    expect(await db.custom_exercises.count()).toBe(0);
+    expect(await db.outbox.count()).toBe(0);
+  });
+});
+
+describe("SaveFromLink Save as", () => {
+  async function review() {
+    const fn = mockFetch(() => json(okBody()));
+    render(<SaveFromLink />);
+    fillForm();
+    const list = await screen.findByRole("list", { name: "Imported exercises" });
+    await waitFor(() => expect(within(list).getByText("Crunch")).toBeInTheDocument());
+    return fn;
+  }
+
+  it("shows the new description and no mini workout option", async () => {
+    mockFetch(() => json(okBody()));
+    render(<SaveFromLink />);
+    expect(
+      screen.getByText("Save a workout from a TikTok, Instagram or YouTube link as a routine, or a single move as an exercise."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/as a mini workout/)).toBeNull();
+    fillForm();
+    await screen.findByRole("list", { name: "Imported exercises" });
+    expect(screen.getAllByRole("radio").map((r) => r.getAttribute("value"))).toEqual(["routine", "exercise"]);
+    expect(screen.queryByRole("button", { name: /mini workout/i })).toBeNull();
+    expect(screen.queryByText(/mini workout/i)).toBeNull();
+  });
+
+  it("defaults to Routine with sets and reps shown", async () => {
+    await review();
+    expect(screen.getByRole("radio", { name: "Routine" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Exercise" })).not.toBeChecked();
+    expect(screen.getByLabelText("Sets for Crunch")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save routine" })).toBeEnabled();
+  });
+
+  it("saves the ticked new move as an exercise, reports the catalogue one and creates no routine", async () => {
+    await review();
+    fireEvent.click(screen.getByRole("radio", { name: "Exercise" }));
+    expect(screen.queryByLabelText("Sets for Crunch")).toBeNull();
+    expect(screen.queryByLabelText("Reps for Hollow hold")).toBeNull();
+    expect(screen.getByText("Already in your exercises")).toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Muscle groups for Hollow hold" });
+    expect(within(group).getByRole("button", { name: "Abs/Core" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(group).getByRole("button", { name: "Glutes" }));
+    expect(within(group).getByRole("button", { name: "Glutes" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save 1 exercise" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Saved 1 exercise: Hollow hold. Already in your exercises: Crunch.",
+    );
+    const custom = await db.custom_exercises.toArray();
+    expect(custom).toHaveLength(1);
+    expect(custom[0]).toMatchObject({ name: "Hollow hold", video_url: LINK, muscle_groups: ["Abs/Core", "Glutes"] });
+    expect(await listRoutines()).toEqual([]);
+    const queued = await db.outbox.toArray();
+    expect(queued.filter((q) => q.table === "exercises").map((q) => (q.row as { video_url?: string }).video_url)).toEqual([LINK]);
+    expect(queued.some((q) => q.table === "routines")).toBe(false);
+  });
+
+  it("counts only ticked new moves and disables Save when none are new", async () => {
+    await review();
+    fireEvent.click(screen.getByRole("radio", { name: "Exercise" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Keep Hollow hold" }));
+    expect(screen.getByRole("button", { name: "Save 0 exercises" })).toBeDisabled();
+    expect(await db.custom_exercises.count()).toBe(0);
+  });
+
+  it("keeps the review open with a plain message when a new move has no muscle group", async () => {
+    await review();
+    fireEvent.click(screen.getByRole("radio", { name: "Exercise" }));
+    const group = screen.getByRole("group", { name: "Muscle groups for Hollow hold" });
+    fireEvent.click(within(group).getByRole("button", { name: "Abs/Core" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save 1 exercise" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(MSG_NO_MUSCLE);
+    expect(screen.getByRole("list", { name: "Imported exercises" })).toBeInTheDocument();
+    expect(await db.custom_exercises.count()).toBe(0);
+    expect(await listRoutines()).toEqual([]);
+  });
+
+  it("reports a move already saved as a custom exercise and does not duplicate it", async () => {
+    await saveExercisesFromLink({
+      url: LINK,
+      exercises: [{ exercise_id: null, name: "Hollow hold", custom: true, muscle_groups: ["Abs/Core"], equipment: "Bodyweight", target_sets: 3, target_reps: "10" }],
+    });
+    await review();
+    fireEvent.click(screen.getByRole("radio", { name: "Exercise" }));
+    await waitFor(() => expect(screen.getAllByText("Already in your exercises")).toHaveLength(2));
+    expect(screen.getByRole("button", { name: "Save 0 exercises" })).toBeDisabled();
+    expect(await db.custom_exercises.count()).toBe(1);
+    expect(MSG_NOTHING_NEW).toBe("These are already in your exercises.");
+  });
+
+  it("switching back to Routine shows sets and reps and saves a routine", async () => {
+    await review();
+    fireEvent.click(screen.getByRole("radio", { name: "Exercise" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Routine" }));
+    expect(screen.getByLabelText("Sets for Crunch")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a routine.");
+    const saved = await listRoutines();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ kind: "routine", source: "social", source_url: LINK });
   });
 });

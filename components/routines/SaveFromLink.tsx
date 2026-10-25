@@ -2,9 +2,11 @@
 
 // "Save from link": paste a TikTok, Instagram or YouTube link plus the post's
 // caption, ask POST /api/ai/social-import to read the exercises out of the
-// caption, review and edit them, then save them as a mini workout
-// (createRoutine, kind "mini", source "social"). Exercises not in the
-// catalogue become custom exercises with the link as their video. The server
+// caption, review and edit them, then save them (SOC-06) as a routine
+// (createRoutine, kind "routine", source "social"; the default) or each move
+// as a custom exercise with the link as its video. Exercises not in the
+// catalogue become custom exercises with the link as their video. New saves
+// are never mini workouts any more; saveMiniWorkout stays for existing code. The server
 // never gets the link: it stays on the device and is stored on the routine.
 // Any failure (no key, offline, bad answer) shows a short plain message; the
 // manual routine flow is untouched.
@@ -219,7 +221,11 @@ export function buildRequestBody(platform: Platform, caption: string, notes: str
  * "social") with the link and platform on the routine. Custom exercises are
  * found by name or created, with the link as their video. Returns the new id.
  */
-export async function saveMiniWorkout(input: {
+export async function saveMiniWorkout(input: SocialRoutineInput): Promise<string> {
+  return saveSocialRoutine(input, "mini");
+}
+
+type SocialRoutineInput = {
   name: string;
   notes: string | null;
   url: string;
@@ -228,7 +234,84 @@ export async function saveMiniWorkout(input: {
   /** From Fetch details; optional. */
   thumbnail_url?: string | null;
   creator?: string | null;
-}): Promise<string> {
+};
+
+/**
+ * SOC-06: saves the reviewed exercises as a normal routine (kind "routine",
+ * source "social") with the link, platform, thumbnail and creator kept. Same
+ * path as saveMiniWorkout. Returns the new id.
+ */
+export async function saveRoutineFromLink(input: SocialRoutineInput): Promise<string> {
+  return saveSocialRoutine(input, "routine");
+}
+
+/** What Save from link stores: a routine (the default) or single exercises. */
+export type SaveAs = "routine" | "exercise";
+export const SAVE_AS_OPTIONS: readonly { value: SaveAs; label: string }[] = [
+  { value: "routine", label: "Routine" },
+  { value: "exercise", label: "Exercise" },
+];
+export const DEFAULT_SAVE_AS: SaveAs = "routine";
+
+export const MSG_NO_MUSCLE = "Pick at least one muscle group for each new exercise.";
+export const MSG_NOTHING_NEW = "These are already in your exercises.";
+export const MSG_SAVE_EXERCISES_FAILED = "Could not save the exercises. Try again.";
+
+/** Lowercased, trimmed name used to match exercises. */
+export const nameKey = (s: string) => s.trim().toLowerCase();
+
+/** "Save 1 exercise", "Save 2 exercises". */
+export const saveExercisesLabel = (n: number) => `Save ${n} ${n === 1 ? "exercise" : "exercises"}`;
+
+export class NoMuscleError extends Error {
+  constructor() {
+    super(MSG_NO_MUSCLE);
+  }
+}
+
+/**
+ * SOC-06: saves each reviewed exercise as a custom exercise with the link as
+ * its video (so it shows Watch original). No routine is created. Catalogue
+ * exercises (an id, or a name in `knownNames`) and custom exercises already
+ * saved under the same name are reported in `existing` and not duplicated.
+ * Every new one needs at least one muscle group, otherwise nothing is written
+ * and NoMuscleError is thrown.
+ */
+export async function saveExercisesFromLink(input: {
+  url: string;
+  exercises: ImportItem[];
+  /** Names of exercises the app already has (built-in catalogue). */
+  knownNames?: Iterable<string>;
+}): Promise<{ saved: string[]; existing: string[] }> {
+  const known = new Set([...(input.knownNames ?? [])].map(nameKey));
+  for (const c of await db.custom_exercises.toArray()) known.add(nameKey(c.name));
+  const existing: string[] = [];
+  const todo: { name: string; item: ImportItem; muscles: MuscleGroup[] }[] = [];
+  for (const e of input.exercises) {
+    const name = e.exercise_id === null ? safeExerciseName(e.name) : plainText(e.name, MAX_NAME);
+    if (!name) continue;
+    const key = nameKey(name);
+    if (e.exercise_id !== null || known.has(key)) {
+      if (!existing.some((x) => nameKey(x) === key)) existing.push(name);
+      continue;
+    }
+    if (todo.some((t) => nameKey(t.name) === key)) continue;
+    todo.push({ name, item: e, muscles: [...new Set(e.muscle_groups.filter(isMuscle))] });
+  }
+  if (todo.some((t) => t.muscles.length === 0)) throw new NoMuscleError();
+  const saved: string[] = [];
+  for (const t of todo) {
+    await ensureCustomExercise(t.name, {
+      muscle_groups: t.muscles,
+      equipment: isEquipment(t.item.equipment) ? t.item.equipment : "Other",
+      video_url: input.url,
+    });
+    saved.push(t.name);
+  }
+  return { saved, existing };
+}
+
+async function saveSocialRoutine(input: SocialRoutineInput, kind: "mini" | "routine"): Promise<string> {
   const exercises: { exercise_id: string; target_sets: number; target_reps: string }[] = [];
   for (const e of input.exercises) {
     let id = e.exercise_id;
@@ -247,7 +330,7 @@ export async function saveMiniWorkout(input: {
     name: plainText(input.name, MAX_NAME) ?? DEFAULT_NAME,
     exercises,
     source: "social",
-    kind: "mini",
+    kind,
     notes: input.notes ?? undefined,
   });
   // createRoutine has no link fields: add them to the saved row and queue it again (upserts are idempotent).
@@ -266,9 +349,9 @@ export async function saveMiniWorkout(input: {
   return id;
 }
 
-type Review = { result: ImportResult; keep: boolean[]; url: string; platform: Platform; error?: string };
+type Review = { result: ImportResult; keep: boolean[]; url: string; platform: Platform; saveAs: SaveAs; error?: string };
 
-const reviewOf = (s: Review): Review => ({ result: s.result, keep: s.keep, url: s.url, platform: s.platform });
+const reviewOf = (s: Review): Review => ({ result: s.result, keep: s.keep, url: s.url, platform: s.platform, saveAs: s.saveAs });
 
 type State =
   | { kind: "closed" }
@@ -276,7 +359,7 @@ type State =
   | { kind: "loading" }
   | ({ kind: "review" } & Review)
   | ({ kind: "saving" } & Review)
-  | { kind: "saved"; name: string };
+  | { kind: "saved"; message: string };
 
 const offline = () => typeof navigator !== "undefined" && navigator.onLine === false;
 
@@ -293,9 +376,9 @@ export function initialFromUrl(initialUrl: string | undefined): { state: State; 
   return { state: { kind: "form", message: MSG_SHARED }, link: parsed.url };
 }
 
-/** Save a workout from a TikTok, Instagram or YouTube post as a mini workout. */
+/** Save a workout from a TikTok, Instagram or YouTube post as a routine, or its moves as exercises. */
 export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
-  const { get } = useCatalogue();
+  const { get, exercises: allExercises } = useCatalogue();
   const [initial] = useState(() => initialFromUrl(initialUrl));
   const [state, setState] = useState<State>(initial.state);
   const [link, setLink] = useState(initial.link);
@@ -397,7 +480,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
         setState({ kind: "form", message: MSG_EMPTY });
         return;
       }
-      setState({ kind: "review", result, keep: result.exercises.map(() => true), ...parsed });
+      setState({ kind: "review", result, keep: result.exercises.map(() => true), ...parsed, saveAs: DEFAULT_SAVE_AS });
     } catch {
       setState({ kind: "form", message: offline() ? MSG_OFFLINE : MSG_FAILED });
     }
@@ -410,13 +493,54 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
       result: { ...r.result, exercises: r.result.exercises.map((e, j) => (j === i ? { ...e, ...change } : e)) },
     }));
 
+  const knownNames = new Set(allExercises.map((e) => nameKey(e.name)));
+  /** Display name of a reviewed exercise (catalogue name when it has an id). */
+  const displayName = (e: ImportItem) => (e.exercise_id ? (get(e.exercise_id)?.name ?? e.name) : e.name);
+  /** Already in the app: a catalogue id, or a name the app already has. */
+  const isExisting = (e: ImportItem) => e.exercise_id !== null || knownNames.has(nameKey(e.name));
+
+  const resetForm = () => {
+    setLink("");
+    setCaption("");
+    setNotes("");
+    setDetails(null);
+  };
+
+  const saveExercises = async (r: Review) => {
+    const chosen = r.result.exercises.filter((_, i) => r.keep[i]).map((e) => ({ ...e, name: displayName(e) }));
+    if (chosen.length === 0) return;
+    if (chosen.some((e) => !isExisting(e) && e.muscle_groups.length === 0)) {
+      setState({ ...r, kind: "review", error: MSG_NO_MUSCLE });
+      return;
+    }
+    setState({ ...r, kind: "saving" });
+    try {
+      const { saved, existing } = await saveExercisesFromLink({
+        url: r.url,
+        exercises: chosen,
+        knownNames: allExercises.map((e) => e.name),
+      });
+      if (saved.length === 0) {
+        setState({ ...r, kind: "review", error: MSG_NOTHING_NEW });
+        return;
+      }
+      const parts = [`Saved ${saved.length === 1 ? "1 exercise" : `${saved.length} exercises`}: ${saved.join(", ")}.`];
+      if (existing.length) parts.push(`Already in your exercises: ${existing.join(", ")}.`);
+      setState({ kind: "saved", message: parts.join(" ") });
+      resetForm();
+    } catch (err) {
+      setState({ ...r, kind: "review", error: err instanceof NoMuscleError ? MSG_NO_MUSCLE : MSG_SAVE_EXERCISES_FAILED });
+    }
+  };
+
   const save = async (r: Review) => {
+    if (r.saveAs === "exercise") return saveExercises(r);
     const chosen = r.result.exercises.filter((_, i) => r.keep[i]);
     if (chosen.length === 0) return;
     setState({ ...r, kind: "saving" });
     try {
       const d = details && details.url === r.url ? details : null;
-      await saveMiniWorkout({
+      await saveRoutineFromLink({
         name: r.result.name,
         notes: r.result.notes,
         url: r.url,
@@ -425,11 +549,8 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
         thumbnail_url: d?.thumbnail_url ?? null,
         creator: d?.creator ?? null,
       });
-      setState({ kind: "saved", name: plainText(r.result.name, MAX_NAME) ?? DEFAULT_NAME });
-      setLink("");
-      setCaption("");
-      setNotes("");
-      setDetails(null);
+      setState({ kind: "saved", message: `Saved ${plainText(r.result.name, MAX_NAME) ?? DEFAULT_NAME} as a routine.` });
+      resetForm();
     } catch {
       setState({ ...r, kind: "review", error: MSG_SAVE_FAILED });
     }
@@ -437,6 +558,8 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
 
   const reviewing = state.kind === "review" || state.kind === "saving";
   const kept = reviewing ? state.keep.filter(Boolean).length : 0;
+  const asExercise = reviewing && state.saveAs === "exercise";
+  const newCount = reviewing ? state.result.exercises.filter((e, i) => state.keep[i] && !isExisting(e)).length : 0;
   const showForm = state.kind === "form" || state.kind === "loading";
 
   return (
@@ -444,7 +567,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
       <div className="flex items-start justify-between gap-2">
         <span>
           <span className="block text-sm font-semibold">Save from link</span>
-          <span className="block text-xs text-muted">A TikTok, Instagram or YouTube workout as a mini workout.</span>
+          <span className="block text-xs text-muted">Save a workout from a TikTok, Instagram or YouTube link as a routine, or a single move as an exercise.</span>
         </span>
         {(state.kind === "closed" || state.kind === "saved") && (
           <button type="button" className="chip text-xs shrink-0" onClick={() => setState({ kind: "form" })}>
@@ -455,7 +578,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
 
       {state.kind === "saved" && (
         <p role="status" className="text-xs text-muted mt-2">
-          Saved {state.name} as a mini workout.
+          {state.message}
         </p>
       )}
 
@@ -544,9 +667,29 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
             />
           </label>
           {state.result.notes && <p className="text-xs text-muted mt-1">{state.result.notes}</p>}
+          <fieldset className="mt-2">
+            <legend className="block text-xs text-muted mb-1">Save as</legend>
+            <div className="flex gap-2">
+              {SAVE_AS_OPTIONS.map((o) => (
+                <label key={o.value} className={`${state.saveAs === o.value ? "chip-on" : "chip"} text-xs cursor-pointer`}>
+                  <input
+                    type="radio"
+                    name="save-as"
+                    className="sr-only"
+                    value={o.value}
+                    checked={state.saveAs === o.value}
+                    disabled={state.kind === "saving"}
+                    onChange={() => patch((r) => ({ ...r, saveAs: o.value }))}
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <ul className="mt-2 space-y-2" aria-label="Imported exercises">
             {state.result.exercises.map((e, i) => {
-              const name = e.exercise_id ? (get(e.exercise_id)?.name ?? e.name) : e.name;
+              const name = displayName(e);
+              const existing = isExisting(e);
               return (
                 <li key={`${e.exercise_id ?? "custom"}-${i}`} className="rounded-xl border border-border p-2">
                   <label className="flex items-center gap-2">
@@ -558,31 +701,58 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
                       aria-label={`Keep ${name}`}
                     />
                     <span className="text-sm font-semibold flex-1 truncate">{name}</span>
-                    {e.custom && <span className="text-xs text-muted shrink-0">New exercise</span>}
+                    {asExercise && existing ? (
+                      <span className="text-xs text-muted shrink-0">Already in your exercises</span>
+                    ) : (
+                      e.custom && <span className="text-xs text-muted shrink-0">New exercise</span>
+                    )}
                   </label>
-                  <div className="flex items-center gap-2 mt-1 text-xs">
-                    <input
-                      type="number"
-                      min={1}
-                      max={MAX_SETS}
-                      className="w-14 rounded-lg border border-border px-2 py-1 bg-white tabular-nums"
-                      value={e.target_sets}
-                      disabled={state.kind === "saving"}
-                      aria-label={`Sets for ${name}`}
-                      onChange={(ev) => editItem(i, { target_sets: clampSets(Number(ev.target.value)) })}
-                    />
-                    <span className="text-muted">sets x</span>
-                    <input
-                      type="text"
-                      className="w-20 rounded-lg border border-border px-2 py-1 bg-white tabular-nums"
-                      value={e.target_reps}
-                      maxLength={8}
-                      disabled={state.kind === "saving"}
-                      aria-label={`Reps for ${name}`}
-                      onChange={(ev) => editItem(i, { target_reps: ev.target.value })}
-                      onBlur={(ev) => editItem(i, { target_reps: clampReps(ev.target.value) })}
-                    />
-                  </div>
+                  {asExercise && !existing && (
+                    <div className="flex flex-wrap gap-1 mt-1" role="group" aria-label={`Muscle groups for ${name}`}>
+                      {MUSCLE_GROUPS.map((m) => {
+                        const on = e.muscle_groups.includes(m);
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            className={`${on ? "chip-on" : "chip"} text-xs`}
+                            aria-pressed={on}
+                            disabled={state.kind === "saving"}
+                            onClick={() =>
+                              editItem(i, { muscle_groups: on ? e.muscle_groups.filter((x) => x !== m) : [...e.muscle_groups, m] })
+                            }
+                          >
+                            {m}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {!asExercise && (
+                    <div className="flex items-center gap-2 mt-1 text-xs">
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAX_SETS}
+                        className="w-14 rounded-lg border border-border px-2 py-1 bg-white tabular-nums"
+                        value={e.target_sets}
+                        disabled={state.kind === "saving"}
+                        aria-label={`Sets for ${name}`}
+                        onChange={(ev) => editItem(i, { target_sets: clampSets(Number(ev.target.value)) })}
+                      />
+                      <span className="text-muted">sets x</span>
+                      <input
+                        type="text"
+                        className="w-20 rounded-lg border border-border px-2 py-1 bg-white tabular-nums"
+                        value={e.target_reps}
+                        maxLength={8}
+                        disabled={state.kind === "saving"}
+                        aria-label={`Reps for ${name}`}
+                        onChange={(ev) => editItem(i, { target_reps: ev.target.value })}
+                        onBlur={(ev) => editItem(i, { target_reps: clampReps(ev.target.value) })}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -596,10 +766,10 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
             <button
               type="button"
               className="btn-primary flex-1"
-              disabled={kept === 0 || state.kind === "saving"}
-              onClick={() => save(reviewOf(state))}
+              disabled={kept === 0 || (asExercise && newCount === 0) || state.kind === "saving"}
+              onClick={() => void save(reviewOf(state))}
             >
-              {state.kind === "saving" ? "Saving..." : "Save mini workout"}
+              {state.kind === "saving" ? "Saving..." : asExercise ? saveExercisesLabel(newCount) : "Save routine"}
             </button>
             <button
               type="button"
