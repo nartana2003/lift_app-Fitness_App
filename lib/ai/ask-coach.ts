@@ -38,6 +38,7 @@ import { MUSCLE_GROUPS, type MuscleGroup } from "../muscles";
 import { suggest, type RepRange, type Suggestion } from "../overload";
 import type { Plateau } from "../plateau";
 import { e1rm } from "../prs";
+import { mentionedMuscles } from "../splitBuilder";
 import { dispNum, type Unit } from "../units";
 import { EXPERIENCES, GOAL_TYPES, MAX_USER_TARGET, MAX_WEEK_SETS } from "./goal-targets";
 import { SHORTHAND, isTagLike, normaliseText } from "./parse-log";
@@ -337,27 +338,10 @@ const PAIN_RE = /\b(pain|painful|hurt|hurts|hurting|injur\w*|ache|aching|sore|tw
 const STALL_RE = /\b(stall\w*|plateau\w*|stuck|not (?:improving|progressing|getting stronger)|no progress|same weight)\b/i;
 const NUMBER_WORDS = /\b(progress|increase|next|heavier|add weight|how much)\b/i;
 
-/** Extra words that point at a muscle group (textKey form, whole words). */
-const MUSCLE_ALIASES: Partial<Record<MuscleGroup, string[]>> = {
-  Quads: ["quad", "leg", "thigh"],
-  Hamstrings: ["hamstring", "ham", "leg"],
-  Glutes: ["glute", "butt", "leg"],
-  Biceps: ["bicep", "arm"],
-  Triceps: ["tricep", "arm"],
-  Shoulders: ["shoulder", "delt", "delts"],
-  "Abs/Core": ["ab", "core", "abdominal"],
-  Lats: ["lat"],
-  Calves: ["calf", "calve"],
-  "Hips/Adductors/Abductors": ["hip", "adductor", "abductor"],
-};
-
 const hasWords = (q: string, key: string) => key !== "" && ` ${q} `.includes(` ${key} `);
 
-/** Muscle groups the question names. */
-export function mentionedMuscles(question: string): MuscleGroup[] {
-  const q = textKey(question);
-  return MUSCLE_GROUPS.filter((m) => hasWords(q, textKey(m)) || (MUSCLE_ALIASES[m] ?? []).some((k) => hasWords(q, k)));
-}
+/** Muscle groups the question names. Moved to lib/splitBuilder.ts (client-safe); re-exported here unchanged. */
+export { mentionedMuscles };
 
 /** Exercises from the request that the question names (full name or common shorthand). */
 export function mentionedExercises(question: string, ctx: CoachContext): ExerciseFacts[] {
