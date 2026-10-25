@@ -16,8 +16,11 @@ export const dynamic = "force-dynamic";
 const catalogue = catalogueJson as unknown as Exercise[];
 
 /**
- * POST { split, equipment, history } -> 200 { plan } with a 3-day plan whose
- * exercise ids are all in the built-in catalogue.
+ * POST { split, equipment, history, plan_days?, favorites?, request? } -> 200
+ * { plan } with a plan_days-day plan (3 when absent) whose exercise ids are all
+ * in the built-in catalogue. Favourites that fit a day go first (also when the
+ * model ignores them); the typed request only reaches the model inside the
+ * escaped <user_data> block.
  * 503 {unavailable:true} with no key (the app keeps its rule-based flow),
  * 400/413 for a bad body, and the shared AI failure codes otherwise.
  */
