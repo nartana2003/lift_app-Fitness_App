@@ -3,7 +3,8 @@ import { defineConfig } from "@playwright/test";
 // E2E runs against the PRODUCTION build (`npm run build` first), served by
 // `next start`. Never `next dev` (project rule). Uses the installed Edge, so
 // no browser download is needed. Specs are named *.e2e.ts so Vitest ignores them.
-const PORT = 3100;
+// Parallel testers each use their own port (E2E_PORT); the default is 3100.
+const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "./e2e",
