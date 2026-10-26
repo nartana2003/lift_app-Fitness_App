@@ -23,6 +23,7 @@ import {
   type SnoozeMin,
 } from "@/lib/reminders";
 import { currentPushState, disablePush, enablePush, pushAvailable, syncReminderSettings, type EnableResult } from "@/lib/push/client";
+import { setRestPushEnabled, useRestPushEnabled } from "@/lib/restTimerPushClient";
 
 export const PUSH_UNAVAILABLE =
   "Push notifications are not set up yet. Your reminder schedule is saved on this device and will be used once they are.";
@@ -34,6 +35,10 @@ export const PUSH_MESSAGES: Record<Exclude<EnableResult, "unavailable">, string>
   error: "Could not turn on notifications. Try again later.",
 };
 export const PUSH_OFF = "Notifications are off for this phone.";
+
+export const REST_PUSH_UNAVAILABLE =
+  "Rest timer alerts need push notifications, which are not set up yet. The in-app timer still chimes while Lift is open.";
+export const REST_PUSH_NEEDS_NOTIFICATIONS = "Rest timer alerts are on. Enable notifications below so they reach this phone.";
 
 const snoozeLabel = (m: number) => (m < 60 ? `${m} min` : `${m / 60} h`);
 
@@ -50,6 +55,7 @@ export function ReminderSettings() {
   const suggested = suggestedReminderTime(r, useRecentWorkoutStarts(), now);
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const restPushOn = useRestPushEnabled();
 
   // Is this phone already subscribed? (Only where push can work at all.)
   useEffect(() => {
@@ -85,6 +91,12 @@ export function ReminderSettings() {
     } finally {
       setPushBusy(false);
     }
+  }
+
+  function toggleRestPush(on: boolean) {
+    if (on && !pushAvailable()) return setNotice(REST_PUSH_UNAVAILABLE);
+    setRestPushEnabled(on);
+    if (on && !pushOn) setNotice(REST_PUSH_NEEDS_NOTIFICATIONS);
   }
 
   return (
@@ -201,6 +213,13 @@ export function ReminderSettings() {
           <span className="text-muted">No reminder in the next week.</span>
         )}
       </p>
+
+      <Switch
+        label="Rest timer alerts"
+        hint="Ping this phone when rest ends with Lift closed"
+        on={restPushOn}
+        onChange={toggleRestPush}
+      />
 
       <button type="button" className="btn-ghost w-full" disabled={pushBusy} onClick={() => void togglePush()}>
         {pushOn ? "Turn off notifications" : "Enable notifications"}
