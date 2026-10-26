@@ -2,7 +2,7 @@
 
 // The weekly plan: which routine is planned for each day, plus skipping and moving days.
 import { db, uuid, type OutboxItem, type PlannedDayRow, type SkipReason } from "./offline/db";
-import { enqueue, flush } from "./offline/sync";
+import { flush, writeAndQueue } from "./offline/sync";
 import { addDays, startOfWeek } from "./stats";
 
 export const SKIP_REASONS: { v: SkipReason; label: string }[] = [
@@ -27,10 +27,12 @@ export const weekDays = (weekStart: 0 | 1, now = new Date()): Date[] => {
   return Array.from({ length: 7 }, (_, i) => addDays(from, i));
 };
 
-const save = async (row: PlannedDayRow) => {
-  await db.planned_days.put(row);
-  await enqueue([{ table: "planned_days", op: "upsert", row }]);
-};
+// The local write and its outbox entry commit together (writeAndQueue), so a pull can never land in between.
+const save = (row: PlannedDayRow) =>
+  writeAndQueue([db.planned_days], async () => {
+    await db.planned_days.put(row);
+    return [{ table: "planned_days", op: "upsert", row }];
+  });
 
 const blank = (date: string): PlannedDayRow => ({
   id: uuid(),
@@ -105,8 +107,10 @@ export async function unmarkGymDay(date: string): Promise<boolean> {
 export async function clearDay(date: string) {
   const cur = await getDay(date);
   if (!cur) return;
-  await db.planned_days.delete(cur.id);
-  await enqueue([{ table: "planned_days", op: "delete", row: { id: cur.id } }]);
+  await writeAndQueue([db.planned_days], async () => {
+    await db.planned_days.delete(cur.id);
+    return [{ table: "planned_days", op: "delete", row: { id: cur.id } }];
+  });
 }
 
 /** Skip a planned day, with a reason. */
@@ -241,8 +245,10 @@ export async function undoSkip(date: string) {
         void _drop;
         await save({ ...rest, routine_id: null, status: "planned", skip_reason: null, skip_note: null, moved_to: null, moved_from: null });
       } else {
-        await db.planned_days.delete(moved.id);
-        await enqueue([{ table: "planned_days", op: "delete", row: { id: moved.id } }]);
+        await writeAndQueue([db.planned_days], async () => {
+          await db.planned_days.delete(moved.id);
+          return [{ table: "planned_days", op: "delete", row: { id: moved.id } }];
+        });
       }
     }
   }

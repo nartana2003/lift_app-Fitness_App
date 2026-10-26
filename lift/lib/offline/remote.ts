@@ -67,17 +67,36 @@ export function plannedDayFromRemote(r: Row): PlannedDayRow | null {
   return out;
 }
 
+/** True when `a` should be kept over `b` for the same date: "done" wins, then the newest. */
+function beats(a: PlannedDayRow, b: PlannedDayRow): boolean {
+  const done = (r: PlannedDayRow) => (r.status === "done" ? 1 : 0);
+  if (done(a) !== done(b)) return done(a) > done(b);
+  if (a.created_at !== b.created_at) return a.created_at > b.created_at;
+  return a.id > b.id;
+}
+
 /**
  * The local planned_days store has a unique `date`. Two devices can each mark
- * the same date before syncing, leaving two server rows: keep the newest.
+ * the same date before syncing, leaving two server rows: keep one per date
+ * (a "done" day wins, then the newest).
  */
 export function dedupePlannedDays(rows: readonly PlannedDayRow[]): PlannedDayRow[] {
+  return splitPlannedDays(rows).keep;
+}
+
+/** dedupePlannedDays plus the rows that lost, so the caller can delete them on the server. */
+export function splitPlannedDays(rows: readonly PlannedDayRow[]): { keep: PlannedDayRow[]; losers: PlannedDayRow[] } {
   const byDate = new Map<string, PlannedDayRow>();
+  const losers: PlannedDayRow[] = [];
   for (const r of rows) {
     const cur = byDate.get(r.date);
-    if (!cur || r.created_at > cur.created_at || (r.created_at === cur.created_at && r.id > cur.id)) byDate.set(r.date, r);
+    if (!cur) byDate.set(r.date, r);
+    else if (beats(r, cur)) {
+      losers.push(cur);
+      byDate.set(r.date, r);
+    } else losers.push(r);
   }
-  return [...byDate.values()];
+  return { keep: [...byDate.values()], losers };
 }
 
 export function routineFromRemote(r: Row): RoutineRow | null {
@@ -166,6 +185,7 @@ export function isOwnPhotoPath(uid: string, path: unknown): path is string {
     !path.includes("..") &&
     !path.includes("\\") &&
     path.length <= 300 &&
+    path.length > uid.length + 1 &&
     path.indexOf("/", uid.length + 1) === -1
   );
 }
@@ -201,4 +221,42 @@ export function remotePhotoFromRow(uid: string, r: Row): RemotePhotoRow | null {
     storage_path: r.storage_path,
     workout_id: str(r.workout_id),
   };
+}
+
+// ---------- Outbox error handling ----------
+
+export type SyncErrorKind = "retry" | "permanent";
+
+/**
+ * How flush treats a failed request. Permanent: Postgres integrity (23xxx,
+ * e.g. 23503 foreign key) and data (22xxx) errors, unknown column (42703) and
+ * PostgREST "column not in schema cache" (PGRST204): re-sending the same row
+ * can never succeed. Everything else (network, 5xx, 401/403, rate limits,
+ * unknown) is retried later and keeps the queue order.
+ */
+export function classifySyncError(error: { code?: unknown; message?: unknown } | null | undefined): SyncErrorKind {
+  const code = typeof error?.code === "string" ? error.code : "";
+  if (/^2[23][0-9A-Z]{3}$/.test(code)) return "permanent";
+  if (code === "42703" || code === "PGRST204") return "permanent";
+  return "retry";
+}
+
+type QueueItem = { seq?: number; table: SyncTable; op: "upsert" | "delete"; row: Row };
+
+/**
+ * Queued items that depend on `parent` (an upsert that failed for good):
+ * a workout's exercises and their sets, a workout exercise's sets, a
+ * routine's exercises. Sending them would only fail on the missing parent.
+ */
+export function outboxChildren<T extends QueueItem>(parent: QueueItem, queue: readonly T[]): T[] {
+  if (parent.op !== "upsert") return [];
+  const id = parent.row.id;
+  if (parent.table === "workouts") {
+    const wes = queue.filter((i) => i.table === "workout_exercises" && i.row.workout_id === id);
+    const weIds = new Set(wes.map((i) => i.row.id));
+    return [...wes, ...queue.filter((i) => i.table === "sets" && weIds.has(i.row.workout_exercise_id))];
+  }
+  if (parent.table === "workout_exercises") return queue.filter((i) => i.table === "sets" && i.row.workout_exercise_id === id);
+  if (parent.table === "routines") return queue.filter((i) => i.table === "routine_exercises" && i.row.routine_id === id);
+  return [];
 }

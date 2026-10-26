@@ -147,8 +147,8 @@ describe("supabaseSubscriptionStore (fake admin client)", () => {
         };
         return chain;
       },
-      insert: async (row: Record<string, unknown>) => {
-        ops.push(`insert ${table} ${row.user_id} ${row.endpoint}`);
+      upsert: async (row: Record<string, unknown>, opts: { onConflict: string }) => {
+        ops.push(`upsert ${table} ${row.user_id} ${row.endpoint} on ${opts.onConflict}`);
         return { error: null };
       },
       select: () => ({ eq: () => ({ order: async () => ({ data: existing, error: null }) }) }),
@@ -156,13 +156,12 @@ describe("supabaseSubscriptionStore (fake admin client)", () => {
     return { client: { from } as unknown as SupabaseClient, ops };
   }
 
-  it("replaces the endpoint's old row, inserts, and trims old phones", async () => {
+  it("upserts on the endpoint (moving it to this user) and trims old phones", async () => {
     const rows = Array.from({ length: MAX_SUBSCRIPTIONS_PER_USER + 2 }, (_, i) => ({ id: `s${i}` }));
     const { client, ops } = fakeAdmin(rows);
     await supabaseSubscriptionStore(client).save("u1", { endpoint: EP, keys: { p256dh: P256, auth: AUTH } });
     expect(ops).toEqual([
-      `delete push_subscriptions endpoint=${EP}`,
-      `insert push_subscriptions u1 ${EP}`,
+      `upsert push_subscriptions u1 ${EP} on endpoint`,
       `delete push_subscriptions id in s${MAX_SUBSCRIPTIONS_PER_USER},s${MAX_SUBSCRIPTIONS_PER_USER + 1}`,
     ]);
   });

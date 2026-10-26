@@ -84,7 +84,7 @@ vi.stubGlobal("window", new EventTarget());
 
 const { db } = await import("../db");
 const { flush, pullTables } = await import("../sync");
-const { syncPhotos, queuePhotoDelete, SYNCED_KEY, DELETED_KEY } = await import("../photoSync");
+const { syncPhotos, queuePhotoDelete, SYNCED_KEY, DELETED_KEY, FAILS_KEY, photoBackoffMs } = await import("../photoSync");
 const { photoPath } = await import("../remote");
 
 afterAll(() => vi.unstubAllGlobals());
@@ -218,13 +218,28 @@ describe("syncPhotos", () => {
     expect(server.table("progress_photos").get("p2")).toMatchObject({ workout_id: null });
   });
 
-  it("retries a failed upload next time", async () => {
+  it("retries a failed upload after a backoff", async () => {
     await db.photos.put({ id: "p1", taken_at: "t", pose: "front", blob: jpeg() });
     server.state.failUpload.add(photoPath(UID, "p1"));
     expect((await syncPhotos()).uploaded).toBe(0);
     expect((await db.meta.get(SYNCED_KEY))?.value ?? {}).toEqual({});
     server.state.failUpload.clear();
+    // Still inside the backoff: not tried again yet.
+    server.state.calls.length = 0;
+    expect((await syncPhotos()).uploaded).toBe(0);
+    expect(server.state.calls.filter((c) => c.startsWith("upload"))).toEqual([]);
+    // Backoff over: uploaded, and the failure record is cleared.
+    const fails = (await db.meta.get(FAILS_KEY))!.value as Record<string, { n: number; next: number }>;
+    expect(fails.p1.n).toBe(1);
+    await db.meta.put({ key: FAILS_KEY, value: { p1: { n: 1, next: 0 } } });
     expect((await syncPhotos()).uploaded).toBe(1);
+    expect((await db.meta.get(FAILS_KEY))!.value).toEqual({});
+  });
+
+  it("backoff grows and is capped at a day", () => {
+    expect(photoBackoffMs(1)).toBe(60_000);
+    expect(photoBackoffMs(3)).toBe(4 * 60_000);
+    expect(photoBackoffMs(40)).toBe(24 * 60 * 60_000);
   });
 
   it("downloads photos from another device, ignoring foreign paths", async () => {
@@ -257,9 +272,12 @@ describe("syncPhotos", () => {
     expect((await db.meta.get(DELETED_KEY))?.value).toEqual([]);
   });
 
-  it("a never-synced photo deleted locally queues nothing", async () => {
+  it("a never-synced photo deleted locally still leaves a tombstone (an upload may be in flight)", async () => {
     net.onLine = false;
     await queuePhotoDelete("never");
+    expect((await db.meta.get(DELETED_KEY))?.value).toEqual(["never"]);
+    net.onLine = true;
+    expect((await syncPhotos()).deleted).toBe(1);
     expect((await db.meta.get(DELETED_KEY))?.value).toEqual([]);
   });
 

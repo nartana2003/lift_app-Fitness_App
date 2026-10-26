@@ -5,12 +5,22 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline/db";
 import { startSync } from "@/lib/offline/sync";
 import { syncPhotos } from "@/lib/offline/photoSync";
+import { STUCK_AFTER_MS, syncLabel } from "@/lib/offline/syncLabel";
 
 /** Runs background sync and shows a small banner when offline / just synced. */
 export function SyncStatus() {
   const [online, setOnline] = useState(true);
   const [justSynced, setJustSynced] = useState(false);
   const pending = useLiveQuery(() => db.outbox.count(), [], 0);
+  const [stuck, setStuck] = useState(false);
+
+  // Online with changes still queued after a minute: say so (neutral, not an alarm).
+  useEffect(() => {
+    setStuck(false);
+    if (!online || !pending) return;
+    const t = setTimeout(() => setStuck(true), STUCK_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [online, pending]);
 
   useEffect(() => {
     setOnline(navigator.onLine);
@@ -26,6 +36,8 @@ export function SyncStatus() {
     const off = () => setOnline(false);
     let t: ReturnType<typeof setTimeout>;
     const synced = () => {
+      // A workout just uploaded: photos linked to it can follow now.
+      photos();
       setJustSynced(true);
       clearTimeout(t);
       t = setTimeout(() => setJustSynced(false), 2500);
@@ -42,14 +54,13 @@ export function SyncStatus() {
     };
   }, []);
 
-  let text: string | null = null;
-  if (!online) text = pending ? `Offline — ${pending} change${pending > 1 ? "s" : ""} will sync` : "Offline";
-  else if (justSynced && !pending) text = "Synced ✓";
+  const text = syncLabel({ online, pending, justSynced, stuck });
   if (!text) return null;
+  const notSynced = online && stuck && pending > 0;
 
   return (
     <div className="fixed top-0 inset-x-0 z-50 pt-safe pointer-events-none flex justify-center">
-      <span className={`mt-1 rounded-full px-3 py-1 text-xs font-medium ${online ? "bg-good text-white" : "bg-surface-2 text-warn border border-border"}`}>
+      <span className={`mt-1 rounded-full px-3 py-1 text-xs font-medium ${notSynced ? "bg-surface-2 text-muted border border-border" : online ? "bg-good text-white" : "bg-surface-2 text-warn border border-border"}`}>
         {text}
       </span>
     </div>

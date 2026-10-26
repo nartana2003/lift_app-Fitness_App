@@ -1,5 +1,18 @@
 /**
- * Server-only. GET /api/cron/reminders (Vercel Cron, hourly, see vercel.json):
+ * Server-only. GET /api/cron/reminders, called HOURLY with the header
+ * `Authorization: Bearer <CRON_SECRET>`. There is no vercel.json in the repo:
+ * Vercel Hobby (free) only allows daily crons and rejects an hourly one at
+ * deploy time. Pick one of:
+ * - Vercel Cron on a Pro plan: add lift/vercel.json with
+ *     { "crons": [{ "path": "/api/cron/reminders", "schedule": "0 * * * *" }] }
+ *   (Vercel sends the Bearer CRON_SECRET header itself);
+ * - an external scheduler hitting https://<app>/api/cron/reminders every hour
+ *   with that header: Supabase pg_cron + pg_net (net.http_get with the
+ *   Authorization header), or a free cron service.
+ * A daily call would send most reminders late or not at all (the due window is
+ * DEFAULT_WINDOW_MIN = 60 minutes).
+ *
+ * What it does:
  * sends the gym-day reminder push to every subscribed user whose reminder is
  * due (lib/push/schedule.ts). Subscriptions the push service reports gone
  * (404/410) are deleted.

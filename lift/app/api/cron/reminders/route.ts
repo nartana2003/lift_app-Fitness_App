@@ -2,7 +2,10 @@ import { handleReminderCron, supabaseReminderStore } from "@/lib/push/reminderJo
 import { getPushSender } from "@/lib/push/send";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
-// Hourly gym-day reminder push (vercel.json). Bearer CRON_SECRET required. See lib/push/reminderJob.ts.
+// Gym-day reminder push. Must be called hourly with `Authorization: Bearer <CRON_SECRET>`,
+// by Vercel Cron on a Pro plan (vercel.json snippet in lib/push/reminderJob.ts; Hobby
+// only allows daily crons) or by an external scheduler (Supabase pg_cron + pg_net, or a
+// free cron service). See lib/push/reminderJob.ts.
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {

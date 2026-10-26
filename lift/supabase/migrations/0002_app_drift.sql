@@ -20,7 +20,10 @@
 --
 -- 3. routines.split_day_id (text)
 --    The split day (SplitDay.id, a client string id, not a uuid) a routine
---    belongs to. Null = unassigned.
+--    belongs to. Null = unassigned. Note: the split itself (lib/splits.ts) is
+--    stored on the device only and the `splits` table is not synced, so on
+--    another device this id may point at no known split day; the app then
+--    treats the routine as unassigned. No foreign key on purpose.
 --
 -- 4. progress_photos.pose nullable
 --    Gallery photos can be saved without a pose (PhotoRow.pose is
@@ -41,6 +44,14 @@
 --    0001 are also kept in step by the client.
 --
 -- 7. push_subscriptions(user_id) index for the cron job lookup.
+--
+-- Sync policy (lib/offline/sync.ts): last write wins per row id; there are no
+-- tombstone tables. A delete reaches the server from the device that made it;
+-- other devices drop deleted workouts on their next pull but keep deleted
+-- planned days, routines, measurements and custom exercises until removed
+-- there too. planned_days has no unique (user_id, date): two devices marking
+-- the same date leave two rows, and the next pull keeps one (a "done" day
+-- wins, then the newest) and deletes the other on the server.
 
 alter table public.planned_days add column if not exists moved_to date;
 alter table public.planned_days add column if not exists moved_from date;

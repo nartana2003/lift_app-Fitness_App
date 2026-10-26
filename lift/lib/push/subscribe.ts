@@ -9,7 +9,7 @@
  *
  * Storage uses the service-role client because `endpoint` is unique across
  * users: when someone else signs in on the same phone, the old row (owned by
- * the previous user, invisible to RLS) has to be replaced.
+ * the previous user, invisible to RLS) has to be replaced (upsert on endpoint).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiRateLimited, aiUnauthorized, createRateLimiter, supabaseConfiguredFrom, type AiUserResolver, type RateLimiter } from "../ai/guard";
@@ -90,10 +90,11 @@ export async function handlePushSubscription(req: Request, deps: SubscribeDeps):
 export function supabaseSubscriptionStore(admin: SupabaseClient): SubscriptionStore {
   return {
     async save(userId, sub) {
-      const del = await admin.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
-      if (del.error) throw new Error("delete failed");
-      const ins = await admin.from("push_subscriptions").insert({ user_id: userId, endpoint: sub.endpoint, keys: sub.keys });
-      if (ins.error) throw new Error("insert failed");
+      // One atomic write: endpoint is unique, so a phone that changes account moves to the new user.
+      const up = await admin
+        .from("push_subscriptions")
+        .upsert({ user_id: userId, endpoint: sub.endpoint, keys: sub.keys }, { onConflict: "endpoint" });
+      if (up.error) throw new Error("upsert failed");
       const { data } = await admin
         .from("push_subscriptions")
         .select("id")

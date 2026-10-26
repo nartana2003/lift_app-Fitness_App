@@ -19,6 +19,8 @@ export const MAX_ENDPOINT_LENGTH = 1024;
 /** True for an https URL on a known browser push service. */
 export function isAllowedPushEndpoint(endpoint: unknown): endpoint is string {
   if (typeof endpoint !== "string" || endpoint.length === 0 || endpoint.length > MAX_ENDPOINT_LENGTH) return false;
+  // Only the canonical form: new URL() would trim whitespace, but the raw string is what gets stored.
+  if (endpoint !== endpoint.trim() || /\s/.test(endpoint)) return false;
   let url: URL;
   try {
     url = new URL(endpoint);

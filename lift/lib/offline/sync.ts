@@ -2,53 +2,159 @@
 
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { supabaseConfigured } from "@/lib/supabase/configured";
-import { customExerciseFromRemote, dedupePlannedDays, measurementFromRemote, plannedDayFromRemote, routineExerciseFromRemote, routineFromRemote, toRemoteRow } from "./remote";
+import { classifySyncError, customExerciseFromRemote, measurementFromRemote, outboxChildren, splitPlannedDays, plannedDayFromRemote, routineExerciseFromRemote, routineFromRemote, toRemoteRow } from "./remote";
 import { db, type OutboxItem, type SetRow, type SyncTable, type WorkoutExerciseRow, type WorkoutRow } from "./db";
+
+import Dexie from "dexie";
+import { claimOwner } from "./owner";
+
+/*
+ * Sync policy (BLK-02):
+ * - Local first: every write lands in Dexie, then the outbox uploads it in order.
+ * - Last write wins per row: the most recent upload of an id is what the
+ *   server keeps; a pull overwrites local rows only while the outbox is empty.
+ * - Deletes: a delete made on this device is queued and sent. A delete made on
+ *   another device removes local workouts in the pulled window (pull), but not
+ *   planned days, routines, measurements or custom exercises (pullTables is
+ *   upsert only; there are no server tombstones).
+ * - A row the server rejects for good (see classifySyncError) is moved to the
+ *   dead-letter list in meta (DEAD_LETTER_KEY) with its queued children, so it
+ *   never blocks the rest of the queue. Network/auth/server errors are retried.
+ * - The device belongs to the first account that syncs it (owner.ts); another
+ *   account signed in on the same browser is refused.
+ */
 
 const now = () => new Date().toISOString();
 
-/** Queue local writes (already applied to Dexie) for upload. */
+/** meta key: outbox items the server rejected permanently (newest last, capped). */
+export const DEAD_LETTER_KEY = "outbox:dead";
+export const MAX_DEAD_LETTERS = 200;
+
+export type DeadLetter = { table: SyncTable; op: "upsert" | "delete"; row: Record<string, unknown>; code: string; message: string; at: string };
+
+/**
+ * Queue local writes (already applied to Dexie) for upload. Inside a Dexie
+ * transaction that includes db.outbox, the items join it (write + queue commit
+ * together) and the upload starts after the transaction.
+ */
 export async function enqueue(items: Omit<OutboxItem, "created_at" | "seq">[]) {
   await db.outbox.bulkAdd(items.map((i) => ({ ...i, created_at: now() })));
-  void flush();
+  if (Dexie.currentTransaction) setTimeout(() => void flush(), 0);
+  else void flush();
+}
+
+/**
+ * Write to Dexie and queue the outbox items in ONE transaction, so a pull can
+ * never land between the local write and its queue entry. `write` returns the
+ * items to queue.
+ */
+export async function writeAndQueue(
+  tables: Dexie.Table[],
+  write: () => Promise<Omit<OutboxItem, "created_at" | "seq">[]>,
+): Promise<void> {
+  const queued = await db.transaction("rw", [...tables, db.outbox], async () => {
+    const items = await write();
+    if (items.length) await db.outbox.bulkAdd(items.map((i) => ({ ...i, created_at: now() })));
+    return items.length;
+  });
+  if (queued) void flush();
 }
 
 let flushing: Promise<number> | null = null;
+let flushAgain = false;
+
+async function deadLetter(items: OutboxItem[], error: { code?: unknown; message?: unknown }) {
+  await db.transaction("rw", db.outbox, db.meta, async () => {
+    const cur = (await db.meta.get(DEAD_LETTER_KEY))?.value;
+    const list = Array.isArray(cur) ? (cur as DeadLetter[]) : [];
+    for (const i of items) {
+      list.push({
+        table: i.table,
+        op: i.op,
+        row: i.row,
+        code: typeof error.code === "string" ? error.code : "",
+        message: typeof error.message === "string" ? error.message.slice(0, 300) : "",
+        at: now(),
+      });
+    }
+    await db.meta.put({ key: DEAD_LETTER_KEY, value: list.slice(-MAX_DEAD_LETTERS) });
+    await db.outbox.bulkDelete(items.map((i) => i.seq!));
+  });
+}
+
+/** Items the server rejected permanently (kept for support/debugging). */
+export async function deadLetters(): Promise<DeadLetter[]> {
+  const v = (await db.meta.get(DEAD_LETTER_KEY))?.value;
+  return Array.isArray(v) ? (v as DeadLetter[]) : [];
+}
+
+/** planned_days / workouts pointing at a routine deleted on this device: send no link (FK). */
+async function guardForeignKeys(table: SyncTable, row: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if ((table === "planned_days" || table === "workouts") && typeof row.routine_id === "string" && row.routine_id) {
+    if (!(await db.routines.get(row.routine_id))) return { ...row, routine_id: null };
+  }
+  return row;
+}
+
+async function flushOnce(): Promise<number> {
+  if (!supabaseConfigured) return 0;
+  if (typeof navigator !== "undefined" && !navigator.onLine) return 0;
+  const supabase = supabaseBrowser();
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return 0;
+
+  const uid = data.session.user.id;
+  if (!(await claimOwner(uid))) return 0;
+  let sent = 0;
+  for (;;) {
+    const item = await db.outbox.orderBy("seq").first();
+    if (!item) break;
+    const q = supabase.from(item.table);
+    // A user's own exercises are rows in the shared `exercises` table, owned by them.
+    // toRemoteRow also makes planned_days.was_marked and routines.split_day_id explicit.
+    const row = await guardForeignKeys(item.table, toRemoteRow(item.table, item.row, uid));
+    const { error } =
+      item.op === "upsert" ? await q.upsert(row) : await q.delete().eq("id", item.row.id as string);
+    if (error) {
+      if (classifySyncError(error) === "permanent") {
+        console.warn("sync rejected, moved to dead letters", item.table, error.code);
+        const children = outboxChildren(item, await db.outbox.orderBy("seq").toArray());
+        await deadLetter([item, ...children], error);
+        continue;
+      }
+      console.warn("sync failed, will retry", item.table, error.message);
+      break;
+    }
+    await db.outbox.delete(item.seq!);
+    sent++;
+  }
+  if (sent) window.dispatchEvent(new CustomEvent("lift:synced", { detail: sent }));
+  return sent;
+}
 
 /**
  * Push the outbox in order. Upserts use client-generated UUIDs, so re-sending
- * after a dropped connection never creates duplicates.
+ * after a dropped connection never creates duplicates. Never rejects. An
+ * enqueue during a pass starts one more pass afterwards.
  */
 export function flush(): Promise<number> {
-  if (flushing) return flushing;
-  flushing = (async () => {
-    if (!supabaseConfigured) return 0;
-    if (typeof navigator !== "undefined" && !navigator.onLine) return 0;
-    const supabase = supabaseBrowser();
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) return 0;
-
-    const uid = data.session.user.id;
-    let sent = 0;
-    for (;;) {
-      const item = await db.outbox.orderBy("seq").first();
-      if (!item) break;
-      const q = supabase.from(item.table);
-      // A user's own exercises are rows in the shared `exercises` table, owned by them.
-      // toRemoteRow also makes planned_days.was_marked and routines.split_day_id explicit.
-      const row = toRemoteRow(item.table, item.row, uid);
-      const { error } =
-        item.op === "upsert" ? await q.upsert(row) : await q.delete().eq("id", item.row.id as string);
-      if (error) {
-        console.warn("sync failed, will retry", item.table, error.message);
-        break;
+  if (flushing) {
+    flushAgain = true;
+    return flushing;
+  }
+  flushAgain = false;
+  flushing = flushOnce()
+    .catch((e: unknown) => {
+      console.warn("sync pass failed, will retry", e instanceof Error ? e.message : "");
+      return 0;
+    })
+    .finally(() => {
+      flushing = null;
+      if (flushAgain) {
+        flushAgain = false;
+        setTimeout(() => void flush(), 0);
       }
-      await db.outbox.delete(item.seq!);
-      sent++;
-    }
-    if (sent) window.dispatchEvent(new CustomEvent("lift:synced", { detail: sent }));
-    return sent;
-  })().finally(() => (flushing = null));
+    });
   return flushing;
 }
 
@@ -63,7 +169,12 @@ export async function pull(days = 365) {
   if ((await db.outbox.count()) > 0) return;
 
   const supabase = supabaseBrowser();
+  const { data: auth } = await supabase.auth.getSession();
+  const uid = auth.session?.user.id;
+  if (!uid || !(await claimOwner(uid))) return;
   const since = new Date(Date.now() - days * 864e5).toISOString();
+  // Workouts started after this moment cannot be in the response: never delete them.
+  const fetchStart = now();
   const { data, error } = await supabase
     .from("workouts")
     .select("id, started_at, ended_at, notes, routine_id, workout_exercises(id, workout_id, exercise_id, position, sets(id, workout_exercise_id, set_no, reps, weight, is_warmup, rir, completed_at))")
@@ -84,15 +195,20 @@ export async function pull(days = 365) {
       ss.push(...sets.map((s) => ({ ...s, weight: Number(s.weight) })));
     }
   }
-  await db.transaction("rw", db.workouts, db.workout_exercises, db.sets, async () => {
-    const localIds = (await db.workouts.where("started_at").aboveOrEqual(since).primaryKeys()) as string[];
+  const applied = await db.transaction("rw", [db.workouts, db.workout_exercises, db.sets, db.outbox], async () => {
+    // Re-check inside the transaction: a workout may have been saved and queued
+    // while the request was in flight. Any queued item means local is ahead.
+    if ((await db.outbox.count()) > 0) return false;
+    const local = await db.workouts.where("started_at").aboveOrEqual(since).toArray();
     const remote = new Set(ws.map((w) => w.id));
-    const removed = localIds.filter((id) => !remote.has(id));
+    const removed = local.filter((w) => !remote.has(w.id) && w.started_at <= fetchStart).map((w) => w.id);
     if (removed.length) await deleteWorkoutsLocal(removed);
     await db.workouts.bulkPut(ws);
     await db.workout_exercises.bulkPut(wes);
     await db.sets.bulkPut(ss);
+    return true;
   });
+  if (!applied) return;
   await db.meta.put({ key: "lastPull", value: now() });
   await pullTables();
 }
@@ -115,7 +231,8 @@ const clean = <T>(rows: Record<string, unknown>[] | null, map: (r: Record<string
  *
  * Upsert only: rows on the server are written locally, local rows are never
  * deleted here (a delete made on another device does not remove a row on this
- * one). Runs only with an empty outbox, so it never overwrites unsent edits.
+ * one; last write wins, no tombstones). Runs only with an empty outbox, so it
+ * never overwrites unsent edits.
  * A table that fails to load is skipped, the others still apply.
  */
 export async function pullTables(): Promise<void> {
@@ -124,7 +241,7 @@ export async function pullTables(): Promise<void> {
   const supabase = supabaseBrowser();
   const { data: auth } = await supabase.auth.getSession();
   const uid = auth.session?.user.id;
-  if (!uid) return;
+  if (!uid || !(await claimOwner(uid))) return;
 
   const [planned, routines, routineExercises, measurements, custom] = await Promise.all([
     selectAll(supabase, "planned_days", "id, date, routine_id, status, workout_id, skip_reason, skip_note, moved_to, moved_from, was_marked, created_at"),
@@ -142,15 +259,24 @@ export async function pullTables(): Promise<void> {
   const ms = clean(measurements, measurementFromRemote);
   const cs = clean(custom, customExerciseFromRemote);
 
-  await db.transaction("rw", [db.planned_days, db.routines, db.routine_exercises, db.measurements, db.custom_exercises, db.outbox], async () => {
+  const queuedLoserDeletes = await db.transaction("rw", [db.planned_days, db.routines, db.routine_exercises, db.measurements, db.custom_exercises, db.outbox], async () => {
     // Re-check inside the transaction: a write may have been queued meanwhile.
-    if ((await db.outbox.count()) > 0) return;
+    // Local writes and their queue entries commit together (writeAndQueue), so
+    // an empty outbox here means no local edit is newer than the server.
+    if ((await db.outbox.count()) > 0) return false;
+    let queued = false;
     if (days) {
-      const unique = dedupePlannedDays(days);
-      // planned_days has a unique local `date`: drop a local row with another id on the same date first.
-      const clash = await db.planned_days.where("date").anyOf(unique.map((d) => d.date)).toArray();
-      const ids = new Set(unique.map((d) => d.id));
-      await db.planned_days.bulkDelete(clash.filter((c) => !ids.has(c.id)).map((c) => c.id));
+      const { keep: unique, losers } = splitPlannedDays(days);
+      // Two devices marked the same date: delete the losing rows on the server too.
+      if (losers.length) {
+        await db.outbox.bulkAdd(losers.map((l) => ({ table: "planned_days" as const, op: "delete" as const, row: { id: l.id }, created_at: now() })));
+        queued = true;
+      }
+      // planned_days has a unique local `date`. Clear every local row that sits on
+      // an incoming date or has an incoming id first, then write: rows that swap
+      // dates between devices (A 27th->28th, B 28th->27th) can never collide.
+      const clash = await db.planned_days.where("date").anyOf(unique.map((d) => d.date)).primaryKeys();
+      await db.planned_days.bulkDelete([...new Set([...(clash as string[]), ...unique.map((d) => d.id)])]);
       await db.planned_days.bulkPut(unique);
     }
     if (rs) await db.routines.bulkPut(rs);
@@ -164,7 +290,9 @@ export async function pullTables(): Promise<void> {
       await db.measurements.bulkPut(ms);
     }
     if (cs) await db.custom_exercises.bulkPut(cs);
+    return queued;
   });
+  if (queuedLoserDeletes) void flush();
 }
 
 async function deleteWorkoutsLocal(ids: string[]) {
@@ -195,8 +323,12 @@ export async function deleteWorkout(id: string) {
 
 /** Start background syncing: on load, when connectivity returns, and periodically. */
 export function startSync() {
-  void pull();
-  window.addEventListener("online", () => void flush().then(() => pull()));
+  void pull().catch(() => {});
+  const online = () => void flush().then(() => pull()).catch(() => {});
+  window.addEventListener("online", online);
   const t = setInterval(() => void flush(), 30_000);
-  return () => clearInterval(t);
+  return () => {
+    clearInterval(t);
+    window.removeEventListener("online", online);
+  };
 }

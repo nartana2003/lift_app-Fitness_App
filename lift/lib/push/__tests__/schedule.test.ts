@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
-import { localParts, normalizeServerReminder, reminderDue, reminderPayload, safeTimeZone, shiftDate } from "../schedule";
+import { localParts, normalizeServerReminder, reminderDue, reminderPayload, safeTimeZone, shiftDate, zonedInstant } from "../schedule";
 import { DEFAULT_REMINDERS, nextReminder, normalizeReminders, type ReminderSettings } from "../../reminders";
 
 const settings = (o: Partial<ReminderSettings> = {}): ReminderSettings => ({ ...DEFAULT_REMINDERS, ...o });
@@ -120,5 +120,20 @@ describe("reminderPayload", () => {
     expect(p).toMatchObject({ title: "Lift", url: "/", tag: "lift-reminder-2026-10-26", kind: "reminder" });
     expect(/\p{Extended_Pictographic}/u.test(p.body)).toBe(false);
     expect(reminderPayload({ kind: "snooze" }).body).toMatch(/Snooze/);
+  });
+});
+
+describe("zonedInstant (resolved like new Date(y, m, d, hh, mm))", () => {
+  const NY = "America/New_York";
+  it("ordinary days", () => {
+    expect(new Date(zonedInstant("2026-10-26", 18 * 60, "UTC")).toISOString()).toBe("2026-10-26T18:00:00.000Z");
+    expect(new Date(zonedInstant("2026-10-26", 18 * 60, NY)).toISOString()).toBe("2026-10-26T22:00:00.000Z");
+    expect(new Date(zonedInstant("2026-10-27", 8 * 60, "Asia/Tokyo")).toISOString()).toBe("2026-10-26T23:00:00.000Z");
+  });
+  it("fall back: the earlier of the two 01:30s", () => {
+    expect(new Date(zonedInstant("2026-11-01", 90, NY)).toISOString()).toBe("2026-11-01T05:30:00.000Z");
+  });
+  it("spring forward: 02:30 does not exist and becomes 03:30", () => {
+    expect(new Date(zonedInstant("2026-03-08", 150, NY)).toISOString()).toBe("2026-03-08T07:30:00.000Z");
   });
 });
