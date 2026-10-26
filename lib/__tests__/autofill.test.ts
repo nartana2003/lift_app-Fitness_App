@@ -158,3 +158,49 @@ describe("canDrag", () => {
     expect(canDrag({ routine_id: "push", status: "skipped" })).toBe(false);
   });
 });
+
+describe("splitRoutineOrder with routines linked to split days", () => {
+  type L = R & { split_day_id?: string | null };
+  const lr = (id: string, name: string, created_at: string, p: Partial<L> = {}): L => ({ ...r(id, name, created_at), ...p });
+  const linkedSplit = { days: [{ id: "d-push", name: "Push", muscles: [] }, { id: "d-pull", name: "Pull", muscles: [] }, { id: "d-legs", name: "Legs", muscles: [] }] };
+
+  it("uses the linked routine over a name match", () => {
+    const routines = [
+      lr("push-named", "Push", "2026-01-01"),
+      lr("my-chest", "Chest blast", "2026-01-02", { split_day_id: "d-push" }),
+      lr("pull", "Pull", "2026-01-03"),
+      lr("legs", "Legs", "2026-01-04"),
+    ];
+    expect(splitRoutineOrder(linkedSplit, routines)).toEqual(["my-chest", "pull", "legs"]);
+  });
+
+  it("falls back to name matching for days with no link, skipping routines linked to another day", () => {
+    // "Pull" by name is linked to Legs, so the Pull day finds nothing by name.
+    const routines = [lr("pull-named", "Pull", "2026-01-01", { split_day_id: "d-legs" }), lr("push", "Push", "2026-01-02")];
+    expect(splitRoutineOrder(linkedSplit, routines)).toEqual(["push", "pull-named"]);
+  });
+
+  it("picks the routine done longest ago when a day has several, oldest first on a tie", () => {
+    const routines = [
+      lr("a", "Push A", "2026-01-01", { split_day_id: "d-push" }),
+      lr("b", "Push B", "2026-01-02", { split_day_id: "d-push" }),
+    ];
+    const one = { days: [linkedSplit.days[0]] };
+    expect(splitRoutineOrder(one, routines)).toEqual(["a"]);
+    expect(splitRoutineOrder(one, routines, new Map([["a", "2026-02-01T10:00:00Z"]]))).toEqual(["b"]);
+    expect(splitRoutineOrder(one, routines, new Map([["a", "2026-02-01T10:00:00Z"], ["b", "2026-03-01T10:00:00Z"]]))).toEqual(["a"]);
+  });
+
+  it("never picks a linked mini routine, and ignores links to days no longer in the split", () => {
+    const routines = [
+      lr("mini", "Push", "2026-01-01", { kind: "mini", split_day_id: "d-push" }),
+      lr("gone", "Push", "2026-01-02", { split_day_id: "removed-day" }),
+    ];
+    expect(splitRoutineOrder(linkedSplit, routines)).toEqual(["gone"]);
+  });
+
+  it("days without ids (legacy splits) behave exactly as before", () => {
+    const routines = [lr("push", "Push", "2026-01-01", { split_day_id: "d-push" }), lr("legs", "Leg day", "2026-01-02")];
+    expect(splitRoutineOrder(split("Push", "Legs"), routines)).toEqual(["push", "legs"]);
+  });
+});
