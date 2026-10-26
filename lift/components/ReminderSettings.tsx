@@ -12,11 +12,13 @@ import {
   nextReminder,
   orderedDays,
   SNOOZE_OPTIONS,
+  suggestedReminderTime,
   toggleDayIn,
   toggleSkipToday,
   toggleSnooze,
   updateReminders,
   useMarkedGymDates,
+  useRecentWorkoutStarts,
   useReminders,
   type SnoozeMin,
 } from "@/lib/reminders";
@@ -36,6 +38,7 @@ export function ReminderSettings() {
   const next = nextReminder(r, now, marked);
   const skipped = isSkippedToday(r, now);
   const snoozed = isSnoozed(r, now);
+  const suggested = suggestedReminderTime(r, useRecentWorkoutStarts(), now);
 
   return (
     <div className="space-y-3.5">
@@ -74,6 +77,20 @@ export function ReminderSettings() {
           }}
         />
       </label>
+      {suggested && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5">
+          <span className="text-sm">
+            You usually start around <span className="font-semibold">{suggested}</span>.
+          </span>
+          <button
+            type="button"
+            className="chip shrink-0 py-1.5"
+            onClick={() => void updateReminders((cur) => ({ ...cur, time: suggested }))}
+          >
+            Use {suggested}
+          </button>
+        </div>
+      )}
 
       <Switch
         label="You're behind nudge"
