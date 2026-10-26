@@ -314,9 +314,10 @@ describe("RoutineList with mini workouts and filters", () => {
     expect(screen.queryByRole("article")).not.toBeInTheDocument();
   });
 
-  it("keeps the empty state with no routines", async () => {
+  it("shows no filters with no routines", async () => {
     render(<RoutineList />);
-    expect(await screen.findByText("No routines yet.")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "New routine" })).toBeInTheDocument();
+    expect(screen.queryByText("No routines yet.")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Filter by platform" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Filter by muscle" })).not.toBeInTheDocument();
   });

@@ -4,6 +4,7 @@ import { db } from "../offline/db";
 import {
   DEFAULT_REMINDERS,
   formatNext,
+  getMarkedGymDates,
   getReminders,
   isSkippedToday,
   isSnoozed,
@@ -157,5 +158,96 @@ describe("storage", () => {
     const next = await updateReminders((cur) => ({ ...cur, time: "07:00", days: toggleDayIn(cur.days, 2) }));
     expect(next).toEqual({ ...DEFAULT_REMINDERS, days: [4], time: "07:00" });
     expect(await getReminders()).toEqual(next);
+  });
+});
+
+describe("nextReminder with marked gym dates", () => {
+  // now is Wednesday 2026-10-21.
+  it("without dates or with an empty list it is the weekday schedule", () => {
+    expect(nextReminder(r(), at(21, 10), [])).toBeNull();
+    expect(nextReminder(r(), at(21, 10), undefined)).toBeNull();
+    expect(nextReminder(r({ days: [5] }), at(21, 10), [])).toEqual(nextReminder(r({ days: [5] }), at(21, 10)));
+    expect(nextReminder(r({ days: [5] }), at(21, 10), [])).toEqual(at(23, 18));
+  });
+
+  it("uses the earliest marked date, whatever order they come in", () => {
+    expect(nextReminder(r(), at(21, 10), ["2026-10-29", "2026-10-24", "2026-10-26"])).toEqual(at(24, 18));
+  });
+
+  it("uses today when the reminder time is still ahead, the next date once it has passed", () => {
+    const dates = ["2026-10-21", "2026-10-23"];
+    expect(nextReminder(r(), at(21, 17, 59), dates)).toEqual(at(21, 18));
+    expect(nextReminder(r(), at(21, 18), dates)).toEqual(at(23, 18));
+    expect(nextReminder(r(), at(21, 19), ["2026-10-21"])).toBeNull();
+  });
+
+  it("follows dates more than a week ahead", () => {
+    expect(nextReminder(r(), at(21, 10), ["2026-11-15"])).toEqual(new Date(2026, 10, 15, 18, 0, 0, 0));
+  });
+
+  it("ignores past dates and junk", () => {
+    expect(nextReminder(r(), at(21, 10), ["2026-10-20", "2026-10-01"])).toBeNull();
+    expect(nextReminder(r(), at(21, 10), ["2026-02-30", "tomorrow", "2026-10-20", "2026-10-25"])).toEqual(at(25, 18));
+  });
+
+  it("skips today when today is skipped", () => {
+    const s = r({ skipDate: "2026-10-21" });
+    expect(nextReminder(s, at(21, 10), ["2026-10-21", "2026-10-22"])).toEqual(at(22, 18));
+    expect(nextReminder(s, at(21, 10), ["2026-10-21"])).toBeNull();
+  });
+
+  it("a snooze replaces the reminder on a marked date and works with only dates", () => {
+    const s = r({ snoozedUntil: at(21, 18, 30).toISOString() });
+    expect(nextReminder(s, at(21, 17, 30), ["2026-10-21", "2026-10-24"])).toEqual(at(21, 18, 30));
+    expect(nextReminder(s, at(21, 18, 45), ["2026-10-21", "2026-10-24"])).toEqual(at(24, 18));
+    // A snooze on a day with no marked date still comes first.
+    expect(nextReminder(r({ snoozedUntil: at(21, 11).toISOString() }), at(21, 10), ["2026-10-24"])).toEqual(at(21, 11));
+  });
+
+  it("combines marked dates with usual weekdays, earliest first", () => {
+    // Usual Friday (23rd) vs marked Thursday (22nd): Thursday.
+    expect(nextReminder(r({ days: [5] }), at(21, 10), ["2026-10-22"])).toEqual(at(22, 18));
+    // Usual Friday (23rd) vs marked Saturday (24th): Friday.
+    expect(nextReminder(r({ days: [5] }), at(21, 10), ["2026-10-24"])).toEqual(at(23, 18));
+    // A marked date that is also a usual day counts once.
+    expect(nextReminder(r({ days: [4] }), at(21, 10), ["2026-10-22"])).toEqual(at(22, 18));
+    // Uses the reminder time.
+    expect(nextReminder(r({ days: [5], time: "06:15" }), at(21, 10), ["2026-10-22"])).toEqual(at(22, 6, 15));
+  });
+});
+
+describe("getMarkedGymDates", () => {
+  beforeEach(async () => {
+    await db.planned_days.clear();
+  });
+
+  const row = (date: string, status: "planned" | "done" | "skipped" | "moved") => ({
+    id: `d-${date}`,
+    date,
+    routine_id: null,
+    status,
+    workout_id: null,
+    skip_reason: null,
+    skip_note: null,
+    moved_to: null,
+    moved_from: null,
+    created_at: "2026-10-01T00:00:00.000Z",
+  });
+
+  it("returns planned dates from today on, sorted, and leaves out other statuses", async () => {
+    await db.planned_days.bulkAdd([
+      row("2026-10-25", "planned"),
+      row("2026-10-20", "planned"),
+      row("2026-10-21", "planned"),
+      row("2026-10-22", "done"),
+      row("2026-10-23", "skipped"),
+      row("2026-10-24", "moved"),
+      row("2026-10-30", "planned"),
+    ]);
+    expect(await getMarkedGymDates("2026-10-21")).toEqual(["2026-10-21", "2026-10-25", "2026-10-30"]);
+  });
+
+  it("is empty with nothing marked", async () => {
+    expect(await getMarkedGymDates("2026-10-21")).toEqual([]);
   });
 });

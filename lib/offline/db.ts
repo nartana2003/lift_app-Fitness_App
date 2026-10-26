@@ -74,6 +74,12 @@ export type RoutineRow = {
   creator: string | null;
   notes: string | null;
   created_at: string;
+  /**
+   * The split day (SplitDay.id) this routine belongs to, or null/absent for none.
+   * Unindexed extra field, so no schema version bump. A link to a day that is no
+   * longer in the split counts as unassigned.
+   */
+  split_day_id?: string | null;
 };
 
 export type RoutineExerciseRow = {

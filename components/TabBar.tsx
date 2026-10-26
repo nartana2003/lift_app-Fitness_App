@@ -25,8 +25,10 @@ const svg = (children: React.ReactNode, active: boolean) => (
 const HomeIcon = ({ active }: IconProps) =>
   svg(
     <>
-      <path d="M3 11.2 12 3.5l9 7.7" />
-      <path d="M5.5 9.8V20a.5.5 0 0 0 .5.5h3.6v-5.4h4.8v5.4H18a.5.5 0 0 0 .5-.5V9.8" fill={active ? "currentColor" : "none"} />
+      <path
+        d="M12 3.5 3 11.2h2.5V20a.5.5 0 0 0 .5.5h3.6v-5.4h4.8v5.4H18a.5.5 0 0 0 .5-.5v-8.8H21Z"
+        fill={active ? "currentColor" : "none"}
+      />
     </>,
     active,
   );

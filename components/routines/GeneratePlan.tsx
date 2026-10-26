@@ -5,11 +5,22 @@
 // review, and saves only the days the user keeps (createRoutine, source "ai").
 // Any failure (no key, offline, bad answer) shows a short plain message; the
 // existing manual routine flow is untouched.
-import { useState } from "react";
+//
+// GEN-03 adds, collapsed by default and all optional: a Favourites picker (the
+// saved favourites, editable for this plan only), a Tell the coach box (free
+// text, max 400 chars), Ask for changes after a plan is shown, and Build a
+// split from this (POST /api/ai/suggest-split, rule-based buildSplit() when the
+// route is unavailable). The label follows the split's training days (2 to 6).
+// With none of the extras used the card sends and shows exactly what it did.
+import { useMemo, useState } from "react";
 import { MUSCLE_GROUPS, EQUIPMENT, type Equipment, type MuscleGroup } from "@/lib/muscles";
-import { useSplit, type Split } from "@/lib/splits";
+import { saveSplit, useSplit, type Split, type SplitDay } from "@/lib/splits";
 import { equipmentForAi, useEquipment } from "@/lib/equipment";
 import { loadCatalogue, useCatalogue } from "@/lib/catalogue";
+import { useFavorites } from "@/lib/favorites";
+import { isCustomId } from "@/lib/customExercises";
+import { buildSplit } from "@/lib/splitBuilder";
+import type { Exercise } from "@/lib/exercises";
 import { workoutsBetween } from "@/lib/history";
 import { addDays } from "@/lib/stats";
 import { createRoutine } from "@/lib/routines";
@@ -31,6 +42,24 @@ export const MSG_UNAVAILABLE = "AI plans are not available right now. You can st
 export const MSG_OFFLINE = "You are offline. You can still build routines by hand.";
 export const MSG_FAILED = "Could not generate a plan. You can still build routines by hand.";
 export const MSG_NO_SPLIT = "Set up your split in Profile first, then generate a plan.";
+
+/** GEN-03: the split route, the limits it and generate-routines enforce. */
+export const SPLIT_ROUTE = "/api/ai/suggest-split";
+export const MAX_FAVORITES = 30;
+export const MAX_REQUEST = 400;
+export const MIN_PLAN_DAYS = 2;
+export const MAX_PLAN_DAYS = 6;
+/** Plan days when there is no split (and the default the route assumes). */
+export const DEFAULT_PLAN_DAYS = 3;
+const MAX_SEARCH_RESULTS = 8;
+
+export const MSG_BUILD_FIRST = "You have no split yet. Build one from your picks first, then generate a plan.";
+export const MSG_SPLIT_UNAVAILABLE = "AI is not available right now. This split was built without AI from your picks.";
+export const MSG_SPLIT_OFFLINE = "You are offline. This split was built without AI from your picks.";
+export const MSG_SPLIT_FAILED = "Could not build a split with AI. This one was built without AI from your picks.";
+export const MSG_SPLIT_NONE = "Could not build a split. You can still set one up in Profile.";
+export const MSG_SPLIT_SAVED = "Split saved.";
+export const COACH_PLACEHOLDER = "e.g. I want more arms and shoulders, 4 days a week";
 
 const ID_RE = /^[A-Za-z0-9_\-]{1,80}$/;
 const SAFE_CHAR = /[\p{L}\p{N} &/+\-().,]/u;
@@ -120,17 +149,170 @@ export function hasTrainingDay(split: Split): boolean {
   return split.days.some((d) => d.muscles.some(isMuscle));
 }
 
-/** Request body in the route's shape. Names are made safe, unknown values dropped. */
-export function buildRequestBody(split: Split, equipment: readonly Equipment[], history: HistoryEntry[]) {
+/** Optional GEN-03 extras for the generate-routines body. */
+export type PlanExtras = { plan_days?: number; favorites?: readonly string[]; request?: string | null };
+
+/**
+ * Request body in the route's shape. Names are made safe, unknown values dropped.
+ * Extras are only added when used: plan_days when it is not the default 3,
+ * favourites when there are any (catalogue ids only, deduplicated, capped),
+ * request when it has text (trimmed, capped at MAX_REQUEST). With no extras
+ * the body is exactly the original three fields.
+ */
+export function buildRequestBody(split: Split, equipment: readonly Equipment[], history: HistoryEntry[], extras: PlanExtras = {}) {
   const days = split.days.slice(0, MAX_SPLIT_DAYS).map((d, i) => ({
     name: safeName(d.name, `Day ${i + 1}`),
     muscles: [...new Set(d.muscles.filter(isMuscle))],
   }));
-  return {
+  const body: {
+    split: { name: string; days: { name: string; muscles: MuscleGroup[] }[] };
+    equipment: Equipment[];
+    history: HistoryEntry[];
+    plan_days?: number;
+    favorites?: string[];
+    request?: string;
+  } = {
     split: { name: safeName(split.name, ""), days },
     equipment: equipmentForAi(equipment.filter(isEquipment)),
     history: history.slice(0, MAX_HISTORY),
   };
+  const n = extras.plan_days;
+  if (typeof n === "number" && Number.isInteger(n) && n !== DEFAULT_PLAN_DAYS) {
+    body.plan_days = Math.min(MAX_PLAN_DAYS, Math.max(MIN_PLAN_DAYS, n));
+  }
+  const favorites = sendableFavorites(extras.favorites ?? []);
+  if (favorites.length) body.favorites = favorites;
+  const request = cleanRequest(extras.request);
+  if (request) body.request = request;
+  return body;
+}
+
+/** Training days in the split (days with at least one known muscle). */
+export function trainingDayCount(split: Split): number {
+  return split.days.filter((d) => d.muscles.some(isMuscle)).length;
+}
+
+/**
+ * Plan length for the split: its training days clamped to 2..6, or the
+ * default 3 when there is no split.
+ */
+export function planDaysFor(split: Split): number {
+  const n = trainingDayCount(split);
+  return n === 0 ? DEFAULT_PLAN_DAYS : Math.min(MAX_PLAN_DAYS, Math.max(MIN_PLAN_DAYS, n));
+}
+
+/**
+ * Favourites the routes accept: catalogue ids only (custom exercises are
+ * never sent), deduplicated, in order, at most MAX_FAVORITES.
+ */
+export function sendableFavorites(ids: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const id of ids) {
+    if (out.length >= MAX_FAVORITES) break;
+    if (typeof id !== "string" || !ID_RE.test(id) || isCustomId(id) || out.includes(id)) continue;
+    out.push(id);
+  }
+  return out;
+}
+
+/** Typed request: trimmed and capped at MAX_REQUEST characters; empty becomes null. */
+export function cleanRequest(v: string | null | undefined): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim().slice(0, MAX_REQUEST).trim();
+  return s || null;
+}
+
+/**
+ * Refine: the earlier request plus the new text, at most MAX_REQUEST
+ * characters. The new text is always kept whole (it is capped on its own);
+ * when the two do not fit, the start of the earlier request is dropped.
+ */
+export function combineRequest(earlier: string | null, next: string): string | null {
+  const add = cleanRequest(next);
+  const prev = cleanRequest(earlier);
+  if (!add) return prev;
+  if (!prev) return add;
+  const joined = (head: string) => (/[.!?]$/.test(head) ? `${head} ${add}` : `${head}. ${add}`);
+  const full = joined(prev);
+  if (full.length <= MAX_REQUEST) return full;
+  const room = MAX_REQUEST - add.length - 2;
+  if (room <= 0) return add;
+  const head = prev.slice(prev.length - room).trim();
+  return head ? joined(head).slice(-MAX_REQUEST) : add;
+}
+
+/** Body for /api/ai/suggest-split. Only fields that are used are sent. */
+export function buildSplitRequestBody(favorites: readonly string[], request: string | null, equipment: readonly Equipment[]) {
+  const body: { favorites?: string[]; request?: string; equipment: Equipment[] } = {
+    equipment: equipmentForAi(equipment.filter(isEquipment)),
+  };
+  const favs = sendableFavorites(favorites);
+  if (favs.length) body.favorites = favs;
+  const req = cleanRequest(request);
+  if (req) body.request = req;
+  return body;
+}
+
+export type ProposedSplit = { split: Split; notes: string | null; source: "ai" | "rules" };
+
+/**
+ * Checks the suggest-split 200 body: 2 to 6 days, each with a name and
+ * muscles from MUSCLE_GROUPS (unknown muscles dropped, empty days dropped).
+ * Returns null when nothing usable came back.
+ */
+export function parseSplit(json: unknown): ProposedSplit | null {
+  if (!isObj(json) || !isObj(json.split) || !Array.isArray(json.split.days)) return null;
+  const days: SplitDay[] = [];
+  for (const [i, raw] of json.split.days.entries()) {
+    if (days.length >= MAX_PLAN_DAYS) break;
+    if (!isObj(raw) || !Array.isArray(raw.muscles)) continue;
+    const muscles = [...new Set(raw.muscles.filter(isMuscle))];
+    if (muscles.length === 0) continue;
+    days.push({ name: cleanText(raw.name, MAX_NAME) ?? `Day ${i + 1}`, muscles });
+  }
+  if (days.length < MIN_PLAN_DAYS) return null;
+  return {
+    split: { name: cleanText(json.split.name, MAX_NAME) ?? "My split", days },
+    notes: cleanText(json.notes, MAX_NOTE),
+    source: json.source === "ai" ? "ai" : "rules",
+  };
+}
+
+/** The rule-based split, built in the browser (no key, offline). Null if it cannot be built. */
+export function localSplit(
+  favorites: readonly string[],
+  request: string | null,
+  equipment: readonly Equipment[],
+  byId: ReadonlyMap<string, Exercise>,
+): ProposedSplit | null {
+  try {
+    const r = buildSplit(
+      {
+        favorites: sendableFavorites(favorites).filter((id) => byId.has(id)),
+        request: cleanRequest(request),
+        days_per_week: null,
+        equipment: equipmentForAi(equipment.filter(isEquipment)),
+      },
+      byId,
+    );
+    return parseSplit({ split: r.split, notes: r.notes, source: "rules" });
+  } catch {
+    return null;
+  }
+}
+
+/** Case-insensitive name search over exercises; every word must match. */
+export function searchExercises<T extends { id: string; name: string }>(list: readonly T[], query: string, exclude: readonly string[], max = MAX_SEARCH_RESULTS): T[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const out: T[] = [];
+  for (const e of list) {
+    if (out.length >= max) break;
+    if (exclude.includes(e.id)) continue;
+    const name = e.name.toLowerCase();
+    if (words.every((w) => name.includes(w))) out.push(e);
+  }
+  return out;
 }
 
 function cleanText(v: unknown, max: number): string | null {
@@ -146,14 +328,15 @@ function cleanText(v: unknown, max: number): string | null {
 }
 
 /**
- * Checks the route's 200 body and returns up to 3 days, or null when nothing
+ * Checks the route's 200 body and returns up to `maxDays` days (default 3), or null when nothing
  * usable came back. Exercises must be known to `known` (the catalogue the app
  * shows); numbers are clamped and duplicates dropped. Days left empty are removed.
  */
-export function parsePlan(json: unknown, known: (id: string) => boolean): PlanDay[] | null {
+export function parsePlan(json: unknown, known: (id: string) => boolean, maxDays: number = MAX_DAYS): PlanDay[] | null {
   if (!isObj(json) || !isObj(json.plan) || !Array.isArray(json.plan.days)) return null;
+  const limit = Number.isInteger(maxDays) ? Math.min(MAX_PLAN_DAYS, Math.max(1, maxDays)) : MAX_DAYS;
   const out: PlanDay[] = [];
-  for (const [i, raw] of json.plan.days.slice(0, MAX_DAYS).entries()) {
+  for (const [i, raw] of json.plan.days.slice(0, limit).entries()) {
     if (!isObj(raw) || !Array.isArray(raw.exercises)) continue;
     const exercises: PlanExercise[] = [];
     for (const e of raw.exercises) {
@@ -197,17 +380,29 @@ export async function loadHistory(now = new Date()): Promise<HistoryEntry[]> {
   return buildHistory(await workoutsBetween(addDays(now, -HISTORY_DAYS), addDays(now, 1)));
 }
 
+type PlanReview = { days: PlanDay[]; keep: boolean[]; request: string | null; note: string | null; refining: boolean };
+
 type State =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "review"; days: PlanDay[]; keep: boolean[] }
-  | { kind: "saving"; days: PlanDay[]; keep: boolean[] }
+  | { kind: "needSplit" }
+  | ({ kind: "review" } & PlanReview)
+  | ({ kind: "saving" } & PlanReview)
   | { kind: "saved"; count: number };
+
+type SplitState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "review"; proposal: ProposedSplit; message: string | null; confirming: boolean; saving: boolean }
+  | { kind: "saved" }
+  | { kind: "error"; message: string };
+
+type PlanResult = { ok: true; days: PlanDay[] } | { ok: false; message: string };
 
 const offline = () => typeof navigator !== "undefined" && navigator.onLine === false;
 
-/** Generate a 3-day plan, review it, keep the days you want, save them as routines. */
+/** Generate an N-day plan, review it, keep the days you want, save them as routines. */
 export function GeneratePlan({
   getHistory = loadHistory,
   split: splitProp,
@@ -223,19 +418,34 @@ export function GeneratePlan({
   const savedEquipment = useEquipment();
   const split = splitProp ?? savedSplit;
   const equipment = equipmentProp ?? savedEquipment;
-  const { get } = useCatalogue();
+  const { get, exercises } = useCatalogue();
+  const savedFavs = useFavorites();
   const [state, setState] = useState<State>({ kind: "idle" });
+  const [splitState, setSplitState] = useState<SplitState>({ kind: "idle" });
 
-  const generate = async () => {
-    if (!hasTrainingDay(split)) {
-      setState({ kind: "error", message: MSG_NO_SPLIT });
-      return;
-    }
-    if (offline()) {
-      setState({ kind: "error", message: MSG_OFFLINE });
-      return;
-    }
-    setState({ kind: "loading" });
+  // Favourites for this plan only: the saved ones until the user edits the list.
+  // They are sent only once the user has opened the picker ("used" it).
+  const [favOpen, setFavOpen] = useState(false);
+  const [favUsed, setFavUsed] = useState(false);
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const [query, setQuery] = useState("");
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [request, setRequest] = useState("");
+  const [change, setChange] = useState("");
+
+  const shownFavs = picked ?? sendableFavorites(savedFavs);
+  const sentFavs = favUsed ? shownFavs : [];
+  const typed = cleanRequest(request);
+  const canBuild = sentFavs.length > 0 || typed !== null;
+  const hasCustomFav = savedFavs.some(isCustomId);
+  const planDays = planDaysFor(split);
+  const builtIn = useMemo(() => exercises.filter((e) => !isCustomId(e.id)), [exercises]);
+  const results = favOpen ? searchExercises(builtIn, query, shownFavs) : [];
+
+  const editFavs = (fn: (cur: string[]) => string[]) => setPicked(sendableFavorites(fn(shownFavs)));
+
+  const fetchPlan = async (req: string | null): Promise<PlanResult> => {
+    if (offline()) return { ok: false, message: MSG_OFFLINE };
     try {
       let history: HistoryEntry[] = [];
       try {
@@ -246,38 +456,121 @@ export function GeneratePlan({
       const res = await fetch(ROUTE, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(buildRequestBody(split, equipment, history)),
+        body: JSON.stringify(
+          buildRequestBody(split, equipment, history, { plan_days: planDays, favorites: sentFavs, request: req }),
+        ),
       });
-      if (res.status === 503) {
-        setState({ kind: "error", message: MSG_UNAVAILABLE });
-        return;
-      }
-      if (!res.ok) {
-        setState({ kind: "error", message: MSG_FAILED });
-        return;
-      }
+      if (res.status === 503) return { ok: false, message: MSG_UNAVAILABLE };
+      if (!res.ok) return { ok: false, message: MSG_FAILED };
       const body: unknown = await res.json();
       // Make sure the built-in catalogue is loaded so ids can be checked and named.
-      let builtIn: Set<string> = new Set();
+      let ids: Set<string> = new Set();
       try {
-        builtIn = new Set((await loadCatalogue()).list.map((e) => e.id));
+        ids = new Set((await loadCatalogue()).list.map((e) => e.id));
       } catch {
         // Unreachable catalogue: only exercises already known to the app count.
       }
-      const days = parsePlan(body, (id) => builtIn.has(id) || !!get(id));
-      setState(days ? { kind: "review", days, keep: days.map(() => true) } : { kind: "error", message: MSG_FAILED });
+      const days = parsePlan(body, (id) => ids.has(id) || !!get(id), planDays);
+      return days ? { ok: true, days } : { ok: false, message: MSG_FAILED };
     } catch {
-      setState({ kind: "error", message: offline() ? MSG_OFFLINE : MSG_FAILED });
+      return { ok: false, message: offline() ? MSG_OFFLINE : MSG_FAILED };
+    }
+  };
+
+  const generate = async () => {
+    if (!hasTrainingDay(split)) {
+      // With picks or a typed request there is a way forward: build a split first.
+      setState(canBuild ? { kind: "needSplit" } : { kind: "error", message: MSG_NO_SPLIT });
+      return;
+    }
+    if (offline()) {
+      setState({ kind: "error", message: MSG_OFFLINE });
+      return;
+    }
+    setState({ kind: "loading" });
+    const r = await fetchPlan(typed);
+    setState(
+      r.ok
+        ? { kind: "review", days: r.days, keep: r.days.map(() => true), request: typed, note: null, refining: false }
+        : { kind: "error", message: r.message },
+    );
+  };
+
+  const refine = async () => {
+    if (state.kind !== "review" || state.refining) return;
+    const add = cleanRequest(change);
+    if (!add) return;
+    const combined = combineRequest(state.request, add);
+    setState({ ...state, refining: true, note: null });
+    const r = await fetchPlan(combined);
+    if (r.ok) {
+      setChange("");
+      setState({ kind: "review", days: r.days, keep: r.days.map(() => true), request: combined, note: null, refining: false });
+    } else {
+      // The plan on screen stays as it was; nothing is saved.
+      setState((s) => (s.kind === "review" ? { ...s, refining: false, note: r.message } : s));
+    }
+  };
+
+  const buildSplitFromPicks = async () => {
+    setSplitState({ kind: "loading" });
+    const favs = sentFavs;
+    let byId: ReadonlyMap<string, Exercise> = new Map();
+    try {
+      byId = (await loadCatalogue()).byId;
+    } catch {
+      // No catalogue: the rule-based split still works from the typed request.
+    }
+    const fallback = (message: string) => {
+      const proposal = localSplit(favs, typed, equipment, byId);
+      setSplitState(
+        proposal
+          ? { kind: "review", proposal, message, confirming: false, saving: false }
+          : { kind: "error", message: MSG_SPLIT_NONE },
+      );
+    };
+    if (offline()) return fallback(MSG_SPLIT_OFFLINE);
+    try {
+      const sendFavs = byId.size > 0 ? favs.filter((id) => byId.has(id)) : favs;
+      const res = await fetch(SPLIT_ROUTE, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(buildSplitRequestBody(sendFavs, typed, equipment)),
+      });
+      if (res.status === 503) return fallback(MSG_SPLIT_UNAVAILABLE);
+      if (!res.ok) return fallback(MSG_SPLIT_FAILED);
+      const proposal = parseSplit(await res.json());
+      if (!proposal) return fallback(MSG_SPLIT_FAILED);
+      setSplitState({ kind: "review", proposal, message: null, confirming: false, saving: false });
+    } catch {
+      fallback(offline() ? MSG_SPLIT_OFFLINE : MSG_SPLIT_FAILED);
+    }
+  };
+
+  const applyProposal = async (confirmed: boolean) => {
+    if (splitState.kind !== "review" || splitState.saving) return;
+    // An existing split is only replaced after an explicit confirm.
+    if (!confirmed && (hasTrainingDay(savedSplit) || hasTrainingDay(split))) {
+      setSplitState({ ...splitState, confirming: true });
+      return;
+    }
+    setSplitState({ ...splitState, saving: true });
+    try {
+      await saveSplit(splitState.proposal.split);
+      setSplitState({ kind: "saved" });
+      setState((s) => (s.kind === "needSplit" || s.kind === "error" ? { kind: "idle" } : s));
+    } catch {
+      setSplitState({ kind: "error", message: "Could not save the split. Try again." });
     }
   };
 
   const toggle = (i: number) =>
     setState((s) => (s.kind === "review" ? { ...s, keep: s.keep.map((k, j) => (j === i ? !k : k)) } : s));
 
-  const save = async (days: PlanDay[], keep: boolean[]) => {
-    const chosen = days.filter((_, i) => keep[i]);
+  const save = async (s: PlanReview) => {
+    const chosen = s.days.filter((_, i) => s.keep[i]);
     if (chosen.length === 0) return;
-    setState({ kind: "saving", days, keep });
+    setState({ ...s, kind: "saving", refining: false });
     try {
       await savePlanDays(chosen);
       setState({ kind: "saved", count: chosen.length });
@@ -288,12 +581,14 @@ export function GeneratePlan({
 
   const reviewing = state.kind === "review" || state.kind === "saving";
   const kept = reviewing ? state.keep.filter(Boolean).length : 0;
+  const busy = reviewing && (state.kind === "saving" || state.refining);
+  const splitBusy = splitState.kind === "loading" || splitState.kind === "review";
 
   return (
     <div className="card p-3 mt-3">
       <div className="flex items-start justify-between gap-2">
         <span>
-          <span className="block text-sm font-semibold">Generate 3-day plan</span>
+          <span className="block text-sm font-semibold">Generate {planDays}-day plan</span>
           <span className="block text-xs text-muted">From your split, equipment and recent training.</span>
         </span>
         {!reviewing && (
@@ -303,15 +598,199 @@ export function GeneratePlan({
         )}
       </div>
 
+      {!reviewing && (
+        <div className="flex flex-wrap gap-2 mt-2">
+          <button
+            type="button"
+            className={favOpen ? "chip-on text-xs" : "chip text-xs"}
+            aria-expanded={favOpen}
+            onClick={() => {
+              setFavOpen((o) => !o);
+              setFavUsed(true);
+            }}
+          >
+            Favourites
+          </button>
+          <button
+            type="button"
+            className={coachOpen ? "chip-on text-xs" : "chip text-xs"}
+            aria-expanded={coachOpen}
+            onClick={() => setCoachOpen((o) => !o)}
+          >
+            Tell the coach
+          </button>
+        </div>
+      )}
+
+      {!reviewing && favOpen && (
+        <div className="mt-2 rounded-xl border border-border p-2" role="group" aria-label="Favourites for this plan">
+          <p className="text-xs text-muted">Exercises to build this plan around. Changes here are for this plan only.</p>
+          {shownFavs.length === 0 ? (
+            <p className="text-xs text-muted mt-1">No favourites picked. Search below to add some.</p>
+          ) : (
+            <ul className="flex flex-wrap gap-1.5 mt-2" aria-label="Picked exercises">
+              {shownFavs.map((id) => {
+                const name = get(id)?.name ?? id;
+                return (
+                  <li key={id}>
+                    <button
+                      type="button"
+                      className="chip text-xs"
+                      aria-label={`Remove ${name}`}
+                      onClick={() => editFavs((cur) => cur.filter((x) => x !== id))}
+                    >
+                      {name} x
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {hasCustomFav && <p className="text-xs text-muted mt-1">Your own exercises are not sent to the coach.</p>}
+          <input
+            type="search"
+            className="field text-sm mt-2"
+            aria-label="Search exercises"
+            placeholder="Search exercises to add"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {results.length > 0 && (
+            <ul className="mt-1 space-y-0.5" aria-label="Search results">
+              {results.map((e) => (
+                <li key={e.id}>
+                  <button
+                    type="button"
+                    className="w-full text-left text-xs py-1 disabled:opacity-50"
+                    aria-label={`Add ${e.name}`}
+                    disabled={shownFavs.length >= MAX_FAVORITES}
+                    onClick={() => editFavs((cur) => [...cur, e.id])}
+                  >
+                    + {e.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {!reviewing && coachOpen && (
+        <label className="block mt-2">
+          <span className="block text-xs text-muted mb-1">Tell the coach</span>
+          <textarea
+            className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-white"
+            rows={3}
+            maxLength={MAX_REQUEST}
+            placeholder={COACH_PLACEHOLDER}
+            value={request}
+            onChange={(e) => setRequest(e.target.value)}
+          />
+        </label>
+      )}
+
+      {!reviewing && canBuild && !splitBusy && state.kind !== "needSplit" && (
+        <button type="button" className="chip text-xs mt-2" onClick={buildSplitFromPicks}>
+          Build a split from this
+        </button>
+      )}
+
       {state.kind === "error" && (
         <p role="status" className="text-xs text-muted mt-2">
           {state.message}
         </p>
       )}
+      {state.kind === "needSplit" && (
+        <div className="mt-2">
+          <p role="status" className="text-xs text-muted">
+            {MSG_BUILD_FIRST}
+          </p>
+          {!splitBusy && (
+            <button type="button" className="chip text-xs mt-2" onClick={buildSplitFromPicks}>
+              Build a split first
+            </button>
+          )}
+        </div>
+      )}
       {state.kind === "saved" && (
         <p role="status" className="text-xs text-muted mt-2">
           Saved {state.count} routine{state.count === 1 ? "" : "s"}.
         </p>
+      )}
+
+      {splitState.kind === "loading" && <p className="text-xs text-muted mt-2">Building a split...</p>}
+      {splitState.kind === "error" && (
+        <p role="status" className="text-xs text-muted mt-2">
+          {splitState.message}
+        </p>
+      )}
+      {splitState.kind === "saved" && (
+        <p role="status" className="text-xs text-muted mt-2">
+          {MSG_SPLIT_SAVED}
+        </p>
+      )}
+      {splitState.kind === "review" && (
+        <div className="mt-2 rounded-xl border border-border p-2">
+          {splitState.message && (
+            <p role="status" className="text-xs text-muted">
+              {splitState.message}
+            </p>
+          )}
+          <p className="text-sm font-semibold mt-1">{splitState.proposal.split.name}</p>
+          {splitState.proposal.notes && <p className="text-xs text-muted mt-0.5">{splitState.proposal.notes}</p>}
+          <ul className="mt-1 space-y-0.5" aria-label="Proposed split">
+            {splitState.proposal.split.days.map((d, i) => (
+              <li key={i} className="text-xs">
+                <span className="font-semibold">{d.name}</span>
+                <span className="text-muted">: {d.muscles.join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+          {splitState.confirming ? (
+            <>
+              <p className="text-xs mt-2">
+                Replace your current split{savedSplit.name ? ` "${savedSplit.name}"` : ""}? It is kept until you confirm.
+              </p>
+              <div className="flex gap-2 mt-2">
+                <button
+                  type="button"
+                  className="btn-primary flex-1"
+                  disabled={splitState.saving}
+                  onClick={() => applyProposal(true)}
+                >
+                  Replace split
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost flex-1"
+                  disabled={splitState.saving}
+                  onClick={() => setSplitState({ ...splitState, confirming: false })}
+                >
+                  Keep current split
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                className="btn-primary flex-1"
+                disabled={splitState.saving}
+                onClick={() => applyProposal(false)}
+              >
+                Use this split
+              </button>
+              <button
+                type="button"
+                className="btn-ghost flex-1"
+                disabled={splitState.saving}
+                onClick={() => setSplitState({ kind: "idle" })}
+              >
+                Discard split
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {reviewing && (
@@ -325,7 +804,7 @@ export function GeneratePlan({
                     type="checkbox"
                     checked={state.keep[i]}
                     onChange={() => toggle(i)}
-                    disabled={state.kind === "saving"}
+                    disabled={busy}
                     aria-label={`Keep ${d.name}`}
                   />
                   <span className="text-sm font-semibold flex-1">{d.name}</span>
@@ -344,19 +823,44 @@ export function GeneratePlan({
               </li>
             ))}
           </ul>
+          <label className="block mt-3">
+            <span className="block text-xs text-muted mb-1">Ask for changes</span>
+            <textarea
+              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-white"
+              rows={2}
+              maxLength={MAX_REQUEST}
+              placeholder="e.g. Swap squats for leg press"
+              value={change}
+              disabled={busy}
+              onChange={(e) => setChange(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="chip text-xs mt-1 disabled:opacity-50"
+            disabled={busy || cleanRequest(change) === null}
+            onClick={refine}
+          >
+            {state.kind === "review" && state.refining ? "Working..." : "Regenerate"}
+          </button>
+          {state.note && (
+            <p role="status" className="text-xs text-muted mt-2">
+              {state.note}
+            </p>
+          )}
           <div className="flex gap-2 mt-3">
             <button
               type="button"
               className="btn-primary flex-1"
-              disabled={kept === 0 || state.kind === "saving"}
-              onClick={() => save(state.days, state.keep)}
+              disabled={kept === 0 || busy}
+              onClick={() => save(state)}
             >
               {state.kind === "saving" ? "Saving..." : `Save ${kept} routine${kept === 1 ? "" : "s"}`}
             </button>
             <button
               type="button"
               className="btn-ghost flex-1"
-              disabled={state.kind === "saving"}
+              disabled={busy}
               onClick={() => setState({ kind: "idle" })}
             >
               Discard

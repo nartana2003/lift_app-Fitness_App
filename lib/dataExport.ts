@@ -132,6 +132,7 @@ export const serializeBackup = (b: Backup) => JSON.stringify(b);
  * Field kinds. A trailing "?" means nullable: null or a missing field (older rows)
  * is accepted and stored as null. "optstring" and "optboolean" may be left out
  * entirely (then the field is omitted, not stored as null).
+ * "optstring?" may be left out entirely (it stays left out) or be text or null.
  */
 type Kind =
   | "string"
@@ -143,6 +144,7 @@ type Kind =
   | "true"
   | "optstring"
   | "optboolean"
+  | "optstring?"
   | { oneOf: readonly string[]; nullable?: boolean };
 
 type Schema = Record<string, Kind>;
@@ -191,6 +193,8 @@ const SCHEMAS: Record<RowTable, Schema> = {
     creator: "string?",
     notes: "string?",
     created_at: "string",
+    // The split day the routine belongs to (left out on older rows and unlinked routines).
+    split_day_id: "optstring?",
   },
   routine_exercises: {
     id: "string",
@@ -246,6 +250,10 @@ function checkField(v: unknown, kind: Kind): Check {
     case "optboolean":
       if (v === undefined) return ok(undefined);
       return typeof v === "boolean" ? ok(v) : bad("must be true or false");
+    case "optstring?":
+      if (v === undefined) return ok(undefined);
+      if (v === null) return ok(null);
+      return typeof v === "string" ? ok(v) : bad("must be text or null");
     case "number":
       return typeof v === "number" && Number.isFinite(v) ? ok(v) : bad("must be a number");
     case "number?":

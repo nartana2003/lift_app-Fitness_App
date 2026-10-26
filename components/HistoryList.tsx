@@ -28,9 +28,6 @@ export function HistoryList() {
   return (
     <section className="mt-6">
       <h2 className="text-lg font-bold mb-3">My History</h2>
-      {workouts.length === 0 && (
-        <p className="card p-4 text-sm text-muted">No workouts yet.</p>
-      )}
       {[...weeks.entries()].map(([wk, ws]) => (
         <div key={wk} className="mb-5">
           <h3 className="text-xs uppercase tracking-wide text-muted mb-2">
