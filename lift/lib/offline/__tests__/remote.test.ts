@@ -11,6 +11,7 @@ import {
   routineExerciseFromRemote,
   routineFromRemote,
   toRemoteRow,
+  splitPlannedDays,
 } from "../remote";
 import type { PlannedDayRow } from "../db";
 
@@ -130,5 +131,24 @@ describe("photos", () => {
     expect(remotePhotoFromRow(UID, { ...ok, pose: "upside" })?.pose).toBeNull();
     expect(remotePhotoFromRow(UID, { ...ok, storage_path: "other/p.jpg" })).toBeNull();
     expect(remotePhotoFromRow(UID, { ...ok, taken_at: "never" })).toBeNull();
+  });
+});
+
+describe("splitPlannedDays keeps workout links", () => {
+  it("a winner without a workout takes the loser's link and is reported for upload", () => {
+    const loser = day({ id: "l", status: "planned", workout_id: "w1", created_at: "2026-10-01T00:00:00Z" });
+    const winner = day({ id: "w", status: "planned", workout_id: null, created_at: "2026-10-05T00:00:00Z" });
+    const r = splitPlannedDays([loser, winner]);
+    expect(r.keep).toEqual([{ ...winner, workout_id: "w1" }]);
+    expect(r.losers.map((x) => x.id)).toEqual(["l"]);
+    expect(r.relinked).toEqual([{ ...winner, workout_id: "w1" }]);
+  });
+
+  it("a done winner keeps its own link", () => {
+    const done = day({ id: "d", status: "done", workout_id: "wd" });
+    const other = day({ id: "o", workout_id: "wo", created_at: "2026-10-30T00:00:00Z" });
+    const r = splitPlannedDays([other, done]);
+    expect(r.keep).toEqual([done]);
+    expect(r.relinked).toEqual([]);
   });
 });

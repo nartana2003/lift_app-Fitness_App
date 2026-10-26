@@ -98,6 +98,8 @@ export type OutboxItem = {
   op: "upsert" | "delete";
   row: Record<string, unknown>;
   created_at: string;
+  /** How many times this item was already dead-lettered and re-sent (sync.ts retryDeadLetters). */
+  retries?: number;
 };
 
 export type MeasurementRow = { id: string; type: string; value: number; date: string };

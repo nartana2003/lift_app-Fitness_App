@@ -323,3 +323,34 @@ describe("startSync", () => {
     remove.mockRestore();
   });
 });
+
+describe("round 3: dead letters", () => {
+  it("a workout rejected with 23503 keeps the local workout and its sets after a pull", async () => {
+    await db.workouts.put({ id: "w1", started_at: "2026-10-01T08:00:00.000Z", ended_at: "2026-10-01T09:00:00.000Z", notes: null, routine_id: null });
+    await db.workout_exercises.put({ id: "we1", workout_id: "w1", exercise_id: "Bench", position: 0 });
+    await db.sets.put({ id: "s1", workout_exercise_id: "we1", set_no: 1, reps: 5, weight: 100, is_warmup: false, rir: null, completed_at: "2026-10-01T08:30:00.000Z" });
+    server.state.errors.set("w1", { code: "23503", message: "fk" });
+    await db.outbox.bulkAdd([
+      q("workouts", "upsert", { id: "w1" }),
+      q("workout_exercises", "upsert", { id: "we1", workout_id: "w1" }),
+      q("sets", "upsert", { id: "s1", workout_exercise_id: "we1" }),
+    ]);
+    await flush();
+    expect(await db.outbox.count()).toBe(0);
+    await pull(3650);
+    expect(await db.workouts.get("w1")).toBeTruthy();
+    expect(await db.sets.get("s1")).toBeTruthy();
+  });
+
+  it("an item dead-lettered with 42703 is re-sent and succeeds on the next startSync", async () => {
+    server.state.errors.set("d1", { code: "42703", message: "column moved_to does not exist" });
+    await db.outbox.add(q("planned_days", "upsert", { id: "d1", date: "2026-10-27" }));
+    await flush();
+    expect((await deadLetters()).map((d) => d.row.id)).toEqual(["d1"]);
+    server.state.errors.clear(); // 0002 applied
+    const stop = startSync();
+    await vi.waitFor(async () => expect(server.table("planned_days").has("d1")).toBe(true));
+    stop();
+    expect(await deadLetters()).toEqual([]);
+  });
+});

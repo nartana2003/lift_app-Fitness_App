@@ -391,6 +391,7 @@ export async function importBackup(backup: Backup): Promise<ImportSummary> {
       db.routine_exercises,
       db.planned_days,
       db.meta,
+      db.outbox,
     ],
     async () => {
       const workouts = await missing(db.workouts, t.workouts);
@@ -462,10 +463,11 @@ export async function importBackup(backup: Backup): Promise<ImportSummary> {
         delete row.custom;
         queue.push({ table: "exercises", op: "upsert", row });
       }
+      // Queue the new rows for sync in the same transaction as the writes, so a
+      // pull can never drop them between the two.
+      if (queue.length) await enqueue(queue);
     },
   );
 
-  // Queue the new rows for sync, so a later pull from the server does not drop them.
-  if (queue.length) await enqueue(queue);
   return { added, skipped };
 }

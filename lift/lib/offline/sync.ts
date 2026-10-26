@@ -19,7 +19,11 @@ import { claimOwner } from "./owner";
  *   upsert only; there are no server tombstones).
  * - A row the server rejects for good (see classifySyncError) is moved to the
  *   dead-letter list in meta (DEAD_LETTER_KEY) with its queued children, so it
- *   never blocks the rest of the queue. Network/auth/server errors are retried.
+ *   never blocks the rest of the queue. Network/auth/server errors are retried
+ *   (coded ones at most MAX_CODED_RETRIES times per session). The local rows of
+ *   a dead letter are kept (pull never deletes them) and the banner shows the
+ *   count. The list keeps the newest MAX_DEAD_LETTERS entries; there is no
+ *   re-send or export UI yet.
  * - The device belongs to the first account that syncs it (owner.ts); another
  *   account signed in on the same browser is refused.
  */
@@ -30,7 +34,19 @@ const now = () => new Date().toISOString();
 export const DEAD_LETTER_KEY = "outbox:dead";
 export const MAX_DEAD_LETTERS = 200;
 
-export type DeadLetter = { table: SyncTable; op: "upsert" | "delete"; row: Record<string, unknown>; code: string; message: string; at: string };
+export type DeadLetter = {
+  table: SyncTable;
+  op: "upsert" | "delete";
+  row: Record<string, unknown>;
+  code: string;
+  message: string;
+  at: string;
+  /** Times this item has been dead-lettered (1 on the first rejection). */
+  tries?: number;
+};
+
+/** A dead letter is re-sent at most this many times in total (retryDeadLetters). */
+export const MAX_DEAD_LETTER_TRIES = 5;
 
 /**
  * Queue local writes (already applied to Dexie) for upload. Inside a Dexie
@@ -57,7 +73,10 @@ export async function writeAndQueue(
     if (items.length) await db.outbox.bulkAdd(items.map((i) => ({ ...i, created_at: now() })));
     return items.length;
   });
-  if (queued) void flush();
+  if (!queued) return;
+  // Called inside an outer transaction: upload only after it (flush must not run in its scope).
+  if (Dexie.currentTransaction) setTimeout(() => void flush(), 0);
+  else void flush();
 }
 
 let flushing: Promise<number> | null = null;
@@ -75,6 +94,7 @@ async function deadLetter(items: OutboxItem[], error: { code?: unknown; message?
         code: typeof error.code === "string" ? error.code : "",
         message: typeof error.message === "string" ? error.message.slice(0, 300) : "",
         at: now(),
+        tries: (i.retries ?? 0) + 1,
       });
     }
     await db.meta.put({ key: DEAD_LETTER_KEY, value: list.slice(-MAX_DEAD_LETTERS) });
@@ -82,11 +102,60 @@ async function deadLetter(items: OutboxItem[], error: { code?: unknown; message?
   });
 }
 
+/**
+ * Local workouts with a dead-lettered row (the workout, one of its exercises
+ * or sets): the server never got them, so a pull must not delete them.
+ */
+async function deadLetterWorkoutIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const weIds: string[] = [];
+  for (const d of await deadLetters()) {
+    if (d.op !== "upsert") continue;
+    if (d.table === "workouts" && typeof d.row.id === "string") ids.add(d.row.id);
+    if (d.table === "workout_exercises" && typeof d.row.workout_id === "string") ids.add(d.row.workout_id);
+    if (d.table === "sets" && typeof d.row.workout_exercise_id === "string") weIds.push(d.row.workout_exercise_id);
+  }
+  if (weIds.length) for (const we of await db.workout_exercises.bulkGet(weIds)) if (we) ids.add(we.workout_id);
+  return ids;
+}
+
+/**
+ * Re-queue dead letters (in their original order, so parents go before their
+ * children). 42703 / PGRST204 / 23503 usually mean the app was deployed before
+ * migration 0002 was applied, not that the row is bad, so they are worth
+ * another try. An item that has been rejected MAX_DEAD_LETTER_TRIES times stays
+ * in the list and is not re-sent. Returns how many were re-queued.
+ */
+export async function retryDeadLetters(): Promise<number> {
+  const n = await db.transaction("rw", db.outbox, db.meta, async () => {
+    const list = await deadLetters();
+    const again = list.filter((d) => (d.tries ?? 1) < MAX_DEAD_LETTER_TRIES);
+    if (!again.length) return 0;
+    await db.outbox.bulkAdd(again.map((d) => ({ table: d.table, op: d.op, row: d.row, created_at: now(), retries: d.tries ?? 1 })));
+    await db.meta.put({ key: DEAD_LETTER_KEY, value: list.filter((d) => (d.tries ?? 1) >= MAX_DEAD_LETTER_TRIES) });
+    return again.length;
+  });
+  if (n) void flush();
+  return n;
+}
+
 /** Items the server rejected permanently (kept for support/debugging). */
 export async function deadLetters(): Promise<DeadLetter[]> {
   const v = (await db.meta.get(DEAD_LETTER_KEY))?.value;
   return Array.isArray(v) ? (v as DeadLetter[]) : [];
 }
+
+/**
+ * Retry cap for errors that carry a code but are not classed permanent (e.g.
+ * 42501 row-level security, PGRST301 expired token): after this many failed
+ * passes in one session the item is dead-lettered so it cannot block the queue
+ * forever. Errors without a code (network) are retried without limit.
+ */
+export const MAX_CODED_RETRIES = 20;
+const attempts = new Map<number, number>();
+
+/** Workout ids uploaded by flush, with the time, so a pull in flight never deletes them. */
+const sentWorkouts = new Map<string, string>();
 
 /** planned_days / workouts pointing at a routine deleted on this device: send no link (FK). */
 async function guardForeignKeys(table: SyncTable, row: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -116,14 +185,23 @@ async function flushOnce(): Promise<number> {
     const { error } =
       item.op === "upsert" ? await q.upsert(row) : await q.delete().eq("id", item.row.id as string);
     if (error) {
-      if (classifySyncError(error) === "permanent") {
+      const coded = typeof error.code === "string" && error.code !== "";
+      const tries = (attempts.get(item.seq!) ?? 0) + 1;
+      attempts.set(item.seq!, tries);
+      if (classifySyncError(error) === "permanent" || (coded && tries >= MAX_CODED_RETRIES)) {
         console.warn("sync rejected, moved to dead letters", item.table, error.code);
         const children = outboxChildren(item, await db.outbox.orderBy("seq").toArray());
         await deadLetter([item, ...children], error);
+        attempts.delete(item.seq!);
         continue;
       }
       console.warn("sync failed, will retry", item.table, error.message);
       break;
+    }
+    attempts.delete(item.seq!);
+    if (item.table === "workouts" && item.op === "upsert" && typeof item.row.id === "string") {
+      sentWorkouts.set(item.row.id, now());
+      if (sentWorkouts.size > 500) sentWorkouts.delete(sentWorkouts.keys().next().value!);
     }
     await db.outbox.delete(item.seq!);
     sent++;
@@ -195,13 +273,19 @@ export async function pull(days = 365) {
       ss.push(...sets.map((s) => ({ ...s, weight: Number(s.weight) })));
     }
   }
-  const applied = await db.transaction("rw", [db.workouts, db.workout_exercises, db.sets, db.outbox], async () => {
+  const applied = await db.transaction("rw", [db.workouts, db.workout_exercises, db.sets, db.outbox, db.meta], async () => {
     // Re-check inside the transaction: a workout may have been saved and queued
     // while the request was in flight. Any queued item means local is ahead.
     if ((await db.outbox.count()) > 0) return false;
     const local = await db.workouts.where("started_at").aboveOrEqual(since).toArray();
     const remote = new Set(ws.map((w) => w.id));
-    const removed = local.filter((w) => !remote.has(w.id) && w.started_at <= fetchStart).map((w) => w.id);
+    // Never delete: workouts the server rejected (dead letters: the only copy is
+    // here), and workouts finished or uploaded while the request was in flight.
+    const keep = await deadLetterWorkoutIds();
+    const sentDuringFetch = (id: string) => (sentWorkouts.get(id) ?? "") >= fetchStart;
+    const removed = local
+      .filter((w) => !remote.has(w.id) && !keep.has(w.id) && !sentDuringFetch(w.id) && (w.ended_at ?? w.started_at) <= fetchStart)
+      .map((w) => w.id);
     if (removed.length) await deleteWorkoutsLocal(removed);
     await db.workouts.bulkPut(ws);
     await db.workout_exercises.bulkPut(wes);
@@ -266,10 +350,14 @@ export async function pullTables(): Promise<void> {
     if ((await db.outbox.count()) > 0) return false;
     let queued = false;
     if (days) {
-      const { keep: unique, losers } = splitPlannedDays(days);
-      // Two devices marked the same date: delete the losing rows on the server too.
+      const { keep: unique, losers, relinked } = splitPlannedDays(days);
+      // Two devices marked the same date: delete the losing rows on the server
+      // too. A winner that took over a loser's workout link is uploaded again.
       if (losers.length) {
-        await db.outbox.bulkAdd(losers.map((l) => ({ table: "planned_days" as const, op: "delete" as const, row: { id: l.id }, created_at: now() })));
+        await db.outbox.bulkAdd([
+          ...relinked.map((r) => ({ table: "planned_days" as const, op: "upsert" as const, row: { ...r } as Record<string, unknown>, created_at: now() })),
+          ...losers.map((l) => ({ table: "planned_days" as const, op: "delete" as const, row: { id: l.id }, created_at: now() })),
+        ]);
         queued = true;
       }
       // planned_days has a unique local `date`. Clear every local row that sits on
@@ -304,26 +392,33 @@ async function deleteWorkoutsLocal(ids: string[]) {
 
 /** Delete a workout locally and remotely (cascade on the server). */
 export async function deleteWorkout(id: string) {
-  await db.transaction("rw", db.workouts, db.workout_exercises, db.sets, () => deleteWorkoutsLocal([id]));
-  // Drop any queued uploads for it, then queue the delete.
-  const wes = new Set<string>();
-  for (const item of await db.outbox.toArray()) {
-    if (item.table === "workout_exercises" && item.row.workout_id === id) wes.add(item.row.id as string);
-  }
-  await db.outbox
-    .filter(
-      (i) =>
-        (i.table === "workouts" && i.row.id === id) ||
-        (i.table === "workout_exercises" && i.row.workout_id === id) ||
-        (i.table === "sets" && wes.has(i.row.workout_exercise_id as string)),
-    )
-    .delete();
-  await enqueue([{ table: "workouts" as SyncTable, op: "delete", row: { id } }]);
+  // Local delete, outbox purge and the queued delete commit together.
+  await db.transaction("rw", [db.workouts, db.workout_exercises, db.sets, db.outbox], async () => {
+    await deleteWorkoutsLocal([id]);
+    // Drop any queued uploads for it, then queue the delete.
+    const wes = new Set<string>();
+    for (const item of await db.outbox.toArray()) {
+      if (item.table === "workout_exercises" && item.row.workout_id === id) wes.add(item.row.id as string);
+    }
+    await db.outbox
+      .filter(
+        (i) =>
+          (i.table === "workouts" && i.row.id === id) ||
+          (i.table === "workout_exercises" && i.row.workout_id === id) ||
+          (i.table === "sets" && wes.has(i.row.workout_exercise_id as string)),
+      )
+      .delete();
+    await enqueue([{ table: "workouts" as SyncTable, op: "delete", row: { id } }]);
+  });
 }
 
 /** Start background syncing: on load, when connectivity returns, and periodically. */
 export function startSync() {
-  void pull().catch(() => {});
+  // Once per app start: give rejected items another chance (e.g. after 0002 was applied).
+  void retryDeadLetters()
+    .catch(() => 0)
+    .then(() => pull())
+    .catch(() => {});
   const online = () => void flush().then(() => pull()).catch(() => {});
   window.addEventListener("online", online);
   const t = setInterval(() => void flush(), 30_000);

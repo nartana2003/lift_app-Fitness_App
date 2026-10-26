@@ -85,7 +85,7 @@ export function dedupePlannedDays(rows: readonly PlannedDayRow[]): PlannedDayRow
 }
 
 /** dedupePlannedDays plus the rows that lost, so the caller can delete them on the server. */
-export function splitPlannedDays(rows: readonly PlannedDayRow[]): { keep: PlannedDayRow[]; losers: PlannedDayRow[] } {
+export function splitPlannedDays(rows: readonly PlannedDayRow[]): { keep: PlannedDayRow[]; losers: PlannedDayRow[]; relinked: PlannedDayRow[] } {
   const byDate = new Map<string, PlannedDayRow>();
   const losers: PlannedDayRow[] = [];
   for (const r of rows) {
@@ -96,7 +96,17 @@ export function splitPlannedDays(rows: readonly PlannedDayRow[]): { keep: Planne
       byDate.set(r.date, r);
     } else losers.push(r);
   }
-  return { keep: [...byDate.values()], losers };
+  // Never lose a workout link: a winner without one takes a loser's.
+  const relinked = new Map<string, PlannedDayRow>();
+  for (const l of losers) {
+    const w = byDate.get(l.date)!;
+    if (!w.workout_id && l.workout_id) {
+      const next = { ...w, workout_id: l.workout_id };
+      byDate.set(l.date, next);
+      relinked.set(next.id, next);
+    }
+  }
+  return { keep: [...byDate.values()], losers, relinked: [...relinked.values()] };
 }
 
 export function routineFromRemote(r: Row): RoutineRow | null {

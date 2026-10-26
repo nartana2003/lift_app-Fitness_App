@@ -363,8 +363,10 @@ async function saveSocialRoutine(input: SocialRoutineInput, kind: "mini" | "rout
     ...(input.split_day_id ? { split_day_id: input.split_day_id } : {}),
   });
   // createRoutine has no link fields: add them to the saved row and queue it again (upserts are idempotent).
-  const row = await db.routines.get(id);
-  if (row) {
+  // Read, write and queue in one transaction (with db.outbox), so a pull cannot land in between.
+  await db.transaction("rw", db.routines, db.outbox, async () => {
+    const row = await db.routines.get(id);
+    if (!row) return;
     const next: RoutineRow = {
       ...row,
       source_url: input.url,
@@ -374,7 +376,7 @@ async function saveSocialRoutine(input: SocialRoutineInput, kind: "mini" | "rout
     };
     await db.routines.put(next);
     await enqueue([{ table: "routines", op: "upsert", row: next }]);
-  }
+  });
   return id;
 }
 

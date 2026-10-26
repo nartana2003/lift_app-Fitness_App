@@ -57,10 +57,13 @@ async function tombstone(id: string) {
   await db.transaction("rw", db.meta, async () => {
     const synced = await readMap();
     const deleted = await readDeleted();
+    const fails = await readFails();
     if (!deleted.includes(id)) deleted.push(id);
     delete synced[id];
+    delete fails[id];
     await db.meta.put({ key: SYNCED_KEY, value: synced });
     await db.meta.put({ key: DELETED_KEY, value: deleted });
+    await db.meta.put({ key: FAILS_KEY, value: fails });
   });
 }
 
@@ -162,9 +165,13 @@ async function run(): Promise<PhotoSyncResult> {
 
     const path = photoPath(uid, p.id);
     const { error: upErr } = await bucket.upload(path, p.blob, { upsert: true, contentType: p.blob.type || "image/jpeg" });
-    const { error } = upErr
-      ? { error: upErr }
-      : await supabase.from("progress_photos").upsert({ id: p.id, taken_at: p.taken_at, pose: p.pose, storage_path: path, workout_id: link });
+    const photoRow = { id: p.id, taken_at: p.taken_at, pose: p.pose, storage_path: path, workout_id: link };
+    let { error } = upErr ? { error: upErr } : await supabase.from("progress_photos").upsert(photoRow);
+    // The workout never reached the server (e.g. dead-lettered): back up the
+    // photo without the link once. The local link is kept, so it can be repaired.
+    if (!upErr && error && (error as { code?: unknown }).code === "23503" && link) {
+      ({ error } = await supabase.from("progress_photos").upsert({ ...photoRow, workout_id: null }));
+    }
     await db.transaction("rw", db.meta, async () => {
       const fails = await readFails();
       if (error) {
@@ -206,6 +213,11 @@ async function run(): Promise<PhotoSyncResult> {
       const m = await readMap();
       m[r.id] = photoSignature(row);
       await db.meta.put({ key: SYNCED_KEY, value: m });
+      const fails = await readFails();
+      if (fails[r.id]) {
+        delete fails[r.id];
+        await db.meta.put({ key: FAILS_KEY, value: fails });
+      }
       return true;
     });
     if (added) result.downloaded++;
