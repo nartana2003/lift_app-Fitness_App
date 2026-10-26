@@ -4,7 +4,7 @@
 import { ensureCustomExercise } from "../customExercises";
 import type { Exercise } from "../exercises";
 import { db } from "../offline/db";
-import { enqueue } from "../offline/sync";
+import { writeAndQueue } from "../offline/sync";
 import type { Unit } from "../units";
 import { convertWorkouts, summariseExercises, type ExerciseSummary, type LyftaWorkout } from "./convert";
 import { matchExercise, type Candidate, type Confidence } from "./match";
@@ -73,16 +73,18 @@ export async function runImport(workouts: LyftaWorkout[], plan: PlanRow[], unit:
   const weIds = new Set(wes.map((e) => e.id));
   const sets = conv.sets.filter((s) => weIds.has(s.workout_exercise_id));
 
-  await db.transaction("rw", db.workouts, db.workout_exercises, db.sets, async () => {
+  // Rows and their outbox items commit together, so a pull running meanwhile
+  // can never delete freshly imported workouts that are not queued yet.
+  await writeAndQueue([db.workouts, db.workout_exercises, db.sets], async () => {
     await db.workouts.bulkPut(newWorkouts);
     await db.workout_exercises.bulkPut(wes);
     await db.sets.bulkPut(sets);
+    return [
+      ...newWorkouts.map((row) => ({ table: "workouts" as const, op: "upsert" as const, row })),
+      ...wes.map((row) => ({ table: "workout_exercises" as const, op: "upsert" as const, row })),
+      ...sets.map((row) => ({ table: "sets" as const, op: "upsert" as const, row })),
+    ];
   });
-  await enqueue([
-    ...newWorkouts.map((row) => ({ table: "workouts" as const, op: "upsert" as const, row })),
-    ...wes.map((row) => ({ table: "workout_exercises" as const, op: "upsert" as const, row })),
-    ...sets.map((row) => ({ table: "sets" as const, op: "upsert" as const, row })),
-  ]);
 
   return { imported: newWorkouts.length, alreadyHad: have.size, sets: sets.length, customCreated, skippedSets: conv.skippedSets };
 }

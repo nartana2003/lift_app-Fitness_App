@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline/db";
 import { DEAD_LETTER_KEY, startSync } from "@/lib/offline/sync";
-import { OWNER_MISMATCH_EVENT } from "@/lib/offline/owner";
+import { clearAppLocalStorage, OWNER_MISMATCH_EVENT, OWNER_OK_EVENT } from "@/lib/offline/owner";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { syncPhotos } from "@/lib/offline/photoSync";
 import { isNeutralLabel, STUCK_AFTER_MS, syncLabel } from "@/lib/offline/syncLabel";
@@ -21,6 +21,8 @@ async function signOutAndErase() {
   } catch {
     // erase anyway
   }
+  // Device-only preferences mirrored outside Dexie (rest timer, theme) go too.
+  clearAppLocalStorage();
   db.close();
   await db.delete();
   window.location.assign("/login");
@@ -60,6 +62,8 @@ export function SyncStatus() {
     const off = () => setOnline(false);
     let t: ReturnType<typeof setTimeout>;
     const mismatch = () => setOwnerMismatch(true);
+    // The right account is back (even with nothing to send): clear the mismatch.
+    const ownerOk = () => setOwnerMismatch(false);
     const synced = () => {
       setOwnerMismatch(false);
       // A workout just uploaded: photos linked to it can follow now.
@@ -72,7 +76,9 @@ export function SyncStatus() {
     window.addEventListener("offline", off);
     window.addEventListener("lift:synced", synced);
     window.addEventListener(OWNER_MISMATCH_EVENT, mismatch);
+    window.addEventListener(OWNER_OK_EVENT, ownerOk);
     return () => {
+      window.removeEventListener(OWNER_OK_EVENT, ownerOk);
       window.removeEventListener(OWNER_MISMATCH_EVENT, mismatch);
       stop();
       clearInterval(photoTimer);

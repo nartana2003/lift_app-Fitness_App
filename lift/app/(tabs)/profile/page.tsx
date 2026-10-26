@@ -7,6 +7,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { Collapsible } from "@/components/Collapsible";
 import { LyftaImport } from "@/components/LyftaImport";
 import { DataBackup } from "@/components/DataBackup";
+import { SyncCard, syncCardSummary } from "@/components/SyncCard";
+import { db } from "@/lib/offline/db";
+import { DEAD_LETTER_KEY } from "@/lib/offline/sync";
 import { GoalsSection } from "@/components/goals/GoalsSection";
 import { SplitEditor } from "@/components/goals/SplitEditor";
 import { AskCoach } from "@/components/goals/AskCoach";
@@ -35,6 +38,7 @@ const ICONS = {
   split: "M4 6h7M4 12h7M4 18h7M15 6h5M15 12h5M15 18h5",
   target: "M12 21a9 9 0 110-18 9 9 0 010 18zM12 16.5a4.5 4.5 0 110-9 4.5 4.5 0 010 9zM12 13a1 1 0 110-2 1 1 0 010 2z",
   bell: "M6 16V11a6 6 0 1112 0v5l1.5 2h-15L6 16zM10 20.5a2 2 0 004 0",
+  sync: "M20 11a8 8 0 00-14.5-4.5M4 4v3h3M4 13a8 8 0 0014.5 4.5M20 20v-3h-3",
 } as const;
 
 const Icon = ({ d }: { d: string }) => (
@@ -67,6 +71,12 @@ export default function ProfilePage() {
 
   const latestHeight = useLiveQuery(() => latestMeasurement("height"), []);
   const latestWeight = useLiveQuery(() => latestMeasurement("body_weight"), []);
+  const deadCount = useLiveQuery(async () => {
+    // Same count as the SyncStatus banner.
+    const v = (await db.meta.get(DEAD_LETTER_KEY))?.value;
+    return Array.isArray(v) ? v.length : 0;
+  }, [], 0);
+  const pendingCount = useLiveQuery(() => db.outbox.count(), [], 0);
 
   useEffect(() => {
     void (async () => {
@@ -287,6 +297,10 @@ export default function ProfilePage() {
 
       <Collapsible title="Import data" icon={<Icon d={ICONS.download} />} subtitle="Bring in your Lyfta workout history">
         <LyftaImport />
+      </Collapsible>
+
+      <Collapsible title="Sync" icon={<Icon d={ICONS.sync} />} subtitle={syncCardSummary(deadCount, pendingCount, supabaseConfigured)}>
+        <SyncCard configured={supabaseConfigured} />
       </Collapsible>
 
       <Collapsible title="Account" icon={<Icon d={ICONS.key} />} subtitle={supabaseConfigured ? (signedIn ? "Signed in" : "Signed out") : "Local only"}>
