@@ -54,6 +54,12 @@ export type PlannedDayRow = {
   moved_to: string | null;
   moved_from: string | null;
   created_at: string;
+  /**
+   * Set on a move's destination when that date was already a routine-less gym
+   * day (a mark) before the move, so undoing the move restores the mark
+   * instead of deleting the row. Absent on older rows.
+   */
+  was_marked?: boolean;
 };
 
 export type RoutineRow = {
