@@ -179,6 +179,79 @@ export function toggleSnooze(r: ReminderSettings, now: Date): ReminderSettings {
 export const isSkippedToday = (r: ReminderSettings, now: Date) => r.skipDate === localDateKey(now);
 export const isSnoozed = (r: ReminderSettings, now: Date) => !!r.snoozedUntil && Date.parse(r.snoozedUntil) > now.getTime();
 
+/** Smart reminder time: fewest workouts needed before a usual start time is suggested. */
+export const SMART_MIN_WORKOUTS = 5;
+/** Smart reminder time: how many of the most recent workouts are looked at. */
+export const SMART_RECENT_WORKOUTS = 20;
+
+/**
+ * Smart reminder time: the training "day" starts at 04:00 local. Starts before
+ * it count as late the previous evening, so 23:50 and 00:10 average to
+ * midnight instead of midday. Starts from 04:00 on are unaffected.
+ */
+export const SMART_DAY_START_MIN = 4 * 60;
+
+/** ISO-like date-time ("YYYY-MM-DDTHH:MM..."): rejects strings like "1" that Date.parse accepts. */
+const ISO_START_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/**
+ * Pure: the user's usual workout start time as local "HH:MM", or null when
+ * there are fewer than `min` usable start times. Takes the `recent` most
+ * recent valid start times (ISO strings, any order; junk is ignored) and
+ * returns the median local time of day, rounded to the nearest minute (the
+ * mean of the two middle values for an even count). Times before 04:00 are
+ * treated as following 23:59 (midnight wrap, see SMART_DAY_START_MIN).
+ * With `now`, starts after `now` are ignored.
+ */
+export function usualStartTime(
+  startedAts: readonly string[],
+  opts: { min?: number; recent?: number; now?: Date } = {},
+): string | null {
+  const min = Math.max(1, opts.min ?? SMART_MIN_WORKOUTS);
+  const recent = Math.max(min, opts.recent ?? SMART_RECENT_WORKOUTS);
+  const nowMs = opts.now ? opts.now.getTime() : Number.POSITIVE_INFINITY;
+  const times = startedAts
+    .filter((s): s is string => typeof s === "string" && ISO_START_RE.test(s))
+    .map((s) => Date.parse(s))
+    .filter((t) => !Number.isNaN(t) && t <= nowMs)
+    .sort((a, b) => b - a)
+    .slice(0, recent);
+  if (times.length < min) return null;
+  const minutes = times
+    .map((t) => {
+      const d = new Date(t);
+      const m = d.getHours() * 60 + d.getMinutes();
+      return m < SMART_DAY_START_MIN ? m + 24 * 60 : m;
+    })
+    .sort((a, b) => a - b);
+  const mid = Math.floor(minutes.length / 2);
+  const median = minutes.length % 2 ? minutes[mid] : (minutes[mid - 1] + minutes[mid]) / 2;
+  const total = Math.round(median) % (24 * 60);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(Math.floor(total / 60))}:${p(total % 60)}`;
+}
+
+/**
+ * Pure: the learned start time to offer as the reminder time, or null when
+ * there is not enough history or it already matches the saved time. Never
+ * changes the settings; the UI saves it only when the user taps it.
+ */
+export function suggestedReminderTime(r: ReminderSettings, startedAts: readonly string[], now?: Date): string | null {
+  const usual = usualStartTime(startedAts, { now });
+  return usual && usual !== r.time ? usual : null;
+}
+
+/** Start times of the most recent workouts, newest first. */
+export async function getRecentWorkoutStarts(limit = SMART_RECENT_WORKOUTS): Promise<string[]> {
+  const rows = await db.workouts.orderBy("started_at").reverse().limit(limit).toArray();
+  return rows.map((w) => w.started_at);
+}
+
+/** Live start times of the most recent workouts (empty while loading). */
+export function useRecentWorkoutStarts(limit = SMART_RECENT_WORKOUTS): string[] {
+  return useLiveQuery(() => getRecentWorkoutStarts(limit), [limit], [] as string[]);
+}
+
 /** Saved reminder settings (defaults until the user changes them). */
 export async function getReminders(): Promise<ReminderSettings> {
   return normalizeReminders((await db.meta.get(REMINDERS_KEY))?.value);

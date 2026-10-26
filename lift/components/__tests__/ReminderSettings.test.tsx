@@ -130,3 +130,42 @@ describe("Profile reminders section", () => {
     }
   });
 });
+
+describe("ReminderSettings smart reminder time", () => {
+  const addWorkouts = async (n: number, h: number, m = 0) => {
+    const now = new Date();
+    await db.workouts.bulkAdd(
+      Array.from({ length: n }, (_, i) => ({
+        id: `w-${i}`,
+        started_at: new Date(now.getFullYear(), now.getMonth(), now.getDate() - i - 1, h, m).toISOString(),
+        ended_at: null,
+        notes: null,
+        routine_id: null,
+      })),
+    );
+  };
+
+  it("offers nothing with fewer than 5 workouts", async () => {
+    await addWorkouts(4, 6, 30);
+    render(<ReminderSettings />);
+    await new Promise((res) => setTimeout(res, 50));
+    expect(screen.queryByText(/You usually start around/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Use / })).not.toBeInTheDocument();
+  });
+
+  it("suggests the usual start time and saves it only when tapped", async () => {
+    await saveReminders({ ...DEFAULT_REMINDERS, days: [1] });
+    await addWorkouts(5, 6, 30);
+    render(<ReminderSettings />);
+    const use = await screen.findByRole("button", { name: "Use 06:30" });
+    expect(screen.getByText(/You usually start around/)).toBeInTheDocument();
+    // Showing the suggestion does not change the saved time.
+    expect((await stored())?.time).toBe("18:00");
+    fireEvent.click(use);
+    await waitFor(async () => expect((await stored())?.time).toBe("06:30"));
+    await waitFor(() => expect(screen.getByLabelText("Reminder time")).toHaveValue("06:30"));
+    // Once it matches, the suggestion goes away.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Use 06:30" })).not.toBeInTheDocument());
+    expect((await stored())?.days).toEqual([1]);
+  });
+});
