@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { RoutineRow } from "@/lib/offline/db";
-import { dayKey, getDay, planDay } from "@/lib/planner";
+import { dayKey, getDay, planDay, routineUsedOnOtherDay } from "@/lib/planner";
 import { createRoutine, getRoutine, updateRoutine } from "@/lib/routines";
 import { addExercises, getActive } from "@/lib/workout";
 
@@ -108,7 +108,8 @@ export const isTodayCopy = (r: Pick<RoutineRow, "notes">) =>
  *   exercises is planned today instead, so the saved routine never changes.
  *   The copy is marked with TODAY_COPY_NOTE; when today's routine is already
  *   such a copy, the mini's new exercises are appended to it, so repeated adds
- *   never pile up copies;
+ *   never pile up copies. A copy another day also uses is never changed in
+ *   place: a fresh copy is made for today instead;
  * - nothing planned today: the mini workout itself is planned today.
  * A day already done, skipped or moved is left alone. Returns a plain message.
  */
@@ -141,7 +142,8 @@ export async function addMiniToToday(routineId: string, now = new Date()): Promi
       ...extra,
     ];
     const name = `${base.name} + ${mini.name}`;
-    if (isTodayCopy(base)) {
+    // Reuse the marked copy only if no other day uses it, so another day's plan never changes.
+    if (isTodayCopy(base) && !(await routineUsedOnOtherDay(base.id, today))) {
       await updateRoutine(base.id, { name, notes: `${TODAY_COPY_NOTE} ${name}`, exercises });
       return `Added to ${base.name} today.`;
     }

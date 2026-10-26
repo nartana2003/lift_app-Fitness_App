@@ -26,8 +26,24 @@ export const BACKUP_VERSION = 1;
  */
 export const EXCLUDED_META_KEYS: readonly string[] = ["lyfta_key", "lastPull"];
 
-/** A photo with its image inlined as a base64 data URL, so it fits in JSON. */
-export type ExportedPhoto = { id: string; taken_at: string; pose: "front" | "side" | "back" | null; image: string };
+/**
+ * A photo with its image inlined as a base64 data URL, so it fits in JSON.
+ * `workout_id` is the workout a Finish-screen photo belongs to; left out for
+ * photos with no workout (and in backups made before it was exported).
+ */
+export type ExportedPhoto = {
+  id: string;
+  taken_at: string;
+  pose: "front" | "side" | "back" | null;
+  image: string;
+  workout_id?: string;
+};
+
+/** The photo's workout link (an extra, unindexed field on the photos row), or undefined. */
+const photoWorkoutId = (p: object): string | undefined => {
+  const w = (p as { workout_id?: unknown }).workout_id;
+  return typeof w === "string" && w.length > 0 ? w : undefined;
+};
 export type MetaEntry = { key: string; value: unknown };
 
 export type BackupTables = {
@@ -108,7 +124,12 @@ export async function exportBackup(now: Date = new Date()): Promise<Backup> {
       sets: await db.sets.toArray(),
       measurements: await db.measurements.toArray(),
       photos: await Promise.all(
-        photos.map(async (p) => ({ id: p.id, taken_at: p.taken_at, pose: p.pose ?? null, image: await blobToDataUrl(p.blob) })),
+        photos.map(async (p) => {
+          const out: ExportedPhoto = { id: p.id, taken_at: p.taken_at, pose: p.pose ?? null, image: await blobToDataUrl(p.blob) };
+          const workoutId = photoWorkoutId(p);
+          if (workoutId) out.workout_id = workoutId;
+          return out;
+        }),
       ),
       custom_exercises: await db.custom_exercises.toArray(),
       routines: await db.routines.toArray(),
@@ -224,6 +245,8 @@ const PHOTO_SCHEMA: Schema = {
   taken_at: "string",
   pose: { oneOf: ["front", "side", "back"], nullable: true },
   image: "string",
+  // The workout a photo was taken for (left out in older backups and for unlinked photos).
+  workout_id: "optstring?",
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -429,7 +452,14 @@ export async function importBackup(backup: Backup): Promise<ImportSummary> {
       await db.measurements.bulkAdd(measurements);
       await db.planned_days.bulkAdd(days);
       await db.custom_exercises.bulkAdd(customs);
-      await db.photos.bulkAdd(photos.map((p) => ({ id: p.id, taken_at: p.taken_at, pose: p.pose, blob: dataUrlToBlob(p.image) })));
+      await db.photos.bulkAdd(
+        photos.map((p) => {
+          const row = { id: p.id, taken_at: p.taken_at, pose: p.pose, blob: dataUrlToBlob(p.image) };
+          const workoutId = photoWorkoutId(p);
+          // The link is an extra field on the row (no schema change), as the Finish screen writes it.
+          return workoutId ? { ...row, workout_id: workoutId } : row;
+        }),
+      );
       await db.meta.bulkAdd(meta);
 
       const written: Record<BackupTable, unknown[]> = {

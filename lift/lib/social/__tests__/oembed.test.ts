@@ -70,13 +70,14 @@ describe("parseLink", () => {
     expect(parseLink("HTTPS://WWW.TIKTOK.COM/@a/video/1")?.url).toBe("https://www.tiktok.com/@a/video/1");
   });
 
-  it("allow-list is exactly the nine hosts", () => {
+  it("allow-list is exactly the ten hosts", () => {
     expect(Object.keys(ALLOWED_HOSTS).sort()).toEqual(
       [
         "instagram.com",
         "m.youtube.com",
         "tiktok.com",
         "vm.tiktok.com",
+        "vt.tiktok.com",
         "www.instagram.com",
         "www.tiktok.com",
         "www.youtube.com",
@@ -92,7 +93,7 @@ describe("parseLink", () => {
       "https://evil.io/tiktok.com",
       "https://faketiktok.com/x",
       "https://eviltiktok.com/x",
-      "https://vt.tiktok.com/x",
+      "https://vx.tiktok.com/x",
       "https://music.youtube.com/watch?v=x",
       "https://youtu.be.evil.io/x",
       "https://www.tiktok.com./x",
