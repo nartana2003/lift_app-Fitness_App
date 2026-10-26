@@ -40,6 +40,12 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
+  // AI routes are fetched by the app, not navigated to: answer 401 JSON (the
+  // client then keeps its rule-based fallback) instead of a login redirect.
+  // withAiClient (lib/ai/guard.ts) checks the session again in the route.
+  if (!user && path.startsWith("/api/ai/")) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   if (!user && !PUBLIC.some((p) => path.startsWith(p))) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
