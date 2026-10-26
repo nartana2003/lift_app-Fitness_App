@@ -19,19 +19,21 @@ import type { PushSub } from "../push/endpoint";
 import {
   createRestScheduler,
   createRestTimerLimiter,
-  createRestTimerPushController,
   handleRestTimer,
-  MAX_REST_DELAY_SEC,
-  MAX_REST_TIMER_BYTES,
   parseRestCancelBody,
   parseRestTimerBody,
+  supabaseRestSubscriptionStore,
+  type RestSubscriptionStore,
+  type RestTimerDeps,
+} from "../restTimerPushServer";
+import {
+  createRestTimerPushController,
+  MAX_REST_DELAY_SEC,
+  MAX_REST_TIMER_BYTES,
   REST_PUSH_PAYLOAD,
   REST_TIMER_URL,
   restDelaySec,
-  supabaseRestSubscriptionStore,
   type RestPushControllerDeps,
-  type RestSubscriptionStore,
-  type RestTimerDeps,
   type RestTimerSnapshot,
 } from "../restTimerPush";
 
@@ -399,5 +401,19 @@ describe("createRestTimerPushController", () => {
     st.hidden = true;
     await Promise.all([c.sync(), c.sync(), c.sync()]);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("module split (client bundles must not pull in next/headers)", () => {
+  it("the client-safe modules import nothing server-side", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    for (const f of ["restTimerPush.ts", "restTimerPushClient.ts"]) {
+      const src = readFileSync(join(__dirname, "..", f), "utf8");
+      const imports = [...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+      for (const bad of ["ai/guard", "ai/request", "supabase/server", "restTimerPushServer", "next/headers", "push/send", "push/subscribe"]) {
+        expect(imports.filter((i) => i.includes(bad)), `${f} imports ${bad}`).toEqual([]);
+      }
+    }
   });
 });

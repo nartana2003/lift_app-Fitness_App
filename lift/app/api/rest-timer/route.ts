@@ -7,7 +7,7 @@ import {
   handleRestTimer,
   supabaseRestSubscriptionStore,
   type RestTimerDeps,
-} from "@/lib/restTimerPush";
+} from "@/lib/restTimerPushServer";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 // Rest-timer push: POST schedules a "Rest over" push to this phone after delaySec,
