@@ -82,3 +82,46 @@ export function formatDuration(sec: number): string {
   const m = Math.round((sec % 3600) / 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
+
+// ---------- skipped / moved days for the AI recap ----------
+
+/** Structural subset of SkipStats (lib/progress.ts) that the recap needs. */
+export type SkipCounts<R extends string = string> = {
+  skipped: number;
+  moved: number;
+  topReasons: { reason: R; count: number }[];
+};
+
+export type RecapSkipFields<R extends string = string> = {
+  skipped: number;
+  moved: number;
+  /** Reason -> days. Never sums to more than skipped + moved. */
+  skip_reasons: Partial<Record<R, number>>;
+};
+
+/** Most skipped or moved days in one period. Same as MAX_DAYS_OFF in lib/ai/summary.ts. */
+export const RECAP_MAX_DAYS_OFF = 31;
+
+/**
+ * Skip stats in the shape the weekly/monthly recap route accepts: whole
+ * counts clamped to [0, max], repeated reasons merged, zero counts dropped,
+ * and reason counts trimmed (in the given order) so they never total more
+ * than skipped + moved, which the route would reject.
+ */
+export function recapSkipFields<R extends string>(s: SkipCounts<R>, max = RECAP_MAX_DAYS_OFF): RecapSkipFields<R> {
+  const clamp = (n: number) => Math.max(0, Math.min(max, Math.floor(Number.isFinite(n) ? n : 0)));
+  const skipped = clamp(s.skipped);
+  const moved = clamp(s.moved);
+  let left = skipped + moved;
+  // A Map, so any reason string (even "constructor" or "__proto__") is just a key.
+  const merged = new Map<R, number>();
+  for (const { reason, count } of s.topReasons) {
+    const n = Math.min(clamp(count), left);
+    if (n <= 0) continue;
+    merged.set(reason, Math.min(max, (merged.get(reason) ?? 0) + n));
+    left -= n;
+  }
+  // Object.fromEntries defines own properties, so "__proto__" never touches the prototype.
+  const skip_reasons = Object.fromEntries(merged) as Partial<Record<R, number>>;
+  return { skipped, moved, skip_reasons };
+}
