@@ -20,12 +20,21 @@ export default defineConfig({
     trace: "off",
   },
   webServer: {
-    command: `npx next start -p ${PORT}`,
+    // lift/.env may hold real keys. NEXT_PUBLIC_* values are inlined at build
+    // time, so the build runs with them blank too: with Supabase blank the app
+    // is in local-only mode (no /login redirect), and with the AI key blank the
+    // AI routes answer 503 "unavailable" (the path the specs assert) and tests
+    // never spend API credit.
+    command: `npm run build && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
-    // lift/.env may hold a real key. Blank it so the AI routes answer 503
-    // "unavailable" (the path the specs assert) and tests never spend API credit.
-    env: { ANTHROPIC_API_KEY: "" },
-    timeout: 60_000,
+    env: {
+      NEXT_DIST_DIR: `.next-e2e-${PORT}`,
+      NEXT_PUBLIC_SUPABASE_URL: "",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
+      SUPABASE_SERVICE_ROLE_KEY: "",
+      ANTHROPIC_API_KEY: "",
+    },
+    timeout: 300_000,
   },
 });
