@@ -9,8 +9,8 @@
 import { useState } from "react";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
 import { loadCatalogue } from "@/lib/catalogue";
-import type { WorkoutLite } from "@/lib/progress";
-import type { PeriodStats } from "@/lib/stats";
+import type { SkipStats, WorkoutLite } from "@/lib/progress";
+import { recapSkipFields, type PeriodStats, type SkipCounts } from "@/lib/stats";
 import type { Unit } from "@/lib/units";
 
 export const ROUTE = "/api/ai/summary";
@@ -48,10 +48,13 @@ type BaseStats = {
   moved: number;
 };
 
+/** The current period may also carry skip reasons (route key current.skip_reasons). */
+type CurrentBaseStats = BaseStats & { skip_reasons?: Record<string, number> };
+
 export type SummaryBody = {
   period: Period;
   unit: Unit;
-  current: BaseStats;
+  current: CurrentBaseStats;
   previous: BaseStats | null;
   highlights: Highlight[];
 };
@@ -119,8 +122,11 @@ export function buildHighlights(
   return out.sort((a, b) => b.times - a.times || load(b) - load(a) || a.exercise_id.localeCompare(b.exercise_id)).slice(0, MAX_HIGHLIGHTS);
 }
 
-/** PeriodStats in the route's shape, clamped to its bounds. Skipped/moved days are not tracked here, so 0. */
-export function toBaseStats(s: PeriodStats): BaseStats {
+/**
+ * PeriodStats in the route's shape, clamped to its bounds. Skipped/moved days are not tracked here, so 0.
+ * When `skips` (lib/progress.ts skipStats for the same period) is given, its skipped and moved counts are used instead.
+ */
+export function toBaseStats(s: PeriodStats, skips?: SkipCounts | null): BaseStats {
   const clampInt = (n: number, max: number) => Math.max(0, Math.min(max, Math.round(Number.isFinite(n) ? n : 0)));
   const sets_by_muscle: Partial<Record<MuscleGroup, number>> = {};
   for (const [m, n] of Object.entries(s.sets_by_muscle)) if (isMuscle(m) && n > 0) sets_by_muscle[m] = clampInt(n, MAX_MUSCLE_SETS);
@@ -129,8 +135,8 @@ export function toBaseStats(s: PeriodStats): BaseStats {
     duration_sec: clampInt(s.duration_sec, MAX_DURATION_SEC),
     volume: Math.max(0, Math.min(MAX_VOLUME, round2(Number.isFinite(s.volume) ? s.volume : 0))),
     sets_by_muscle,
-    skipped: 0,
-    moved: 0,
+    skipped: skips ? recapSkipFields(skips).skipped : 0,
+    moved: skips ? recapSkipFields(skips).moved : 0,
   };
 }
 
@@ -140,12 +146,19 @@ export function buildSummaryBody(
   current: PeriodStats,
   previous: PeriodStats | null,
   highlights: Highlight[],
+  skips?: SkipCounts | null,
+  previousSkips?: SkipCounts | null,
 ): SummaryBody {
+  const cur: CurrentBaseStats = toBaseStats(current, skips);
+  if (skips) {
+    const reasons = recapSkipFields(skips).skip_reasons as Record<string, number>;
+    if (Object.keys(reasons).length > 0) cur.skip_reasons = reasons;
+  }
   return {
     period,
     unit,
-    current: toBaseStats(current),
-    previous: previous ? toBaseStats(previous) : null,
+    current: cur,
+    previous: previous ? toBaseStats(previous, previousSkips) : null,
     highlights: highlights.slice(0, MAX_HIGHLIGHTS),
   };
 }
@@ -202,6 +215,8 @@ export function RecapCard({
   workouts,
   from,
   to,
+  skips,
+  previousSkips,
   loadIds = loadCatalogueIds,
 }: {
   period: Period;
@@ -211,6 +226,9 @@ export function RecapCard({
   workouts: WorkoutLite[];
   from: Date;
   to: Date;
+  /** Skipped/moved planned days in this period (and the previous one), sent with the stats. */
+  skips?: SkipStats | null;
+  previousSkips?: SkipStats | null;
   loadIds?: () => Promise<Set<string>>;
 }) {
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -229,9 +247,9 @@ export function RecapCard({
         ids = null; // catalogue not reachable: send stats without highlights
       }
       const highlights = ids ? buildHighlights(workouts, from, to, (id) => ids!.has(id)) : [];
-      let res = await post(buildSummaryBody(period, unit, current, previous, highlights));
+      let res = await post(buildSummaryBody(period, unit, current, previous, highlights, skips, previousSkips));
       // A highlight the route will not accept should not block the recap.
-      if (res.status === 400 && highlights.length) res = await post(buildSummaryBody(period, unit, current, previous, []));
+      if (res.status === 400 && highlights.length) res = await post(buildSummaryBody(period, unit, current, previous, [], skips, previousSkips));
       if (res.status === 503) {
         setState({ kind: "error", message: MSG_UNAVAILABLE });
         return;
