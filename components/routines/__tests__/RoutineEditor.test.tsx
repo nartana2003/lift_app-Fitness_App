@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
 import type { Exercise } from "@/lib/exercises";
 import { createRoutine, getRoutine, listRoutines, DEFAULT_REPS, DEFAULT_SETS } from "@/lib/routines";
+import { saveSplit } from "@/lib/splits";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -52,7 +53,7 @@ vi.mock("@/components/workout/ExercisePicker", () => ({
   ),
 }));
 
-import { RoutineEditor } from "@/components/routines/RoutineEditor";
+import { dayFromSearch, RoutineEditor } from "@/components/routines/RoutineEditor";
 
 beforeEach(async () => {
   push.mockReset();
@@ -305,5 +306,118 @@ describe("RoutineEditor: reorder", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
     const [r] = await listRoutines();
     expect(r.exercises.map((e) => e.exercise_id)).toEqual(["row", "squat"]);
+  });
+});
+
+describe("RoutineEditor: Belongs to (split day link)", () => {
+  const SPLIT = {
+    name: "PPL",
+    days: [
+      { id: "push", name: "Push", muscles: ["Chest", "Shoulders", "Triceps"] as Exercise["muscle_groups"] },
+      { id: "legs", name: "Legs", muscles: [] as Exercise["muscle_groups"] },
+    ],
+  };
+  const belongsTo = () => screen.getByRole("combobox", { name: "Belongs to" }) as HTMLSelectElement;
+
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("is hidden with no split", async () => {
+    render(<RoutineEditor />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole("combobox", { name: "Belongs to" })).not.toBeInTheDocument();
+  });
+
+  it("offers None plus each split day by name, defaulting to None", async () => {
+    await saveSplit(SPLIT);
+    render(<RoutineEditor />);
+    await waitFor(() => belongsTo());
+    expect(within(belongsTo()).getAllByRole("option").map((o) => o.textContent)).toEqual(["None", "Push", "Legs"]);
+    expect(belongsTo().value).toBe("");
+    expect(screen.queryByText(/Suggested focus/)).not.toBeInTheDocument();
+  });
+
+  it("a new routine from a split day pre-selects it and suggests its muscles without adding exercises", async () => {
+    await saveSplit(SPLIT);
+    window.history.replaceState(null, "", "/routines/new?day=push");
+    render(<RoutineEditor />);
+    await waitFor(() => expect(belongsTo().value).toBe("push"));
+    expect(screen.getByText("Suggested focus: Chest, Shoulders, Triceps")).toBeInTheDocument();
+    expect(rows()).toHaveLength(0);
+
+    fireEvent.change(nameInput(), { target: { value: "Push A" } });
+    addSquatAndRow();
+    fireEvent.click(screen.getByRole("button", { name: "Create routine" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    const [r] = await listRoutines();
+    expect(r.split_day_id).toBe("push");
+  });
+
+  it("ignores a ?day= that is not in the split", async () => {
+    await saveSplit(SPLIT);
+    window.history.replaceState(null, "", "/routines/new?day=gone");
+    render(<RoutineEditor />);
+    await waitFor(() => belongsTo());
+    expect(belongsTo().value).toBe("");
+    fireEvent.change(nameInput(), { target: { value: "X" } });
+    addSquatAndRow();
+    fireEvent.click(screen.getByRole("button", { name: "Create routine" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    const [r] = await listRoutines();
+    expect(r.split_day_id).toBeUndefined();
+  });
+
+  it("creating with None writes no link", async () => {
+    await saveSplit(SPLIT);
+    render(<RoutineEditor />);
+    await waitFor(() => belongsTo());
+    fireEvent.change(nameInput(), { target: { value: "Free" } });
+    addSquatAndRow();
+    fireEvent.click(screen.getByRole("button", { name: "Create routine" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    expect((await listRoutines())[0].split_day_id).toBeUndefined();
+  });
+
+  it("editing shows the stored link and can move or clear it", async () => {
+    await saveSplit(SPLIT);
+    const id = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench" }], split_day_id: "push" });
+    await renderEdit(id);
+    await waitFor(() => expect(belongsTo().value).toBe("push"));
+    fireEvent.change(belongsTo(), { target: { value: "legs" } });
+    expect(screen.queryByText(/Suggested focus/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    expect((await getRoutine(id))!.split_day_id).toBe("legs");
+
+    cleanup();
+    push.mockReset();
+    await renderEdit(id);
+    await waitFor(() => expect(belongsTo().value).toBe("legs"));
+    fireEvent.change(belongsTo(), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    const r = (await getRoutine(id))!;
+    expect(r.split_day_id).toBeNull();
+    expect(r.exercises.map((e) => e.exercise_id)).toEqual(["bench"]);
+  });
+
+  it("saving other edits leaves the link alone", async () => {
+    await saveSplit(SPLIT);
+    const id = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench" }], split_day_id: "push" });
+    await renderEdit(id);
+    await waitFor(() => expect(belongsTo().value).toBe("push"));
+    fireEvent.change(nameInput(), { target: { value: "Push B" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    const r = (await getRoutine(id))!;
+    expect(r.name).toBe("Push B");
+    expect(r.split_day_id).toBe("push");
+  });
+
+  it("dayFromSearch reads ?day=", () => {
+    expect(dayFromSearch("?day=abc")).toBe("abc");
+    expect(dayFromSearch("?day=%20")).toBeNull();
+    expect(dayFromSearch("")).toBeNull();
   });
 });

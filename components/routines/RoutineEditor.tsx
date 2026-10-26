@@ -1,12 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ExercisePicker } from "@/components/workout/ExercisePicker";
 import { ExerciseDemo } from "@/components/ExerciseDemo";
 import { useCatalogue } from "@/lib/catalogue";
-import { createRoutine, deleteRoutine, updateRoutine, DEFAULT_REPS, DEFAULT_SETS, type RoutineExerciseInput } from "@/lib/routines";
+import { createRoutine, deleteRoutine, getRoutine, updateRoutine, DEFAULT_REPS, DEFAULT_SETS, type RoutineExerciseInput } from "@/lib/routines";
+import { useSplit } from "@/lib/splits";
 
 type Row = Required<RoutineExerciseInput>;
 
@@ -17,15 +18,27 @@ const toRows = (list: RoutineExerciseInput[]): Row[] =>
     target_reps: e.target_reps ?? DEFAULT_REPS,
   }));
 
-/** Create or edit a routine: name, exercises, target sets and rep range. */
+/** The `?day=<split day id>` a new routine was opened with (from Profile > My split), or null. */
+export function dayFromSearch(search: string): string | null {
+  const v = new URLSearchParams(search).get("day");
+  return v && v.trim() ? v.trim() : null;
+}
+
+/**
+ * Create or edit a routine: name, exercises, target sets and rep range, and the
+ * split day it belongs to (optional). `initialSplitDayId` left out: an existing
+ * routine's link is read from the store, and a new one takes `?day=` from the URL.
+ */
 export function RoutineEditor({
   routineId,
   initialName = "",
   initialExercises = [],
+  initialSplitDayId,
 }: {
   routineId?: string;
   initialName?: string;
   initialExercises?: RoutineExerciseInput[];
+  initialSplitDayId?: string | null;
 }) {
   const router = useRouter();
   const { get } = useCatalogue();
@@ -33,6 +46,34 @@ export function RoutineEditor({
   const [rows, setRows] = useState<Row[]>(toRows(initialExercises));
   const [picker, setPicker] = useState(false);
   const [busy, setBusy] = useState(false);
+  const split = useSplit();
+  // The split day this routine belongs to ("" = none), and the link it started with.
+  const [dayId, setDayId] = useState<string>(initialSplitDayId ?? "");
+  const [startDayId, setStartDayId] = useState<string>(initialSplitDayId ?? "");
+  const dayTouched = useRef(false);
+
+  useEffect(() => {
+    if (initialSplitDayId !== undefined) return;
+    let live = true;
+    const apply = (id: string | null | undefined) => {
+      if (!live) return;
+      setStartDayId(id ?? "");
+      if (!dayTouched.current) setDayId(id ?? "");
+    };
+    if (routineId) void getRoutine(routineId).then((r) => apply(r?.split_day_id));
+    else {
+      const d = dayFromSearch(window.location.search);
+      if (d && !dayTouched.current) setDayId(d);
+    }
+    return () => {
+      live = false;
+    };
+  }, [routineId, initialSplitDayId]);
+
+  const days = split.days.filter((d): d is typeof d & { id: string } => !!d.id);
+  // A link to a day that is no longer in the split counts as none.
+  const day = days.find((d) => d.id === dayId) ?? null;
+  const chosen = day?.id ?? "";
 
   const patch = (i: number, p: Partial<Row>) => setRows((r) => r.map((x, idx) => (idx === i ? { ...x, ...p } : x)));
   const move = (i: number, dir: -1 | 1) =>
@@ -48,10 +89,15 @@ export function RoutineEditor({
     setBusy(true);
     try {
       if (routineId) {
-        await updateRoutine(routineId, { name, exercises: rows });
+        const startDay = days.some((d) => d.id === startDayId) ? startDayId : "";
+        await updateRoutine(routineId, {
+          name,
+          exercises: rows,
+          ...(chosen !== startDay ? { split_day_id: chosen || null } : {}),
+        });
         router.push("/");
       } else {
-        await createRoutine({ name, exercises: rows });
+        await createRoutine({ name, exercises: rows, ...(chosen ? { split_day_id: chosen } : {}) });
         router.push("/");
       }
     } finally {
@@ -64,6 +110,33 @@ export function RoutineEditor({
       <PageHeader title={routineId ? "Edit routine" : "New routine"} back="/" />
 
       <input className="field mb-3" placeholder="Routine name (e.g. Push day)" value={name} onChange={(e) => setName(e.target.value)} />
+
+      {days.length > 0 && (
+        <div className="mb-3">
+          <label className="block text-xs text-muted mb-1" htmlFor="routine-split-day">
+            Belongs to
+          </label>
+          <select
+            id="routine-split-day"
+            className="field py-1.5 text-sm"
+            value={chosen}
+            onChange={(e) => {
+              dayTouched.current = true;
+              setDayId(e.target.value);
+            }}
+          >
+            <option value="">None</option>
+            {days.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name || "Split day"}
+              </option>
+            ))}
+          </select>
+          {day && day.muscles.length > 0 && (
+            <p className="text-xs text-muted mt-1">Suggested focus: {day.muscles.join(", ")}</p>
+          )}
+        </div>
+      )}
 
       <ul className="space-y-2">
         {rows.map((r, i) => {
