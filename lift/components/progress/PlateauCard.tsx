@@ -295,7 +295,15 @@ export function applyFixToRoutine(list: RoutineExerciseInput[], exerciseId: stri
   return out.filter((e, i) => out.findIndex((x) => x.exercise_id === e.exercise_id) === i);
 }
 
-export type AppliedFix = { kind: FixKind; headline: string; applied_at: string; until: string };
+export type AppliedFix = {
+  kind: FixKind;
+  headline: string;
+  applied_at: string;
+  until: string;
+  /** deload only (records saved before SMALL-01 have none). */
+  deload_percent?: number | null;
+  deload_weight?: number | null;
+};
 
 async function readApplied(): Promise<Record<string, AppliedFix>> {
   const v = (await db.meta.get(APPLIED_KEY))?.value;
@@ -341,6 +349,11 @@ export async function applyFix(exerciseId: string, fix: Fix, headline: string, n
   await db.transaction("rw", db.meta, async () => {
     const cur = await readApplied();
     const rec: AppliedFix = { kind: fix.kind, headline, applied_at: now.toISOString(), until };
+    // A lighter week also keeps its numbers, so the live workout can suggest the lighter weight (lib/lighterWeek.ts).
+    if (fix.kind === "deload") {
+      rec.deload_percent = fix.deload_percent;
+      rec.deload_weight = fix.deload_weight;
+    }
     await db.meta.put({ key: APPLIED_KEY, value: { ...cur, [exerciseId]: rec } });
   });
   return changed;

@@ -131,7 +131,11 @@ export default function WorkoutPage() {
         + Add exercise
       </button>
 
-      <QuickLog unit={unit} nameOf={(id) => get(id)?.name} />
+      <QuickLog
+        unit={unit}
+        nameOf={(id) => get(id)?.name}
+        onPr={(id, prs: PrType[]) => setPr({ title: get(id)?.name ?? id, detail: prText(prs) })}
+      />
 
       <button
         className="w-full mt-6 text-sm text-bad py-3"

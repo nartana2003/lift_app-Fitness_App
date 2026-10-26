@@ -25,7 +25,7 @@ export default defineConfig({
     // is in local-only mode (no /login redirect), and with the AI key blank the
     // AI routes answer 503 "unavailable" (the path the specs assert) and tests
     // never spend API credit.
-    command: `npm run build && npx next start -p ${PORT}`,
+    command: `npx next build && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
     env: {

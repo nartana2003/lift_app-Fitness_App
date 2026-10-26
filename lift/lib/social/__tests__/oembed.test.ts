@@ -9,6 +9,8 @@ import {
   cleanText,
   cleanThumbnail,
   fetchOEmbed,
+  fetchTikTokCover,
+  parseCoverUrl,
   importLink,
   oembedUrl,
   parseLink,
@@ -452,5 +454,53 @@ describe("POST /api/social/import", () => {
     expect((await post({ url: 5 })).status).toBe(400);
     expect((await post({ url: `https://www.tiktok.com/${"a".repeat(MAX_BODY_BYTES)}` })).status).toBe(413);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("TikTok cover image", () => {
+  const COVER = "https://p16-common-sign.tiktokcdn.com/tos/abc~tplv.image?x-expires=1";
+  const page = (cover: string) => `<html><script>{"video":{"cover":${JSON.stringify(cover)}}}</script></html>`;
+  const tt: ParsedLink = { url: TIKTOK, platform: "tiktok" };
+  const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+
+  const router = (cover: string, imageType = "image/jpeg", oembed: unknown = { html: "x" }): FetchLike =>
+    vi.fn(async (input: string) => {
+      if (input.startsWith("https://www.tiktok.com/oembed")) {
+        return new Response(JSON.stringify(oembed), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (input === TIKTOK) return new Response(page(cover), { status: 200, headers: { "content-type": "text/html" } });
+      return new Response(bytes, { status: 200, headers: { "content-type": imageType } });
+    });
+
+  it("reads the cover url only from a tiktokcdn host", () => {
+    expect(parseCoverUrl(page(COVER))).toBe(COVER);
+    expect(parseCoverUrl(page("https://evil.example.com/a.jpg"))).toBeNull();
+    expect(parseCoverUrl(page("https://tiktokcdn.com.evil.com/a.jpg"))).toBeNull();
+    expect(parseCoverUrl(page("http://p16.tiktokcdn.com/a.jpg"))).toBeNull();
+    expect(parseCoverUrl("<html></html>")).toBeNull();
+  });
+
+  it("returns the cover as a data url", async () => {
+    expect(await fetchTikTokCover(tt, { fetchImpl: router(COVER) })).toBe(`data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`);
+  });
+
+  it("is null for a non-image answer, an oversized image or a failing page", async () => {
+    expect(await fetchTikTokCover(tt, { fetchImpl: router(COVER, "text/html") })).toBeNull();
+    expect(await fetchTikTokCover(tt, { fetchImpl: router(COVER), maxBytes: 1 })).toBeNull();
+    expect(await fetchTikTokCover(tt, { fetchImpl: vi.fn(async () => { throw new Error("down"); }) })).toBeNull();
+    expect(await fetchTikTokCover({ url: SHORT, platform: "youtube" }, { fetchImpl: router(COVER) })).toBeNull();
+  });
+
+  it("importLink adds the cover when oEmbed has no thumbnail", async () => {
+    const r = await importLink(tt, { fetchImpl: router(COVER) });
+    expect(r).toMatchObject({ platform: "tiktok", thumbnail_url: null });
+    expect((r as { cover_data_url?: string }).cover_data_url).toMatch(/^data:image\/jpeg;base64,/);
+  });
+
+  it("importLink keeps oEmbed's own thumbnail and skips the page", async () => {
+    const fn = router(COVER, "image/jpeg", tiktokJson);
+    const r = await importLink(tt, { fetchImpl: fn });
+    expect(r).toMatchObject({ thumbnail_url: tiktokJson.thumbnail_url });
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });

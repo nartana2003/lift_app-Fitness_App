@@ -43,8 +43,9 @@ export function safeHttpUrl(raw: string | null | undefined): string | null {
   }
 }
 
-/** Thumbnails load from https only, so a page served over https never mixes content. */
+/** Thumbnails load from https (so a page served over https never mixes content) or are a stored cover data URL. */
 export function safeThumbnailUrl(raw: string | null | undefined): string | null {
+  if (typeof raw === "string" && raw.length <= 300_000 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(raw)) return raw;
   const u = safeHttpUrl(raw);
   return u && u.startsWith("https:") ? u : null;
 }

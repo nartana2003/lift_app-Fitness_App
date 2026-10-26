@@ -11,6 +11,7 @@ import type { Goals } from "@/lib/goals";
 import { EQUIPMENT, MUSCLE_GROUPS } from "@/lib/muscles";
 import { dayKey } from "@/lib/planner";
 import { PR_LABEL, type PrType } from "@/lib/prs";
+import { PLATEAU_APPLIED_KEY, activeLighterWeek, lighterWeekSuggestion } from "@/lib/lighterWeek";
 import { restTimer } from "@/lib/restTimer";
 import {
   addSet,
@@ -57,9 +58,13 @@ export function ExerciseCard({
 
   const lastWork = last?.sets.filter((s) => !s.is_warmup) ?? [];
   const range = parseRepRange(repTarget ?? ex.target_reps);
-  const sug = last ? suggest(last.sets, range, info?.equipment ?? "Other") : null;
+  // Plateau "Start lighter week": while it runs, Today's suggestion is the lighter one (no AI refinement).
+  const applied = useLiveQuery(() => db.meta.get(PLATEAU_APPLIED_KEY), []);
+  const lw = activeLighterWeek(applied?.value, ex.exercise_id, new Date());
+  const lighter = last && lw ? lighterWeekSuggestion(last.sets, range, info?.equipment ?? "Other", lw) : null;
+  const sug = lighter ?? (last ? suggest(last.sets, range, info?.equipment ?? "Other") : null);
   const allDone = ex.sets.every((s) => s.done);
-  const ai = useAiRefinement(ex.exercise_id, range, info?.equipment ?? null, !!sug && !allDone);
+  const ai = useAiRefinement(ex.exercise_id, range, info?.equipment ?? null, !!sug && !allDone && !lighter);
   // Ask for effort on the most recently ticked working set, until it's rated.
   const lastDone = ex.sets.findLast((s) => s.done && !s.is_warmup);
   const rateSet = lastDone?.rir === null ? lastDone : undefined;

@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseConfigured } from "@/lib/supabase/configured";
 import { isCronAuthorized, isCronPath } from "@/lib/cronAuth";
+import { NEXT_PARAM, safeNext } from "@/lib/authRedirect";
 
 // /api/cron is not on this list: cron routes have no user session and are
 // gated by CRON_SECRET below instead of being open to everyone.
@@ -40,9 +41,23 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
+  // AI routes are fetched by the app, not navigated to: answer 401 JSON (the
+  // client then keeps its rule-based fallback) instead of a login redirect.
+  // withAiClient (lib/ai/guard.ts) checks the session again in the route.
+  // Same for the push subscription route (lib/push/subscribe.ts checks again).
+  if (!user && (path.startsWith("/api/ai/") || path.startsWith("/api/push/"))) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   if (!user && !PUBLIC.some((p) => path.startsWith(p))) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = "";
+    // Return-to (lib/authRedirect.ts): after sign-in the user comes back here,
+    // e.g. /save?url=... from the iOS Shortcut. Pages only, never /api.
+    if (!path.startsWith("/api/")) {
+      const next = safeNext(`${path}${request.nextUrl.search}`, "");
+      if (next && next !== "/") url.searchParams.set(NEXT_PARAM, next);
+    }
     return NextResponse.redirect(url);
   }
   return response;

@@ -5,6 +5,7 @@ import {
   DEFAULT_REMINDERS,
   formatNext,
   getMarkedGymDates,
+  getRecentWorkoutStarts,
   getReminders,
   isSkippedToday,
   isSnoozed,
@@ -16,10 +17,15 @@ import {
   REMINDERS_KEY,
   reminderSummary,
   saveReminders,
+  SMART_DAY_START_MIN,
+  SMART_MIN_WORKOUTS,
+  SMART_RECENT_WORKOUTS,
+  suggestedReminderTime,
   toggleDayIn,
   toggleSkipToday,
   toggleSnooze,
   updateReminders,
+  usualStartTime,
   type ReminderSettings,
 } from "../reminders";
 
@@ -249,5 +255,131 @@ describe("getMarkedGymDates", () => {
 
   it("is empty with nothing marked", async () => {
     expect(await getMarkedGymDates("2026-10-21")).toEqual([]);
+  });
+});
+
+describe("usualStartTime (smart reminder time)", () => {
+  // Local times turned into ISO strings, like workouts.started_at.
+  const iso = (day: number, h: number, m = 0) => at(day, h, m).toISOString();
+
+  it("needs at least 5 workouts", () => {
+    expect(usualStartTime([])).toBeNull();
+    expect(usualStartTime([iso(1, 18), iso(2, 18), iso(3, 18), iso(4, 18)])).toBeNull();
+    expect(usualStartTime([iso(1, 18), iso(2, 18), iso(3, 18), iso(4, 18), iso(5, 18)])).toBe("18:00");
+    expect(SMART_MIN_WORKOUTS).toBe(5);
+  });
+
+  it("is the median local start time, not the mean", () => {
+    // One very early outlier does not drag it down.
+    expect(usualStartTime([iso(1, 6), iso(2, 18, 10), iso(3, 18, 30), iso(5, 18, 40), iso(6, 19)])).toBe("18:30");
+  });
+
+  it("averages the two middle values for an even count, rounded to the minute", () => {
+    const starts = [iso(1, 17), iso(2, 17, 30), iso(3, 18), iso(5, 18, 15), iso(6, 18, 45), iso(7, 19)];
+    // Middle two: 18:00 and 18:15.
+    expect(usualStartTime(starts)).toBe("18:08");
+    expect(usualStartTime([iso(1, 7), iso(2, 7), iso(3, 7, 1), iso(4, 7, 2), iso(5, 7, 2), iso(6, 7, 3)])).toBe("07:02");
+  });
+
+  it("ignores order and junk", () => {
+    const starts = ["nope", iso(5, 6, 5), "", iso(1, 6, 5), iso(3, 6, 0), "2026-13-45T99:00", iso(2, 6, 10), iso(4, 6, 20)];
+    expect(usualStartTime(starts)).toBe("06:05");
+    expect(usualStartTime(["x", "y", "z", "w", iso(1, 6)])).toBeNull();
+  });
+
+  it("uses only the most recent workouts", () => {
+    // 20 old mornings, then 5 recent evenings: with a recent window of 5 only evenings count.
+    const old = Array.from({ length: 20 }, (_, i) => new Date(2026, 8, i + 1, 7, 0).toISOString());
+    const recent = [iso(1, 19), iso(2, 19), iso(3, 19, 30), iso(4, 20), iso(5, 20)];
+    expect(usualStartTime([...old, ...recent], { recent: 5 })).toBe("19:30");
+    // Default window is the last 20: 15 mornings and 5 evenings, median is morning.
+    expect(SMART_RECENT_WORKOUTS).toBe(20);
+    expect(usualStartTime([...recent, ...old])).toBe("07:00");
+  });
+
+  it("accepts a custom minimum", () => {
+    expect(usualStartTime([iso(1, 9), iso(2, 10)], { min: 2 })).toBe("09:30");
+    expect(usualStartTime([iso(1, 9), iso(2, 10)], { min: 3 })).toBeNull();
+  });
+});
+
+describe("suggestedReminderTime", () => {
+  const five = (h: number, m = 0) => [1, 2, 3, 4, 5].map((d) => at(d, h, m).toISOString());
+
+  it("suggests the usual time when it differs from the saved time", () => {
+    expect(suggestedReminderTime(r({ time: "18:00" }), five(17, 45))).toBe("17:45");
+  });
+
+  it("suggests nothing when it already matches or there is too little history", () => {
+    expect(suggestedReminderTime(r({ time: "17:45" }), five(17, 45))).toBeNull();
+    expect(suggestedReminderTime(r(), five(17, 45).slice(0, 4))).toBeNull();
+  });
+
+  it("never changes the settings it is given", () => {
+    const s = r({ days: [1], time: "18:00" });
+    const copy = structuredClone(s);
+    suggestedReminderTime(s, five(6));
+    expect(s).toEqual(copy);
+  });
+});
+
+describe("getRecentWorkoutStarts", () => {
+  beforeEach(async () => {
+    await db.workouts.clear();
+  });
+
+  it("returns the newest start times first, up to the limit", async () => {
+    const w = (id: string, started_at: string) => ({ id, started_at, ended_at: null, notes: null, routine_id: null });
+    await db.workouts.bulkAdd([
+      w("a", "2026-10-01T18:00:00.000Z"),
+      w("b", "2026-10-03T18:00:00.000Z"),
+      w("c", "2026-10-02T18:00:00.000Z"),
+    ]);
+    expect(await getRecentWorkoutStarts()).toEqual(["2026-10-03T18:00:00.000Z", "2026-10-02T18:00:00.000Z", "2026-10-01T18:00:00.000Z"]);
+    expect(await getRecentWorkoutStarts(2)).toEqual(["2026-10-03T18:00:00.000Z", "2026-10-02T18:00:00.000Z"]);
+  });
+
+  it("is empty with no workouts", async () => {
+    expect(await getRecentWorkoutStarts()).toEqual([]);
+  });
+});
+
+describe("usualStartTime midnight wrap, strict dates and future starts", () => {
+  const iso = (day: number, h: number, m = 0) => at(day, h, m).toISOString();
+
+  it("3x 23:50 and 3x 00:10 gives midnight, not midday", () => {
+    expect(usualStartTime([iso(1, 23, 50), iso(2, 23, 50), iso(3, 23, 50), iso(4, 0, 10), iso(5, 0, 10), iso(6, 0, 10)])).toBe("00:00");
+  });
+
+  it("late-night starts on both sides of midnight stay near midnight", () => {
+    expect(usualStartTime([iso(1, 23, 30), iso(2, 23, 45), iso(3, 0, 15), iso(4, 0, 30), iso(5, 1)])).toBe("00:15");
+    expect(usualStartTime([iso(1, 23), iso(2, 23), iso(3, 23, 30), iso(4, 0, 10), iso(5, 23, 40)])).toBe("23:30");
+  });
+
+  it("starts from 04:00 on use plain clock order", () => {
+    expect(SMART_DAY_START_MIN).toBe(240);
+    expect(usualStartTime([iso(1, 4), iso(2, 4), iso(3, 4), iso(4, 4), iso(5, 4)])).toBe("04:00");
+    expect(usualStartTime([iso(1, 3, 59), iso(2, 3, 59), iso(3, 3, 59), iso(4, 3, 59), iso(5, 3, 59)])).toBe("03:59");
+  });
+
+  it("ignores strings that are not ISO-like date-times", () => {
+    const five = [1, 2, 3, 4, 5].map((d) => iso(d, 7));
+    expect(usualStartTime(["1", "2", "3", "4", iso(1, 7)])).toBeNull();
+    expect(usualStartTime(["2026-10-01", "Oct 2 2026 07:00", ...five.slice(0, 4)])).toBeNull();
+    expect(usualStartTime(["1", ...five])).toBe("07:00");
+  });
+
+  it("with now, ignores starts in the future", () => {
+    const now = at(10, 12);
+    const past = [1, 2, 3, 4].map((d) => iso(d, 7));
+    expect(usualStartTime([...past, iso(11, 7)], { now })).toBeNull();
+    expect(usualStartTime([...past, iso(10, 7)], { now })).toBe("07:00");
+    // A start exactly at now counts.
+    expect(usualStartTime([...past, now.toISOString()], { now, min: 5 })).toBe("07:00");
+    // Future evenings do not pull the time.
+    const future = [11, 12, 13, 14, 15, 16].map((d) => iso(d, 20));
+    expect(usualStartTime([...past, iso(5, 7), ...future], { now })).toBe("07:00");
+    expect(suggestedReminderTime(r(), [...past, iso(5, 7), ...future], now)).toBe("07:00");
+    expect(suggestedReminderTime(r(), [...past, ...future], now)).toBeNull();
   });
 });
