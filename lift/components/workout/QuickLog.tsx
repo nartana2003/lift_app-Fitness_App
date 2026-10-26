@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { db, uuid, type ActiveExercise, type ActiveSet } from "@/lib/offline/db";
+import { db, uuid, type ActiveExercise, type ActiveSet, type ActiveWorkout } from "@/lib/offline/db";
+import { exerciseBests } from "@/lib/history";
+import { applySet, prsForNewSets, type Bests, type PrType } from "@/lib/prs";
 import { dispNum, type Unit } from "@/lib/units";
 
 /** The parse-log route (app/api/ai/parse-log). */
@@ -99,9 +101,64 @@ export function toActiveExercises(items: { exercise_id: string; sets: QuickLogSe
   }));
 }
 
-/** Appends confirmed items to the running workout. Returns false when no workout is running. */
-export async function logToWorkout(items: { exercise_id: string; sets: QuickLogSet[] }[]): Promise<boolean> {
-  const rows = toActiveExercises(items);
+const PR_ORDER: readonly PrType[] = ["weight", "reps", "e1rm", "volume"];
+
+/**
+ * Quick-logged rows with their PRs marked, the same way ticking each set by
+ * hand would (lib/workout.ts toggleSetDone): bests from finished workouts,
+ * no celebration the first time an exercise is logged, then each set in
+ * order. Done sets for the same exercise already in this workout (or earlier
+ * in the same quick log) count as prior bests, so they do not re-trigger.
+ * `bestsOf` is injectable for tests. Returns new rows; does not mutate.
+ */
+export async function markQuickLogPrs(
+  rows: ActiveExercise[],
+  workout: ActiveWorkout,
+  bestsOf: (exerciseId: string, excludeWorkoutId: string) => Promise<Bests> = exerciseBests,
+): Promise<ActiveExercise[]> {
+  const out: ActiveExercise[] = [];
+  for (const row of rows) {
+    let bests = await bestsOf(row.exercise_id, workout.id);
+    const hadHistory = bests.weight > 0 || Object.keys(bests.repsAtWeight).length > 0;
+    for (const prior of [...workout.exercises, ...out]) {
+      if (prior.exercise_id !== row.exercise_id) continue;
+      for (const s of prior.sets) {
+        if (s.done) bests = applySet(bests, { reps: Number(s.reps) || 0, weight: Number(s.weight) || 0, is_warmup: s.is_warmup });
+      }
+    }
+    const prs = prsForNewSets(
+      row.sets.map((s) => ({ reps: Number(s.reps) || 0, weight: Number(s.weight) || 0, is_warmup: s.is_warmup })),
+      bests,
+      hadHistory,
+    );
+    out.push({ ...row, sets: row.sets.map((s, i) => (prs[i].length ? { ...s, pr: prs[i] } : { ...s })) });
+  }
+  return out;
+}
+
+/** Every PR type on a row's sets, in label order (for the PR toast). */
+export function rowPrs(row: ActiveExercise): PrType[] {
+  const seen = new Set(row.sets.flatMap((s) => s.pr ?? []));
+  return PR_ORDER.filter((p) => seen.has(p));
+}
+
+/**
+ * Appends confirmed items to the running workout. Returns false when no workout is running.
+ * Sets are checked for PRs like hand-ticked sets; `onPr` is called once per
+ * exercise that set any, after the rows are saved.
+ */
+export async function logToWorkout(
+  items: { exercise_id: string; sets: QuickLogSet[] }[],
+  onPr?: (exerciseId: string, prs: PrType[]) => void,
+): Promise<boolean> {
+  let rows = toActiveExercises(items);
+  const current = await db.active.get("active");
+  if (!current) return false;
+  try {
+    rows = await markQuickLogPrs(rows, current);
+  } catch {
+    // PR check is a bonus: the sets are still logged without it.
+  }
   let ok = false;
   await db.transaction("rw", db.active, async () => {
     const w = await db.active.get("active");
@@ -110,6 +167,12 @@ export async function logToWorkout(items: { exercise_id: string; sets: QuickLogS
     await db.active.put(w);
     ok = true;
   });
+  if (ok && onPr) {
+    for (const r of rows) {
+      const prs = rowPrs(r);
+      if (prs.length) onPr(r.exercise_id, prs);
+    }
+  }
   return ok;
 }
 
@@ -144,11 +207,14 @@ const offline = () => typeof navigator !== "undefined" && navigator.onLine === f
 export function QuickLog({
   unit,
   nameOf,
-  onLog = logToWorkout,
+  onPr,
+  onLog = (items) => logToWorkout(items, onPr),
 }: {
   unit: Unit;
   /** Catalogue name for an id, or undefined when the app does not know it. */
   nameOf: (id: string) => string | undefined;
+  /** Called per logged exercise that set a PR (used by the default onLog only). */
+  onPr?: (exerciseId: string, prs: PrType[]) => void;
   onLog?: (items: { exercise_id: string; sets: QuickLogSet[] }[]) => Promise<boolean | void>;
 }) {
   const [open, setOpen] = useState(false);
