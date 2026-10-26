@@ -16,10 +16,14 @@
 // caption, the creator an empty notes box, and the thumbnail and creator are
 // stored on the saved mini workout. Manual, offline or any failure shows a
 // short plain message and the paste-the-caption flow works as before.
+//
+// LINK-03: in Routine mode the review offers an optional Split day picker
+// (None by default). A chosen day links the saved routine to that split day.
 import { useEffect, useRef, useState } from "react";
 import { EQUIPMENT, MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "@/lib/muscles";
 import { loadCatalogue, useCatalogue } from "@/lib/catalogue";
 import { createRoutine } from "@/lib/routines";
+import { useSplit, type Split } from "@/lib/splits";
 import { ensureCustomExercise } from "@/lib/customExercises";
 import { db, type RoutineRow } from "@/lib/offline/db";
 import { enqueue } from "@/lib/offline/sync";
@@ -234,6 +238,8 @@ type SocialRoutineInput = {
   /** From Fetch details; optional. */
   thumbnail_url?: string | null;
   creator?: string | null;
+  /** LINK-03: the split day to link the routine to. Left out or empty: no link (the field is not written). */
+  split_day_id?: string | null;
 };
 
 /**
@@ -332,6 +338,7 @@ async function saveSocialRoutine(input: SocialRoutineInput, kind: "mini" | "rout
     source: "social",
     kind,
     notes: input.notes ?? undefined,
+    ...(input.split_day_id ? { split_day_id: input.split_day_id } : {}),
   });
   // createRoutine has no link fields: add them to the saved row and queue it again (upserts are idempotent).
   const row = await db.routines.get(id);
@@ -349,9 +356,35 @@ async function saveSocialRoutine(input: SocialRoutineInput, kind: "mini" | "rout
   return id;
 }
 
-type Review = { result: ImportResult; keep: boolean[]; url: string; platform: Platform; saveAs: SaveAs; error?: string };
+type Review = {
+  result: ImportResult;
+  keep: boolean[];
+  url: string;
+  platform: Platform;
+  saveAs: SaveAs;
+  /** LINK-03: the split day picked for the routine ("" = None). */
+  splitDayId: string;
+  error?: string;
+};
 
-const reviewOf = (s: Review): Review => ({ result: s.result, keep: s.keep, url: s.url, platform: s.platform, saveAs: s.saveAs });
+const reviewOf = (s: Review): Review => ({
+  result: s.result,
+  keep: s.keep,
+  url: s.url,
+  platform: s.platform,
+  saveAs: s.saveAs,
+  splitDayId: s.splitDayId,
+});
+
+/** LINK-03: split days a routine can be linked to (days with an id), in split order. */
+export function linkableDays(split: Pick<Split, "days">): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  for (const [i, d] of split.days.entries()) {
+    if (typeof d.id !== "string" || !d.id || out.some((x) => x.id === d.id)) continue;
+    out.push({ id: d.id, name: d.name.trim() || `Day ${i + 1}` });
+  }
+  return out;
+}
 
 type State =
   | { kind: "closed" }
@@ -379,6 +412,7 @@ export function initialFromUrl(initialUrl: string | undefined): { state: State; 
 /** Save a workout from a TikTok, Instagram or YouTube post as a routine, or its moves as exercises. */
 export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
   const { get, exercises: allExercises } = useCatalogue();
+  const splitDays = linkableDays(useSplit());
   const [initial] = useState(() => initialFromUrl(initialUrl));
   const [state, setState] = useState<State>(initial.state);
   const [link, setLink] = useState(initial.link);
@@ -480,7 +514,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
         setState({ kind: "form", message: MSG_EMPTY });
         return;
       }
-      setState({ kind: "review", result, keep: result.exercises.map(() => true), ...parsed, saveAs: DEFAULT_SAVE_AS });
+      setState({ kind: "review", result, keep: result.exercises.map(() => true), ...parsed, saveAs: DEFAULT_SAVE_AS, splitDayId: "" });
     } catch {
       setState({ kind: "form", message: offline() ? MSG_OFFLINE : MSG_FAILED });
     }
@@ -540,6 +574,8 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
     setState({ ...r, kind: "saving" });
     try {
       const d = details && details.url === r.url ? details : null;
+      // Only a day still in the split is linked (it may have been removed meanwhile).
+      const dayId = splitDays.some((x) => x.id === r.splitDayId) ? r.splitDayId : "";
       await saveRoutineFromLink({
         name: r.result.name,
         notes: r.result.notes,
@@ -548,6 +584,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
         exercises: chosen,
         thumbnail_url: d?.thumbnail_url ?? null,
         creator: d?.creator ?? null,
+        ...(dayId ? { split_day_id: dayId } : {}),
       });
       setState({ kind: "saved", message: `Saved ${plainText(r.result.name, MAX_NAME) ?? DEFAULT_NAME} as a routine.` });
       resetForm();
@@ -686,6 +723,27 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
               ))}
             </div>
           </fieldset>
+          {!asExercise && splitDays.length > 0 && (
+            <label className="block mt-2">
+              <span className="block text-xs text-muted mb-1">Split day</span>
+              <select
+                className="field py-1.5 text-sm"
+                value={splitDays.some((x) => x.id === state.splitDayId) ? state.splitDayId : ""}
+                disabled={state.kind === "saving"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  patch((r) => ({ ...r, splitDayId: v }));
+                }}
+              >
+                <option value="">None</option>
+                {splitDays.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <ul className="mt-2 space-y-2" aria-label="Imported exercises">
             {state.result.exercises.map((e, i) => {
               const name = displayName(e);

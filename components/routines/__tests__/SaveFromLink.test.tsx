@@ -44,7 +44,9 @@ import {
   parseLink,
   safeExerciseName,
   saveMiniWorkout,
+  linkableDays,
 } from "@/components/routines/SaveFromLink";
+import { saveSplit, type Split } from "@/lib/splits";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn(), back: vi.fn() }),
@@ -853,5 +855,95 @@ describe("SaveFromLink Save as", () => {
     const saved = await listRoutines();
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({ kind: "routine", source: "social", source_url: LINK });
+  });
+});
+
+// ---------- LINK-03: pick a split day for the saved routine ----------
+
+const UL: Split = {
+  name: "Upper / Lower",
+  days: [
+    { name: "Upper", muscles: ["Chest", "Back"] },
+    { name: "Lower", muscles: ["Quads"] },
+  ],
+};
+
+async function savedDayIds() {
+  await saveSplit(UL);
+  return ((await db.meta.get("split"))!.value as Split).days.map((d) => d.id!);
+}
+
+async function openReview() {
+  mockFetch(() => json(okBody()));
+  render(<SaveFromLink />);
+  fillForm();
+  await screen.findByRole("list", { name: "Imported exercises" });
+}
+
+describe("LINK-03 linkableDays", () => {
+  it("lists days with an id in split order, naming unnamed days, skipping repeats", () => {
+    expect(
+      linkableDays({
+        days: [
+          { id: "a", name: "Push", muscles: [] },
+          { name: "No id", muscles: [] },
+          { id: "b", name: "  ", muscles: [] },
+          { id: "a", name: "Repeat", muscles: [] },
+        ],
+      }),
+    ).toEqual([
+      { id: "a", name: "Push" },
+      { id: "b", name: "Day 3" },
+    ]);
+    expect(linkableDays({ days: [] })).toEqual([]);
+  });
+});
+
+describe("LINK-03 saveRoutineFromLink split day", () => {
+  it("links the routine when a day is given and writes no field otherwise", async () => {
+    const r = parseImport(okBody(), known)!;
+    const linked = await saveRoutineFromLink({ name: "A", notes: null, url: LINK, platform: "tiktok", exercises: r.exercises, split_day_id: "day-1" });
+    const plain = await saveRoutineFromLink({ name: "B", notes: null, url: LINK, platform: "tiktok", exercises: r.exercises });
+    expect((await db.routines.get(linked))!.split_day_id).toBe("day-1");
+    expect("split_day_id" in (await db.routines.get(plain))!).toBe(false);
+  });
+});
+
+describe("LINK-03 SaveFromLink Split day picker", () => {
+  it("is not shown when there is no split", async () => {
+    await openReview();
+    expect(screen.queryByRole("combobox", { name: "Split day" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Save routine" })).toBeInTheDocument();
+  });
+
+  it("defaults to None and then saves with no link", async () => {
+    await savedDayIds();
+    await openReview();
+    const picker = await screen.findByRole("combobox", { name: "Split day" });
+    expect(picker).toHaveValue("");
+    expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual(["None", "Upper", "Lower"]);
+    fireEvent.click(screen.getByRole("button", { name: "Save routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a routine.");
+    const [row] = await db.routines.toArray();
+    expect("split_day_id" in row).toBe(false);
+  });
+
+  it("a chosen day links the saved routine", async () => {
+    const [, lower] = await savedDayIds();
+    await openReview();
+    fireEvent.change(await screen.findByRole("combobox", { name: "Split day" }), { target: { value: lower } });
+    fireEvent.click(screen.getByRole("button", { name: "Save routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved Ab finisher as a routine.");
+    const saved = await listRoutines();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ kind: "routine", source: "social", source_url: LINK, split_day_id: lower });
+  });
+
+  it("is hidden in Exercise mode", async () => {
+    await savedDayIds();
+    await openReview();
+    await screen.findByRole("combobox", { name: "Split day" });
+    fireEvent.click(screen.getByRole("radio", { name: "Exercise" }));
+    expect(screen.queryByRole("combobox", { name: "Split day" })).toBeNull();
   });
 });

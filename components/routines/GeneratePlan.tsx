@@ -12,7 +12,12 @@
 // split from this (POST /api/ai/suggest-split, rule-based buildSplit() when the
 // route is unavailable). The label follows the split's training days (2 to 6).
 // With none of the extras used the card sends and shows exactly what it did.
-import { useMemo, useState } from "react";
+//
+// LINK-03: each saved routine is linked to the split day its plan day was built
+// from (planDayLinks), so it shows under that day. Merged or repeated plan days
+// link to the first matching split day. Days without an id are not linked.
+import { useMemo, useRef, useState } from "react";
+import { db } from "@/lib/offline/db";
 import { MUSCLE_GROUPS, EQUIPMENT, type Equipment, type MuscleGroup } from "@/lib/muscles";
 import { saveSplit, useSplit, type Split, type SplitDay } from "@/lib/splits";
 import { equipmentForAi, useEquipment } from "@/lib/equipment";
@@ -333,9 +338,22 @@ function cleanText(v: unknown, max: number): string | null {
  * shows); numbers are clamped and duplicates dropped. Days left empty are removed.
  */
 export function parsePlan(json: unknown, known: (id: string) => boolean, maxDays: number = MAX_DAYS): PlanDay[] | null {
+  return parsePlanIndexed(json, known, maxDays)?.days ?? null;
+}
+
+/**
+ * LINK-03: parsePlan, plus for each kept day its index in the route's answer
+ * (days dropped as empty shift the list, the index does not).
+ */
+export function parsePlanIndexed(
+  json: unknown,
+  known: (id: string) => boolean,
+  maxDays: number = MAX_DAYS,
+): { days: PlanDay[]; indices: number[] } | null {
   if (!isObj(json) || !isObj(json.plan) || !Array.isArray(json.plan.days)) return null;
   const limit = Number.isInteger(maxDays) ? Math.min(MAX_PLAN_DAYS, Math.max(1, maxDays)) : MAX_DAYS;
   const out: PlanDay[] = [];
+  const indices: number[] = [];
   for (const [i, raw] of json.plan.days.slice(0, limit).entries()) {
     if (!isObj(raw) || !Array.isArray(raw.exercises)) continue;
     const exercises: PlanExercise[] = [];
@@ -354,14 +372,37 @@ export function parsePlan(json: unknown, known: (id: string) => boolean, maxDays
       notes: cleanText(raw.notes, MAX_NOTE),
       exercises,
     });
+    indices.push(i);
   }
-  return out.length ? out : null;
+  return out.length ? { days: out, indices } : null;
 }
 
-/** Saves the chosen days as routines (source "ai"), in plan order. Returns the new ids. */
-export async function savePlanDays(days: PlanDay[]): Promise<string[]> {
+/**
+ * LINK-03: the split day id each plan day was built from. The route turns the
+ * split's training days (the first MAX_SPLIT_DAYS days with a known muscle)
+ * into `count` plan days: fewer days repeat (plan day i is training day
+ * i mod n), more days are merged round-robin (plan day i holds training days
+ * i, i + count, ...). Either way the first matching day is training day
+ * i mod n. Null for a day with no id or no training day.
+ */
+export function planDayLinks(split: Split, indices: readonly number[]): (string | null)[] {
+  const src = split.days.slice(0, MAX_SPLIT_DAYS).filter((d) => d.muscles.some(isMuscle));
+  return indices.map((i) => {
+    if (src.length === 0 || !Number.isInteger(i) || i < 0) return null;
+    const id = src[i % src.length].id;
+    return typeof id === "string" && id ? id : null;
+  });
+}
+
+/**
+ * Saves the chosen days as routines (source "ai"), in plan order. Returns the new ids.
+ * LINK-03: `links[i]` (optional) is the split day id for `days[i]`; null or
+ * missing saves the routine with no link (the field is not written).
+ */
+export async function savePlanDays(days: PlanDay[], links: readonly (string | null | undefined)[] = []): Promise<string[]> {
   const ids: string[] = [];
-  for (const d of days) {
+  for (const [i, d] of days.entries()) {
+    const link = links[i];
     ids.push(
       await createRoutine({
         name: d.name,
@@ -369,6 +410,7 @@ export async function savePlanDays(days: PlanDay[]): Promise<string[]> {
         source: "ai",
         kind: "routine",
         notes: d.notes ?? undefined,
+        ...(link ? { split_day_id: link } : {}),
       }),
     );
   }
@@ -380,7 +422,15 @@ export async function loadHistory(now = new Date()): Promise<HistoryEntry[]> {
   return buildHistory(await workoutsBetween(addDays(now, -HISTORY_DAYS), addDays(now, 1)));
 }
 
-type PlanReview = { days: PlanDay[]; keep: boolean[]; request: string | null; note: string | null; refining: boolean };
+type PlanReview = {
+  days: PlanDay[];
+  keep: boolean[];
+  request: string | null;
+  note: string | null;
+  refining: boolean;
+  /** LINK-03: split day id per plan day (null: not linked). */
+  links: (string | null)[];
+};
 
 type State =
   | { kind: "idle" }
@@ -398,9 +448,19 @@ type SplitState =
   | { kind: "saved" }
   | { kind: "error"; message: string };
 
-type PlanResult = { ok: true; days: PlanDay[] } | { ok: false; message: string };
+type PlanResult = { ok: true; days: PlanDay[]; links: (string | null)[] } | { ok: false; message: string };
 
 const offline = () => typeof navigator !== "undefined" && navigator.onLine === false;
+
+/** True when the split in the store has a training day. Unreadable counts as yes (ask first). */
+async function storedSplitHasDays(): Promise<boolean> {
+  try {
+    const stored = (await db.meta.get("split"))?.value as Split | undefined;
+    return !!stored && Array.isArray(stored.days) && hasTrainingDay(stored);
+  } catch {
+    return true;
+  }
+}
 
 /** Generate an N-day plan, review it, keep the days you want, save them as routines. */
 export function GeneratePlan({
@@ -422,6 +482,9 @@ export function GeneratePlan({
   const savedFavs = useFavorites();
   const [state, setState] = useState<State>({ kind: "idle" });
   const [splitState, setSplitState] = useState<SplitState>({ kind: "idle" });
+  // Set while a split save (or the pre-save store check) is in flight, so a
+  // double tap cannot start a second one before the re-render disables the button.
+  const applying = useRef(false);
 
   // Favourites for this plan only: the saved ones until the user edits the list.
   // They are sent only once the user has opened the picker ("used" it).
@@ -470,8 +533,10 @@ export function GeneratePlan({
       } catch {
         // Unreachable catalogue: only exercises already known to the app count.
       }
-      const days = parsePlan(body, (id) => ids.has(id) || !!get(id), planDays);
-      return days ? { ok: true, days } : { ok: false, message: MSG_FAILED };
+      const parsed = parsePlanIndexed(body, (id) => ids.has(id) || !!get(id), planDays);
+      return parsed
+        ? { ok: true, days: parsed.days, links: planDayLinks(split, parsed.indices) }
+        : { ok: false, message: MSG_FAILED };
     } catch {
       return { ok: false, message: offline() ? MSG_OFFLINE : MSG_FAILED };
     }
@@ -491,7 +556,7 @@ export function GeneratePlan({
     const r = await fetchPlan(typed);
     setState(
       r.ok
-        ? { kind: "review", days: r.days, keep: r.days.map(() => true), request: typed, note: null, refining: false }
+        ? { kind: "review", days: r.days, keep: r.days.map(() => true), request: typed, note: null, refining: false, links: r.links }
         : { kind: "error", message: r.message },
     );
   };
@@ -505,7 +570,7 @@ export function GeneratePlan({
     const r = await fetchPlan(combined);
     if (r.ok) {
       setChange("");
-      setState({ kind: "review", days: r.days, keep: r.days.map(() => true), request: combined, note: null, refining: false });
+      setState({ kind: "review", days: r.days, keep: r.days.map(() => true), request: combined, note: null, refining: false, links: r.links });
     } else {
       // The plan on screen stays as it was; nothing is saved.
       setState((s) => (s.kind === "review" ? { ...s, refining: false, note: r.message } : s));
@@ -548,19 +613,29 @@ export function GeneratePlan({
   };
 
   const applyProposal = async (confirmed: boolean) => {
-    if (splitState.kind !== "review" || splitState.saving) return;
+    if (splitState.kind !== "review" || splitState.saving || applying.current) return;
+    const review = splitState;
     // An existing split is only replaced after an explicit confirm.
     if (!confirmed && (hasTrainingDay(savedSplit) || hasTrainingDay(split))) {
-      setSplitState({ ...splitState, confirming: true });
+      setSplitState({ ...review, confirming: true });
       return;
     }
-    setSplitState({ ...splitState, saving: true });
+    applying.current = true;
+    setSplitState({ ...review, saving: true });
     try {
-      await saveSplit(splitState.proposal.split);
+      // The saved split is a live query and may not have loaded yet: check the
+      // store itself so a fast tap never replaces a split without the confirm.
+      if (!confirmed && (await storedSplitHasDays())) {
+        setSplitState({ ...review, confirming: true, saving: false });
+        return;
+      }
+      await saveSplit(review.proposal.split);
       setSplitState({ kind: "saved" });
       setState((s) => (s.kind === "needSplit" || s.kind === "error" ? { kind: "idle" } : s));
     } catch {
       setSplitState({ kind: "error", message: "Could not save the split. Try again." });
+    } finally {
+      applying.current = false;
     }
   };
 
@@ -570,9 +645,12 @@ export function GeneratePlan({
   const save = async (s: PlanReview) => {
     const chosen = s.days.filter((_, i) => s.keep[i]);
     if (chosen.length === 0) return;
+    // Only days still in the saved split are linked (it may have changed meanwhile).
+    const live = new Set(split.days.map((d) => d.id).filter((id): id is string => !!id));
+    const links = s.links.filter((_, i) => s.keep[i]).map((id) => (id && live.has(id) ? id : null));
     setState({ ...s, kind: "saving", refining: false });
     try {
-      await savePlanDays(chosen);
+      await savePlanDays(chosen, links);
       setState({ kind: "saved", count: chosen.length });
     } catch {
       setState({ kind: "error", message: "Could not save the routines. Try again." });
@@ -583,6 +661,12 @@ export function GeneratePlan({
   const kept = reviewing ? state.keep.filter(Boolean).length : 0;
   const busy = reviewing && (state.kind === "saving" || state.refining);
   const splitBusy = splitState.kind === "loading" || splitState.kind === "review";
+  /** LINK-03: name of the split day a plan day links to, or null. */
+  const dayName = (id: string | null | undefined): string | null => {
+    if (!id) return null;
+    const i = split.days.findIndex((d) => d.id === id);
+    return i < 0 ? null : split.days[i].name.trim() || `Day ${i + 1}`;
+  };
 
   return (
     <div className="card p-3 mt-3">
@@ -809,6 +893,7 @@ export function GeneratePlan({
                   />
                   <span className="text-sm font-semibold flex-1">{d.name}</span>
                 </label>
+                {dayName(state.links[i]) && <p className="text-xs text-muted mt-1">For {dayName(state.links[i])}</p>}
                 {d.notes && <p className="text-xs text-muted mt-1">{d.notes}</p>}
                 <ul className="mt-1 space-y-0.5">
                   {d.exercises.map((e) => (
