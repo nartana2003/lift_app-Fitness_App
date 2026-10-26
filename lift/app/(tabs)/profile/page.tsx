@@ -9,6 +9,7 @@ import { LyftaImport } from "@/components/LyftaImport";
 import { DataBackup } from "@/components/DataBackup";
 import { GoalsSection } from "@/components/goals/GoalsSection";
 import { SplitEditor } from "@/components/goals/SplitEditor";
+import { AskCoach } from "@/components/goals/AskCoach";
 import { ReminderSettings } from "@/components/ReminderSettings";
 import { reminderSummary, useReminders } from "@/lib/reminders";
 import { useSplit } from "@/lib/splits";
@@ -206,6 +207,8 @@ export default function ProfilePage() {
       >
         <GoalsSection />
       </Collapsible>
+
+      <AskCoach />
 
       <Collapsible
         title="My split"
