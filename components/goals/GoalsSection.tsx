@@ -16,6 +16,7 @@ import {
 import { useSplit } from "@/lib/splits";
 import { useSettings } from "@/lib/settings";
 import { AiTargets } from "./AiTargets";
+import { CoachSetup } from "./CoachSetup";
 
 /** Goals + per-muscle weekly set targets. Lives in Profile; saves as you tap. */
 export function GoalsSection() {
@@ -35,6 +36,8 @@ export function GoalsSection() {
 
   return (
     <div className="space-y-4">
+      <CoachSetup goals={goals} split={split} />
+
       <Field label="What are you training for?">
         <div className="grid grid-cols-2 gap-2">
           {(Object.keys(GOAL_LABELS) as GoalType[]).map((t) => (

@@ -68,6 +68,23 @@ export function buildParams(req: AiRequest): AiParams {
   };
 }
 
+/**
+ * Anthropic's server-side web search tool. The _20260209 version (with
+ * dynamic filtering) is the current one for AI_MODEL (claude-sonnet-5-5).
+ * Only routes that need grounding in web sources add it; nothing else changes.
+ */
+export const AI_WEB_SEARCH_TOOL_TYPE = "web_search_20260209" as const;
+
+export type AiWebSearchTool = Anthropic.Beta.Messages.BetaWebSearchTool20260209;
+
+/** One block of a response's content. */
+export type AiContentBlock = AiMessage["content"][number];
+
+/** A web search tool restricted to a fixed domain list and a low search budget. */
+export function webSearchTool(allowedDomains: readonly string[], maxUses: number): AiWebSearchTool {
+  return { type: AI_WEB_SEARCH_TOOL_TYPE, name: "web_search", allowed_domains: [...allowedDomains], max_uses: maxUses };
+}
+
 /** Concatenated text blocks of a response (thinking and tool blocks ignored). */
 export function messageText(msg: AiMessage): string {
   let out = "";

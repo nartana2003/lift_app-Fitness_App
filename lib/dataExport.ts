@@ -130,7 +130,8 @@ export const serializeBackup = (b: Backup) => JSON.stringify(b);
 
 /**
  * Field kinds. A trailing "?" means nullable: null or a missing field (older rows)
- * is accepted and stored as null. "optstring" may be left out entirely.
+ * is accepted and stored as null. "optstring" and "optboolean" may be left out
+ * entirely (then the field is omitted, not stored as null).
  * "optstring?" may be left out entirely (it stays left out) or be text or null.
  */
 type Kind =
@@ -142,6 +143,7 @@ type Kind =
   | "string[]"
   | "true"
   | "optstring"
+  | "optboolean"
   | "optstring?"
   | { oneOf: readonly string[]; nullable?: boolean };
 
@@ -213,6 +215,7 @@ const SCHEMAS: Record<RowTable, Schema> = {
     moved_to: "string?",
     moved_from: "string?",
     created_at: "string",
+    was_marked: "optboolean",
   },
 };
 
@@ -244,6 +247,9 @@ function checkField(v: unknown, kind: Kind): Check {
     case "optstring":
       if (v === undefined) return ok(undefined);
       return typeof v === "string" ? ok(v) : bad("must be text");
+    case "optboolean":
+      if (v === undefined) return ok(undefined);
+      return typeof v === "boolean" ? ok(v) : bad("must be true or false");
     case "optstring?":
       if (v === undefined) return ok(undefined);
       if (v === null) return ok(null);
