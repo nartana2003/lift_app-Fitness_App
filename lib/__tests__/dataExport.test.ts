@@ -399,3 +399,83 @@ describe("validation happens before anything is written", () => {
     expect(b.tables.sets).toEqual([]);
   });
 });
+
+describe("planned day was_marked (undo of a move keeps a marked date)", () => {
+  const text = (planned_days: unknown[]) =>
+    JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exported_at: "2026-10-16T12:00:00.000Z", tables: { planned_days } });
+
+  it("round-trips was_marked through export, wipe and import", async () => {
+    await db.planned_days.bulkPut([
+      day("d1", "2026-10-03", { routine_id: "r1", moved_from: "2026-10-02", was_marked: true }),
+      day("d2", "2026-10-04"),
+    ]);
+    const before = await db.planned_days.toArray();
+    const t = await exportedText();
+    expect(BACKUP_VERSION).toBe(parsed(t).version);
+    await clearAll();
+    await importBackup(parsed(t));
+    expect(await db.planned_days.toArray()).toEqual(before);
+    expect((await db.planned_days.get("d1"))!.was_marked).toBe(true);
+    expect("was_marked" in (await db.planned_days.get("d2"))!).toBe(false);
+  });
+
+  it("imports older files without the field and leaves it out (not null)", () => {
+    const b = parsed(text([day("d1", "2026-10-03")]));
+    expect(b.tables.planned_days[0]).toEqual(day("d1", "2026-10-03"));
+    expect("was_marked" in b.tables.planned_days[0]).toBe(false);
+  });
+
+  it("keeps false, and rejects a non-boolean was_marked", () => {
+    expect(parsed(text([day("d1", "2026-10-03", { was_marked: false })])).tables.planned_days[0].was_marked).toBe(false);
+    const r = parseBackup(text([{ ...day("d1", "2026-10-03"), was_marked: "yes" }]));
+    expect(r.ok).toBe(false);
+    expect(r.ok ? "" : r.error).toMatch(/was_marked/);
+  });
+});
+
+describe("routine split-day links", () => {
+  const SPLIT = { name: "PPL", days: [{ id: "day-push", name: "Push", muscles: ["Chest"] }, { id: "day-pull", name: "Pull", muscles: ["Back"] }] };
+
+  it("round-trips split_day_id and the split's day ids, and queues the link for sync", async () => {
+    await db.routines.bulkPut([
+      routine("r1", { split_day_id: "day-push" }),
+      routine("r2", { name: "Pull", split_day_id: null }),
+      routine("r3", { name: "Old" }),
+    ]);
+    await db.meta.put({ key: "split", value: SPLIT });
+    const before = await db.routines.toArray();
+    const text = await exportedText();
+    expect(text).toContain('"split_day_id":"day-push"');
+    await clearAll();
+
+    await importBackup(parsed(text));
+    expect(await db.routines.toArray()).toEqual(before);
+    expect((await db.routines.get("r1"))!.split_day_id).toBe("day-push");
+    expect((await db.routines.get("r2"))!.split_day_id).toBeNull();
+    expect("split_day_id" in (await db.routines.get("r3"))!).toBe(false);
+    expect((await db.meta.get("split"))!.value).toEqual(SPLIT);
+
+    const out = (await db.outbox.toArray()).filter((o) => o.table === "routines");
+    expect(out.find((o) => o.row.id === "r1")!.row.split_day_id).toBe("day-push");
+    expect(out.find((o) => o.row.id === "r2")!.row.split_day_id).toBeNull();
+  });
+
+  it("rejects a split_day_id that is not text or null", () => {
+    const text = JSON.stringify({
+      format: BACKUP_FORMAT,
+      version: 1,
+      exported_at: "2026-10-16T12:00:00.000Z",
+      tables: { routines: [{ ...routine("r1"), split_day_id: 5 }] },
+    });
+    const r = parseBackup(text);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? "" : r.error).toMatch(/routines row 1: "split_day_id"/);
+  });
+
+  it("leaves split_day_id out of older routine rows that never had it", () => {
+    const text = JSON.stringify({ format: BACKUP_FORMAT, version: 1, exported_at: "x", tables: { routines: [routine("r1")] } });
+    const b = parsed(text);
+    expect(b.tables.routines[0]).toEqual(routine("r1"));
+    expect("split_day_id" in b.tables.routines[0]).toBe(false);
+  });
+});

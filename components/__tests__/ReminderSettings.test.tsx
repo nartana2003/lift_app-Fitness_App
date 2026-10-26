@@ -2,7 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
-import { DEFAULT_REMINDERS, REMINDERS_KEY, saveReminders } from "@/lib/reminders";
+import { DEFAULT_REMINDERS, localDateKey, REMINDERS_KEY, saveReminders } from "@/lib/reminders";
+import { markGymDay, unmarkGymDay } from "@/lib/planner";
 import { PUSH_UNAVAILABLE, ReminderSettings } from "@/components/ReminderSettings";
 
 vi.mock("next/navigation", () => ({
@@ -69,6 +70,45 @@ describe("ReminderSettings", () => {
     render(<ReminderSettings />);
     fireEvent.click(screen.getByRole("button", { name: "Enable notifications" }));
     expect(screen.getByRole("status")).toHaveTextContent(PUSH_UNAVAILABLE);
+  });
+});
+
+describe("ReminderSettings with marked gym days", () => {
+  const plusDays = (n: number) => {
+    const d = new Date();
+    return localDateKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+  };
+
+  it("explains that reminders follow the This Week strip and describes weekdays as optional usual days", () => {
+    render(<ReminderSettings />);
+    expect(screen.getByText("Reminders follow the days you mark on the This Week strip.")).toBeInTheDocument();
+    expect(screen.getByText(/Optional usual days/)).toBeInTheDocument();
+    // The existing label is kept.
+    expect(screen.getByText("Gym days")).toBeInTheDocument();
+  });
+
+  it("shows the next reminder from a marked date with no usual days, live", async () => {
+    render(<ReminderSettings />);
+    expect(screen.getByText("Pick at least one gym day to get reminders.")).toBeInTheDocument();
+    await markGymDay(plusDays(2));
+    await waitFor(() => expect(screen.getByText(/Next reminder/)).toBeInTheDocument());
+    expect(screen.queryByText("Pick at least one gym day to get reminders.")).not.toBeInTheDocument();
+    await unmarkGymDay(plusDays(2));
+    await waitFor(() => expect(screen.getByText("Pick at least one gym day to get reminders.")).toBeInTheDocument());
+  });
+
+  it("ignores past marked dates", async () => {
+    await markGymDay(plusDays(-3));
+    render(<ReminderSettings />);
+    await new Promise((res) => setTimeout(res, 50));
+    expect(screen.getByText("Pick at least one gym day to get reminders.")).toBeInTheDocument();
+  });
+
+  it("stores nothing new in the reminder settings", async () => {
+    await markGymDay(plusDays(1));
+    render(<ReminderSettings />);
+    await waitFor(() => expect(screen.getByText(/Next reminder/)).toBeInTheDocument());
+    expect(await stored()).toBeUndefined();
   });
 });
 

@@ -82,12 +82,22 @@ function dayAt(x: number, y: number): string | null {
   return cell?.dataset.day ?? null;
 }
 
+const EMPTY: { routines: Routine[]; planRows: PlannedDayRow[] } = { routines: [], planRows: [] };
+
 /** This week at a glance: plan a routine per day, skip with a reason, or move it. */
 export function WeekStrip() {
   const router = useRouter();
   const { weekStart } = useSettings();
-  const routines = useLiveQuery(() => listRoutines(), [], []);
-  const planRows = useLiveQuery(() => db.planned_days.toArray(), [], []);
+  // Routines and plan rows load in one live query, so a planned day never shows
+  // before its routine (e.g. the unmark confirm always has the routine's name).
+  const { routines, planRows } = useLiveQuery(
+    async () => {
+      const [r, p] = await Promise.all([listRoutines(), db.planned_days.toArray()]);
+      return { routines: r, planRows: p };
+    },
+    [],
+    EMPTY,
+  );
   const [open, setOpen] = useState<string | null>(null);
   const [filling, setFilling] = useState(false);
   const [notice, setNotice] = useState("");
@@ -206,7 +216,9 @@ export function WeekStrip() {
                   }
                   setOpen(k);
                   // Tapping an unmarked date from today on marks it as a gym day.
-                  if (!p && !isPast) void markGymDay(k);
+                  // A failed write leaves the date unmarked (the live query shows the truth),
+                  // so it is caught here rather than left as an unhandled rejection.
+                  if (!p && !isPast) markGymDay(k).catch(() => {});
                 }}
                 className={circleClass({
                   gym,

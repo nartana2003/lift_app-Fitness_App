@@ -54,6 +54,12 @@ export type PlannedDayRow = {
   moved_to: string | null;
   moved_from: string | null;
   created_at: string;
+  /**
+   * Set on a move's destination when that date was already a routine-less gym
+   * day (a mark) before the move, so undoing the move restores the mark
+   * instead of deleting the row. Absent on older rows.
+   */
+  was_marked?: boolean;
 };
 
 export type RoutineRow = {
@@ -68,6 +74,12 @@ export type RoutineRow = {
   creator: string | null;
   notes: string | null;
   created_at: string;
+  /**
+   * The split day (SplitDay.id) this routine belongs to, or null/absent for none.
+   * Unindexed extra field, so no schema version bump. A link to a day that is no
+   * longer in the split counts as unassigned.
+   */
+  split_day_id?: string | null;
 };
 
 export type RoutineExerciseRow = {
