@@ -1,0 +1,25 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# local only
+PLAN.md
+lyfta-ref/
+.worktrees/
+.playwright-mcp/
+
+# agent loop state and machine-local settings
+.claude/state/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+lift/.claude/
+
+# dependencies and build output
+node_modules/
+.next/
+.next-e2e-*/
+test-results/
+*.tsbuildinfo
+.vercel
+.DS_Store

@@ -1,0 +1,59 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(npm --prefix lift test:*)",
+      "Bash(npm --prefix lift run lint:*)",
+      "Bash(npm --prefix lift run build:*)",
+      "Bash(cd:*)",
+      "Bash(git -C lift add:*)",
+      "Bash(git -C lift commit:*)",
+      "Bash(git -C lift diff:*)",
+      "Bash(git -C lift status:*)",
+      "Bash(git -C lift log:*)",
+      "Bash(git -C lift show:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(sed -n:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(date:*)",
+      "Edit",
+      "Write"
+    ],
+    "deny": [
+      "Bash(git clean:*)",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(git -C lift clean:*)",
+      "Bash(git -C lift reset:*)",
+      "Bash(git -C lift checkout:*)",
+      "Bash(git -C lift restore:*)",
+      "Bash(git -C lift stash:*)",
+      "Bash(git push:*)",
+      "Bash(rm -rf:*)",
+      "Bash(npm run dev:*)",
+      "Edit(/.claude/plan-errata.md)",
+      "Write(/.claude/plan-errata.md)",
+      "Edit(/.claude/settings.json)",
+      "Write(/.claude/settings.json)"
+    ],
+    "ask": [
+      "Bash(npm install:*)",
+      "Bash(npm i:*)"
+    ]
+  },
+  "enabledPlugins": {
+    "vercel@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "supabase@claude-plugins-official": true
+  }
+}
