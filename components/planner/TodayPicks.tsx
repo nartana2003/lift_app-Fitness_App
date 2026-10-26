@@ -4,6 +4,10 @@
 // few exercises from the user's starred pool, rotated by how long ago each was
 // last done (lib/pool.ts). Picks can be swapped within the muscle's pool or
 // unticked, then started as a workout. Rule-based only: no network calls.
+//
+// LINK-03: when the day has routines linked to it, the card also offers
+// "Use my routine: <name>" (the next one by nextRoutineForDay) as an
+// alternative. The pool picks stay the default and Start workout still uses them.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -17,7 +21,8 @@ import { allWorkouts } from "@/lib/history";
 import type { MuscleGroup } from "@/lib/muscles";
 import { db } from "@/lib/offline/db";
 import { nextSplitDay, poolByMuscle, suggestToday, type PoolWorkout } from "@/lib/pool";
-import { createRoutine } from "@/lib/routines";
+import { createRoutine, listRoutines } from "@/lib/routines";
+import { lastDoneByRoutine, nextRoutineForDay } from "@/lib/splitRoutines";
 import { PRESETS, saveSplit, useSplit } from "@/lib/splits";
 import { startWorkout } from "@/lib/workout";
 
@@ -79,6 +84,7 @@ export function TodayPicks() {
   const equipment = useEquipment();
   const catalogue = useCatalogue();
   const history = useLiveQuery(() => allWorkouts(), []);
+  const routines = useLiveQuery(() => listRoutines(), [], []);
   // Wrapped so "still loading" (undefined) differs from "never set" ({ value: undefined }).
   const stored = useLiveQuery(async () => ({ value: (await db.meta.get(PER_MUSCLE_KEY))?.value }), []);
   const perMuscle = normalizePerMuscle(stored?.value);
@@ -185,6 +191,27 @@ export function TodayPicks() {
     }
   }
 
+  // LINK-03: the routine linked to this day that was done longest ago, if any.
+  const mine = nextRoutineForDay(routines, day.id, lastDoneByRoutine(workouts));
+
+  async function startMine() {
+    if (busy || !mine) return;
+    setBusy(true);
+    try {
+      if (await db.active.get("active")) {
+        if (!confirm("You already have a workout in progress. Discard it and start this one?")) return;
+      }
+      await startWorkout({
+        name: mine.name,
+        routineId: mine.id,
+        exercises: mine.exercises.map((e) => ({ exercise_id: e.exercise_id, target_sets: e.target_sets, target_reps: e.target_reps })),
+      });
+      router.push("/workout");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const count = ticked.length;
   return (
     <Collapsible title="Today's exercises" subtitle={`${day.name} · ${count} exercise${count === 1 ? "" : "s"}`}>
@@ -228,6 +255,20 @@ export function TodayPicks() {
         </div>
       </div>
       {!next.overridden && <p className="text-xs text-muted">Next in your split.</p>}
+
+      {mine && (
+        <div className="rounded-xl border border-border px-3 py-2">
+          <p className="text-xs text-muted">Or use the routine you saved for {day.name.trim() || "this day"}.</p>
+          <button
+            type="button"
+            className="mt-1 text-sm font-semibold underline disabled:opacity-40 disabled:no-underline"
+            disabled={busy}
+            onClick={startMine}
+          >
+            Use my routine: {mine.name}
+          </button>
+        </div>
+      )}
 
       {rows.length === 0 && <p className="text-sm text-muted">This day has no muscles yet. Add some in Profile, My split.</p>}
 

@@ -309,3 +309,96 @@ describe("TodayPicks", () => {
     expect(screen.getByRole("link", { name: "Star some exercises for Triceps to build your pool" })).toBeInTheDocument();
   });
 });
+
+// ---------- LINK-03: Use my routine for a day with linked routines ----------
+
+import { createRoutine } from "@/lib/routines";
+
+async function armsDayId() {
+  await saveSplit(ARMS);
+  return ((await db.meta.get("split"))!.value as Split).days[0].id!;
+}
+
+/** A finished workout done from a routine. */
+async function doneFromRoutine(when: Date, routineId: string) {
+  await db.workouts.put({ id: uuid(), started_at: when.toISOString(), ended_at: when.toISOString(), notes: null, routine_id: routineId });
+}
+
+describe("TodayPicks LINK-03 linked routines", () => {
+  it("no linked routine: no Use my routine offer", async () => {
+    await armsDayId();
+    await star(["hammer"]);
+    await createRoutine({ name: "Loose", exercises: [{ exercise_id: "row" }] });
+    await openCard();
+    await screen.findByText("Hammer Curl");
+    expect(screen.queryByRole("button", { name: /^Use my routine/ })).toBeNull();
+  });
+
+  it("offers the linked routine as an alternative; the pool picks stay the default", async () => {
+    const day = await armsDayId();
+    await star(["hammer"]);
+    await createRoutine({ name: "Arm blast", exercises: [{ exercise_id: "zottman", target_sets: 4, target_reps: "10" }], split_day_id: day });
+    await openCard();
+    expect(await screen.findByRole("button", { name: "Use my routine: Arm blast" })).toBeInTheDocument();
+    // Pool picks still shown and still what Start workout uses.
+    expect(shownNames()).toEqual(["Hammer Curl"]);
+    fireEvent.click(screen.getByRole("button", { name: "Start workout" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
+    const active = await db.active.get("active");
+    expect(active?.exercises.map((e) => e.exercise_id)).toEqual(["hammer"]);
+    expect(active?.routine_id ?? null).toBeNull();
+  });
+
+  it("Use my routine starts that routine with its targets", async () => {
+    const day = await armsDayId();
+    await star(["hammer"]);
+    const id = await createRoutine({ name: "Arm blast", exercises: [{ exercise_id: "zottman", target_sets: 4, target_reps: "10" }], split_day_id: day });
+    await openCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Use my routine: Arm blast" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
+    const active = await db.active.get("active");
+    expect(active?.name).toBe("Arm blast");
+    expect(active?.routine_id).toBe(id);
+    // Target sets become set rows; the rep target is kept.
+    expect(active?.exercises.map((e) => [e.exercise_id, e.sets.length, e.target_reps])).toEqual([["zottman", 4, "10"]]);
+  });
+
+  it("with several linked routines offers the one done longest ago, never a mini", async () => {
+    const day = await armsDayId();
+    await star(["hammer"]);
+    const a = await createRoutine({ name: "Arms A", exercises: [{ exercise_id: "zottman" }], split_day_id: day });
+    const b = await createRoutine({ name: "Arms B", exercises: [{ exercise_id: "incline" }], split_day_id: day });
+    await createRoutine({ name: "Arms mini", kind: "mini", exercises: [{ exercise_id: "hammer" }], split_day_id: day });
+    await doneFromRoutine(daysAgo(2), a);
+    await doneFromRoutine(daysAgo(9), b);
+    await openCard();
+    expect(await screen.findByRole("button", { name: "Use my routine: Arms B" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use my routine: Arms A" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use my routine: Arms mini" })).toBeNull();
+  });
+
+  it("follows the picked split day", async () => {
+    await saveSplit(PP);
+    const [pull, pushDay] = ((await db.meta.get("split"))!.value as Split).days.map((d) => d.id!);
+    await star(["hammer", "bench"]);
+    await createRoutine({ name: "Pull routine", exercises: [{ exercise_id: "row" }], split_day_id: pull });
+    await createRoutine({ name: "Push routine", exercises: [{ exercise_id: "bench" }], split_day_id: pushDay });
+    await openCard();
+    expect(await screen.findByRole("button", { name: "Use my routine: Pull routine" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Split day" }), { target: { value: "1" } });
+    expect(await screen.findByRole("button", { name: "Use my routine: Push routine" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use my routine: Pull routine" })).toBeNull();
+  });
+
+  it("asks before replacing a running workout and keeps it on no", async () => {
+    const day = await armsDayId();
+    await createRoutine({ name: "Arm blast", exercises: [{ exercise_id: "zottman" }], split_day_id: day });
+    const running = await startWorkout({ name: "Running", exercises: [{ exercise_id: "row" }] });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await openCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Use my routine: Arm blast" }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
+    expect(push).not.toHaveBeenCalled();
+    expect((await db.active.get("active"))?.id).toBe(running.id);
+  });
+});
