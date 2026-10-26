@@ -53,6 +53,11 @@ export async function createRoutine(input: {
   notes?: string;
   /** The split day this routine belongs to. Left out: no link (the field is not written). */
   split_day_id?: string | null;
+  /** Link fields (Save from link). Left out: null, as before. */
+  source_url?: string | null;
+  platform?: RoutineRow["platform"];
+  thumbnail_url?: string | null;
+  creator?: string | null;
 }): Promise<string> {
   const row: RoutineRow = {
     id: uuid(),
@@ -60,10 +65,10 @@ export async function createRoutine(input: {
     day_label: null,
     source: input.source ?? "manual",
     kind: input.kind ?? "routine",
-    source_url: null,
-    platform: null,
-    thumbnail_url: null,
-    creator: null,
+    source_url: input.source_url || null,
+    platform: input.platform ?? null,
+    thumbnail_url: input.thumbnail_url || null,
+    creator: input.creator || null,
     notes: input.notes?.trim() || null,
     created_at: new Date().toISOString(),
   };

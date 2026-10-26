@@ -63,6 +63,8 @@ export const ALLOWED_HOSTS: Readonly<Record<string, Platform>> = Object.freeze({
   "tiktok.com": "tiktok",
   "www.tiktok.com": "tiktok",
   "vm.tiktok.com": "tiktok",
+  // TikTok's share-sheet short links (SMALL-02).
+  "vt.tiktok.com": "tiktok",
   "youtube.com": "youtube",
   "www.youtube.com": "youtube",
   "m.youtube.com": "youtube",
