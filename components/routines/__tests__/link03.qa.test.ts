@@ -146,7 +146,7 @@ describe("saveRoutineFromLink links", () => {
     url: "https://www.tiktok.com/@a/video/1",
     platform: "tiktok" as const,
     exercises: [
-      { exercise_id: null, name: "Qa Press", custom: true, muscle_groups: ["Chest" as const], equipment: "barbell" as const, target_sets: 3, target_reps: "8-10" },
+      { exercise_id: null, name: "Qa Press", custom: true, muscle_groups: ["Chest" as const], equipment: "Barbell" as const, target_sets: 3, target_reps: "8-10" },
     ],
   };
 
