@@ -1,9 +1,12 @@
 "use client";
 
 import { fmtClock, restTimer, useRestTimer } from "@/lib/restTimer";
+import { useRestTimerPush } from "@/lib/restTimerPushClient";
 
 export function RestTimer() {
   const { timer, remaining } = useRestTimer();
+  // Push when rest ends with the app closed (opt-in, Profile > Reminders).
+  useRestTimerPush();
   if (!timer) return null;
   const done = remaining === 0;
   const pct = Math.min(100, ((timer.total - remaining) / timer.total) * 100);
