@@ -7,6 +7,7 @@ import type { Exercise } from "@/lib/exercises";
 import catalogueJson from "@/data/exercises.json";
 import { indexCatalogue, ruleImport, validateInput } from "@/lib/ai/social-import";
 import {
+  fetchLinkThumbnail,
   MAX_SETS,
   MSG_BAD_LINK,
   MSG_EMPTY,
@@ -945,5 +946,29 @@ describe("LINK-03 SaveFromLink Split day picker", () => {
     await screen.findByRole("combobox", { name: "Split day" });
     fireEvent.click(screen.getByRole("radio", { name: "Exercise" }));
     expect(screen.queryByRole("combobox", { name: "Split day" })).toBeNull();
+  });
+});
+
+describe("fetchLinkThumbnail", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("returns the https thumbnail for a supported link", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ platform: "tiktok", title: "T", thumbnail_url: "https://img.example.com/t.jpg" }), { status: 200 })),
+    );
+    expect(await fetchLinkThumbnail(LINK)).toBe("https://img.example.com/t.jpg");
+  });
+
+  it("is null for an unsupported link without calling the route", async () => {
+    const fn = vi.fn();
+    vi.stubGlobal("fetch", fn);
+    expect(await fetchLinkThumbnail("https://example.com/v")).toBeNull();
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("is null when the lookup fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("down"); }));
+    expect(await fetchLinkThumbnail(LINK)).toBeNull();
   });
 });

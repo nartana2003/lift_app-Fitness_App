@@ -215,6 +215,24 @@ export function buildDetailsBody(url: string) {
   return { url };
 }
 
+/** The post's thumbnail for a pasted link, or null when offline, unsupported or the lookup fails. */
+export async function fetchLinkThumbnail(raw: string): Promise<string | null> {
+  const parsed = parseLink(raw);
+  if (!parsed || (typeof navigator !== "undefined" && navigator.onLine === false)) return null;
+  try {
+    const res = await fetch(DETAILS_ROUTE, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(buildDetailsBody(parsed.url)),
+    });
+    if (!res.ok) return null;
+    const d = parseDetails(await res.json(), parsed);
+    return d && d !== "manual" ? d.thumbnail_url : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Request body in the route's shape. The link is never sent. */
 export function buildRequestBody(platform: Platform, caption: string, notes: string) {
   return { platform, caption: caption.slice(0, MAX_CAPTION), notes: notes.slice(0, MAX_NOTES) };
@@ -288,6 +306,8 @@ export async function saveExercisesFromLink(input: {
   exercises: ImportItem[];
   /** Names of exercises the app already has (built-in catalogue). */
   knownNames?: Iterable<string>;
+  /** The post's thumbnail, used as each new exercise's picture. */
+  thumbnail_url?: string | null;
 }): Promise<{ saved: string[]; existing: string[] }> {
   const known = new Set([...(input.knownNames ?? [])].map(nameKey));
   for (const c of await db.custom_exercises.toArray()) known.add(nameKey(c.name));
@@ -311,6 +331,7 @@ export async function saveExercisesFromLink(input: {
       muscle_groups: t.muscles,
       equipment: isEquipment(t.item.equipment) ? t.item.equipment : "Other",
       video_url: input.url,
+      thumbnail_url: cleanThumbnailUrl(input.thumbnail_url),
     });
     saved.push(t.name);
   }
@@ -326,6 +347,7 @@ async function saveSocialRoutine(input: SocialRoutineInput, kind: "mini" | "rout
         muscle_groups: e.muscle_groups,
         equipment: e.equipment,
         video_url: input.url,
+        thumbnail_url: cleanThumbnailUrl(input.thumbnail_url),
       });
       id = c.id;
     }
@@ -553,6 +575,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
         url: r.url,
         exercises: chosen,
         knownNames: allExercises.map((e) => e.name),
+        thumbnail_url: details && details.url === r.url ? details.thumbnail_url : null,
       });
       if (saved.length === 0) {
         setState({ ...r, kind: "review", error: MSG_NOTHING_NEW });

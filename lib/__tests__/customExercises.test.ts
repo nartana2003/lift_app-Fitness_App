@@ -91,4 +91,18 @@ describe("deleting", () => {
     expect(await db.custom_exercises.get(row.id)).toBeUndefined();
     expect(await db.custom_exercises.get(keep.id)).toEqual(keep);
   });
+
+  it("queues a remote delete", async () => {
+    const row = await createCustomExercise({ name: "Temp" });
+    await deleteCustomExercise(row.id);
+    const queued = await db.outbox.toArray();
+    expect(queued.some((q) => q.table === "exercises" && q.op === "delete" && q.row.id === row.id)).toBe(true);
+  });
+});
+
+describe("thumbnail", () => {
+  it("becomes the exercise picture", async () => {
+    const row = await createCustomExercise({ name: "Clip", thumbnail_url: "https://img.example.com/t.jpg" });
+    expect(row.image_urls).toEqual(["https://img.example.com/t.jpg"]);
+  });
 });

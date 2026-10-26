@@ -500,10 +500,27 @@ describe("Watch original on custom exercises from a video link", () => {
   it("shows a Watch original link that opens the video in a new tab", async () => {
     const ex = await createCustomExercise({ name: "Hollow hold", muscle_groups: ["Abs/Core"], video_url: LINK });
     await renderPage(ex.id);
-    const link = await screen.findByRole("link", { name: /Watch the original video/ });
+    const link = await screen.findByRole("link", { name: /Watch original TikTok video/ });
     expect(link).toHaveAttribute("href", LINK);
+    expect(screen.queryByRole("link", { name: /Watch on TikTok/ })).not.toBeInTheDocument();
     expect(link).toHaveAttribute("target", "_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("names the platform on the original video link", async () => {
+    const ex = await createCustomExercise({ name: "Dead hang", video_url: "https://www.youtube.com/watch?v=abc" });
+    await renderPage(ex.id);
+    expect(await screen.findByRole("link", { name: /Watch original YouTube video/ })).toBeInTheDocument();
+  });
+
+  it("deletes a custom exercise after confirming", async () => {
+    const ex = await createCustomExercise({ name: "Hollow hold", muscle_groups: ["Abs/Core"] });
+    await renderPage(ex.id);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete exercise" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    });
+    await waitFor(async () => expect(await db.custom_exercises.get(ex.id)).toBeUndefined());
   });
 
   it("shows no link for an unsafe video url", async () => {

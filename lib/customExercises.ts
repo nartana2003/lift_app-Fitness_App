@@ -11,6 +11,8 @@ export async function createCustomExercise(input: {
   muscle_groups?: MuscleGroup[];
   equipment?: Equipment;
   video_url?: string;
+  /** The source video's thumbnail (https), shown as the exercise picture. */
+  thumbnail_url?: string | null;
   instructions?: string[];
 }): Promise<CustomExerciseRow> {
   const name = input.name.trim();
@@ -25,7 +27,7 @@ export async function createCustomExercise(input: {
     force: null,
     level: "beginner",
     instructions: input.instructions ?? [],
-    image_urls: [],
+    image_urls: input.thumbnail_url ? [input.thumbnail_url] : [],
     tiktok_url: tiktokUrl(name),
     video_url: input.video_url,
     custom: true,
@@ -43,4 +45,7 @@ export async function ensureCustomExercise(name: string, extra: Omit<Parameters<
   return existing ?? createCustomExercise({ name, ...extra });
 }
 
-export const deleteCustomExercise = (id: string) => db.custom_exercises.delete(id);
+export async function deleteCustomExercise(id: string) {
+  await db.custom_exercises.delete(id);
+  await enqueue([{ table: "exercises", op: "delete", row: { id } }]);
+}

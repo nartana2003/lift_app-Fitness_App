@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { fetchLinkThumbnail } from "@/components/routines/SaveFromLink";
 import { createCustomExercise } from "@/lib/customExercises";
 import { EQUIPMENT, MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "@/lib/muscles";
 
@@ -21,11 +22,13 @@ export default function NewExercisePage() {
   async function create() {
     setBusy(true);
     try {
+      const link = video.trim();
       const ex = await createCustomExercise({
         name,
         muscle_groups: muscles,
         equipment,
-        video_url: video.trim() || undefined,
+        video_url: link || undefined,
+        thumbnail_url: link ? await fetchLinkThumbnail(link) : null,
         instructions: steps
           .split("\n")
           .map((s) => s.trim())
