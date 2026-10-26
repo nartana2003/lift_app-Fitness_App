@@ -7,6 +7,7 @@ import { startWorkout } from "@/lib/workout";
 import { HistoryList } from "@/components/HistoryList";
 import { RoutineList } from "@/components/routines/RoutineList";
 import { WeekStrip } from "@/components/planner/WeekStrip";
+import { TodayPicks } from "@/components/planner/TodayPicks";
 import { db } from "@/lib/offline/db";
 import { workoutsBetween } from "@/lib/history";
 import { addDays, formatDuration, startOfWeek } from "@/lib/stats";
@@ -70,6 +71,10 @@ export default function Home() {
       </section>
 
       <WeekStrip />
+
+      <div className="mt-4">
+        <TodayPicks />
+      </div>
 
       <RoutineList />
 
