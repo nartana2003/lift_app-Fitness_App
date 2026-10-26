@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/offline/db";
 import { startSync } from "@/lib/offline/sync";
+import { syncPhotos } from "@/lib/offline/photoSync";
 
 /** Runs background sync and shows a small banner when offline / just synced. */
 export function SyncStatus() {
@@ -14,7 +15,14 @@ export function SyncStatus() {
   useEffect(() => {
     setOnline(navigator.onLine);
     const stop = startSync();
-    const on = () => setOnline(true);
+    // Progress photo cloud backup (no-op unless signed in with Supabase).
+    const photos = () => void syncPhotos().catch(() => {});
+    photos();
+    const photoTimer = setInterval(photos, 5 * 60_000);
+    const on = () => {
+      setOnline(true);
+      photos();
+    };
     const off = () => setOnline(false);
     let t: ReturnType<typeof setTimeout>;
     const synced = () => {
@@ -27,6 +35,7 @@ export function SyncStatus() {
     window.addEventListener("lift:synced", synced);
     return () => {
       stop();
+      clearInterval(photoTimer);
       window.removeEventListener("online", on);
       window.removeEventListener("offline", off);
       window.removeEventListener("lift:synced", synced);

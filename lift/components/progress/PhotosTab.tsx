@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, uuid, type MeasurementRow, type PhotoRow } from "@/lib/offline/db";
+import { queuePhotoDelete } from "@/lib/offline/photoSync";
 import { loadCatalogue } from "@/lib/catalogue";
 import { allWorkouts } from "@/lib/history";
 import type { MuscleGroup } from "@/lib/muscles";
@@ -736,6 +737,8 @@ export function PhotosTab() {
                 e.stopPropagation();
                 if (confirm("Delete this photo?")) {
                   await db.photos.delete(view.id);
+                  // Remove the cloud backup copy too (no-op when not synced).
+                  await queuePhotoDelete(view.id);
                   setView(null);
                 }
               }}

@@ -2,6 +2,7 @@
 
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { supabaseConfigured } from "@/lib/supabase/configured";
+import { customExerciseFromRemote, dedupePlannedDays, measurementFromRemote, plannedDayFromRemote, routineExerciseFromRemote, routineFromRemote, toRemoteRow } from "./remote";
 import { db, type OutboxItem, type SetRow, type SyncTable, type WorkoutExerciseRow, type WorkoutRow } from "./db";
 
 const now = () => new Date().toISOString();
@@ -34,7 +35,8 @@ export function flush(): Promise<number> {
       if (!item) break;
       const q = supabase.from(item.table);
       // A user's own exercises are rows in the shared `exercises` table, owned by them.
-      const row = item.table === "exercises" ? { ...item.row, owner_id: uid } : item.row;
+      // toRemoteRow also makes planned_days.was_marked and routines.split_day_id explicit.
+      const row = toRemoteRow(item.table, item.row, uid);
       const { error } =
         item.op === "upsert" ? await q.upsert(row) : await q.delete().eq("id", item.row.id as string);
       if (error) {
@@ -92,6 +94,77 @@ export async function pull(days = 365) {
     await db.sets.bulkPut(ss);
   });
   await db.meta.put({ key: "lastPull", value: now() });
+  await pullTables();
+}
+
+type Client = ReturnType<typeof supabaseBrowser>;
+
+async function selectAll(supabase: Client, table: string, columns: string, filter?: (q: ReturnType<ReturnType<Client["from"]>["select"]>) => unknown) {
+  const base = supabase.from(table).select(columns);
+  const q = (filter ? filter(base) : base) as PromiseLike<{ data: unknown; error: unknown }>;
+  const { data, error } = await q;
+  return !error && Array.isArray(data) ? (data as Record<string, unknown>[]) : null;
+}
+
+const clean = <T>(rows: Record<string, unknown>[] | null, map: (r: Record<string, unknown>) => T | null): T[] | null =>
+  rows ? rows.map(map).filter((x): x is T => x !== null) : null;
+
+/**
+ * Sync across devices for the rest of the local store: the user's planned days,
+ * routines (+ their exercises), measurements and custom exercises.
+ *
+ * Upsert only: rows on the server are written locally, local rows are never
+ * deleted here (a delete made on another device does not remove a row on this
+ * one). Runs only with an empty outbox, so it never overwrites unsent edits.
+ * A table that fails to load is skipped, the others still apply.
+ */
+export async function pullTables(): Promise<void> {
+  if (!supabaseConfigured || !navigator.onLine) return;
+  if ((await db.outbox.count()) > 0) return;
+  const supabase = supabaseBrowser();
+  const { data: auth } = await supabase.auth.getSession();
+  const uid = auth.session?.user.id;
+  if (!uid) return;
+
+  const [planned, routines, routineExercises, measurements, custom] = await Promise.all([
+    selectAll(supabase, "planned_days", "id, date, routine_id, status, workout_id, skip_reason, skip_note, moved_to, moved_from, was_marked, created_at"),
+    selectAll(supabase, "routines", "id, name, day_label, source, kind, source_url, platform, thumbnail_url, creator, notes, created_at, split_day_id"),
+    selectAll(supabase, "routine_exercises", "id, routine_id, exercise_id, position, target_sets, target_reps"),
+    selectAll(supabase, "measurements", "id, type, value, date"),
+    selectAll(supabase, "exercises", "id, name, muscle_groups, secondary_groups, equipment, category, mechanic, force, level, instructions, image_urls, tiktok_url, video_url", (q) =>
+      q.eq("owner_id", uid),
+    ),
+  ]);
+
+  const days = clean(planned, plannedDayFromRemote);
+  const rs = clean(routines, routineFromRemote);
+  const res = clean(routineExercises, routineExerciseFromRemote);
+  const ms = clean(measurements, measurementFromRemote);
+  const cs = clean(custom, customExerciseFromRemote);
+
+  await db.transaction("rw", [db.planned_days, db.routines, db.routine_exercises, db.measurements, db.custom_exercises, db.outbox], async () => {
+    // Re-check inside the transaction: a write may have been queued meanwhile.
+    if ((await db.outbox.count()) > 0) return;
+    if (days) {
+      const unique = dedupePlannedDays(days);
+      // planned_days has a unique local `date`: drop a local row with another id on the same date first.
+      const clash = await db.planned_days.where("date").anyOf(unique.map((d) => d.date)).toArray();
+      const ids = new Set(unique.map((d) => d.id));
+      await db.planned_days.bulkDelete(clash.filter((c) => !ids.has(c.id)).map((c) => c.id));
+      await db.planned_days.bulkPut(unique);
+    }
+    if (rs) await db.routines.bulkPut(rs);
+    if (res) await db.routine_exercises.bulkPut(res);
+    if (ms) {
+      // One entry per type per day locally: the server row replaces a local one with another id.
+      for (const m of ms) {
+        const same = await db.measurements.where("[type+date]").equals([m.type, m.date]).toArray();
+        await db.measurements.bulkDelete(same.filter((x) => x.id !== m.id).map((x) => x.id));
+      }
+      await db.measurements.bulkPut(ms);
+    }
+    if (cs) await db.custom_exercises.bulkPut(cs);
+  });
 }
 
 async function deleteWorkoutsLocal(ids: string[]) {
