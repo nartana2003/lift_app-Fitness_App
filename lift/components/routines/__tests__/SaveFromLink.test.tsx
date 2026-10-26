@@ -461,10 +461,10 @@ describe("parseDetails", () => {
     expect(d.thumbnail_url).toBeNull();
   });
 
-  it("cleanThumbnailUrl allows https only within the cap", () => {
+  it("cleanThumbnailUrl allows https or a stored cover only, within the cap", () => {
     expect(cleanThumbnailUrl("https://p16.example.com/t.jpg")).toBe("https://p16.example.com/t.jpg");
     expect(cleanThumbnailUrl("http://p16.example.com/t.jpg")).toBeNull();
-    expect(cleanThumbnailUrl("data:image/png;base64,AAAA")).toBeNull();
+    expect(cleanThumbnailUrl("data:text/html;base64,AAAA")).toBeNull();
     expect(cleanThumbnailUrl(`https://x.com/${"a".repeat(3000)}`)).toBeNull();
     expect(cleanThumbnailUrl(7)).toBeNull();
   });
@@ -970,5 +970,20 @@ describe("fetchLinkThumbnail", () => {
   it("is null when the lookup fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("down"); }));
     expect(await fetchLinkThumbnail(LINK)).toBeNull();
+  });
+});
+
+describe("cover data url", () => {
+  const COVER = "data:image/jpeg;base64,/9j/4AAQ";
+
+  it("is accepted as a thumbnail", () => {
+    expect(cleanThumbnailUrl(COVER)).toBe(COVER);
+    expect(parseDetails({ platform: "tiktok", cover_data_url: COVER }, { url: LINK, platform: "tiktok" })).toMatchObject({ thumbnail_url: COVER });
+  });
+
+  it("rejects other data urls", () => {
+    expect(cleanThumbnailUrl("data:text/html;base64,PGI+")).toBeNull();
+    expect(cleanThumbnailUrl("data:image/svg+xml;base64,PHN2Zz4=")).toBeNull();
+    expect(cleanThumbnailUrl("javascript:alert(1)")).toBeNull();
   });
 });

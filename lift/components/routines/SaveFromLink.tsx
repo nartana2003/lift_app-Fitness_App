@@ -187,8 +187,13 @@ export function parseImport(json: unknown, known: (id: string) => boolean): Impo
 /** Title, thumbnail and creator read from the details route for one link. */
 export type LinkDetails = { url: string; title: string | null; thumbnail_url: string | null; creator: string | null };
 
-/** An https thumbnail URL within the cap, or null. */
+/** A downloaded cover image (see the details route): a small jpeg, png or webp data URL. */
+const COVER_DATA_URL = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const MAX_COVER_DATA_URL = 300_000;
+
+/** An https thumbnail URL within the cap, a downloaded cover data URL, or null. */
 export function cleanThumbnailUrl(v: unknown): string | null {
+  if (typeof v === "string" && v.length <= MAX_COVER_DATA_URL && COVER_DATA_URL.test(v)) return v;
   if (typeof v !== "string" || v.length > MAX_THUMBNAIL_URL) return null;
   const u = safeThumbnailUrl(v);
   return u && u.length <= MAX_THUMBNAIL_URL ? u : null;
@@ -205,7 +210,7 @@ export function parseDetails(json: unknown, link: { url: string; platform: Platf
   if (json.manual === true || json.platform !== link.platform) return "manual";
   const title = plainText(json.title, MAX_TITLE);
   const creator = plainText(json.creator, MAX_CREATOR);
-  const thumbnail_url = cleanThumbnailUrl(json.thumbnail_url);
+  const thumbnail_url = cleanThumbnailUrl(json.thumbnail_url) ?? cleanThumbnailUrl(json.cover_data_url);
   if (!title && !creator && !thumbnail_url) return "manual";
   return { url: link.url, title, thumbnail_url, creator };
 }
@@ -575,7 +580,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
         url: r.url,
         exercises: chosen,
         knownNames: allExercises.map((e) => e.name),
-        thumbnail_url: details && details.url === r.url ? details.thumbnail_url : null,
+        thumbnail_url: details && details.url === r.url ? details.thumbnail_url : await fetchLinkThumbnail(r.url),
       });
       if (saved.length === 0) {
         setState({ ...r, kind: "review", error: MSG_NOTHING_NEW });
@@ -605,7 +610,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
         url: r.url,
         platform: r.platform,
         exercises: chosen,
-        thumbnail_url: d?.thumbnail_url ?? null,
+        thumbnail_url: d ? d.thumbnail_url : await fetchLinkThumbnail(r.url),
         creator: d?.creator ?? null,
         ...(dayId ? { split_day_id: dayId } : {}),
       });
