@@ -21,6 +21,8 @@ import {
   hasTrainingDay,
   loadHistory,
   parsePlan,
+  parsePlanIndexed,
+  planDayLinks,
   safeName,
   savePlanDays,
   type HistoryWorkout,
@@ -805,5 +807,112 @@ describe("GeneratePlan GEN-03 controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Build a split from this" }));
     expect(await screen.findByRole("list", { name: "Proposed split" })).toBeInTheDocument();
     expect(callsTo(fn, SPLIT_ROUTE)).toHaveLength(0);
+  });
+});
+
+// ---------- LINK-03: generated routines link to their split days ----------
+
+describe("LINK-03 planDayLinks", () => {
+  const withIds: Split = {
+    name: "PPL",
+    days: [
+      { id: "d-push", name: "Push", muscles: ["Chest", "Triceps"] },
+      { id: "d-rest", name: "Rest", muscles: [] },
+      { id: "d-pull", name: "Pull", muscles: ["Back", "Biceps"] },
+      { id: "d-legs", name: "Legs", muscles: ["Quads"] },
+    ],
+  };
+
+  it("maps plan day i to the i-th training day, skipping days with no muscles", () => {
+    expect(planDayLinks(withIds, [0, 1, 2])).toEqual(["d-push", "d-pull", "d-legs"]);
+  });
+
+  it("repeated days (more plan days than training days) link to the first matching day", () => {
+    const ul: Split = { name: "UL", days: [{ id: "u", name: "Upper", muscles: ["Chest"] }, { id: "l", name: "Lower", muscles: ["Quads"] }] };
+    // Upper A, Lower, Upper B, Lower B
+    expect(planDayLinks(ul, [0, 1, 2, 3])).toEqual(["u", "l", "u", "l"]);
+  });
+
+  it("merged days (more training days than plan days) link to the first day merged in", () => {
+    const five: Split = {
+      name: "Five",
+      days: ["a", "b", "c", "d", "e"].map((id) => ({ id, name: id.toUpperCase(), muscles: ["Chest" as const] })),
+    };
+    // 3 plan days: [a + d], [b + e], [c]
+    expect(planDayLinks(five, [0, 1, 2])).toEqual(["a", "b", "c"]);
+  });
+
+  it("follows the kept indices when a plan day was dropped", () => {
+    expect(planDayLinks(withIds, [0, 2])).toEqual(["d-push", "d-legs"]);
+  });
+
+  it("gives null for days without ids, no training days or bad indices", () => {
+    expect(planDayLinks(PPL, [0, 1, 2])).toEqual([null, null, null]);
+    expect(planDayLinks({ name: "", days: [] }, [0])).toEqual([null]);
+    expect(planDayLinks(withIds, [-1, 1.5])).toEqual([null, null]);
+  });
+});
+
+describe("LINK-03 parsePlanIndexed", () => {
+  it("returns the same days as parsePlan plus their index in the answer", () => {
+    const body = okBody();
+    body.plan.days[1].exercises = [{ exercise_id: "unknown-x", target_sets: 3, target_reps: "8" }];
+    const r = parsePlanIndexed(body, known)!;
+    expect(r.days).toEqual(parsePlan(body, known));
+    expect(r.days.map((d) => d.name)).toEqual(["Push", "Legs"]);
+    expect(r.indices).toEqual([0, 2]);
+    expect(parsePlanIndexed(null, known)).toBeNull();
+  });
+});
+
+describe("LINK-03 savePlanDays links", () => {
+  it("writes split_day_id only for linked days and leaves the others exactly as before", async () => {
+    const days = parsePlan(okBody(), known)!;
+    await savePlanDays(days, ["d-push", null]);
+    const rows = await db.routines.toArray();
+    const push = rows.find((r) => r.name === "Push")!;
+    const pull = rows.find((r) => r.name === "Pull")!;
+    const legs = rows.find((r) => r.name === "Legs")!;
+    expect(push.split_day_id).toBe("d-push");
+    expect("split_day_id" in pull).toBe(false);
+    expect("split_day_id" in legs).toBe(false);
+    const queued = (await db.outbox.toArray()).filter((q) => q.table === "routines").map((q) => q.row as { name: string; split_day_id?: string });
+    expect(queued.find((r) => r.name === "Push")?.split_day_id).toBe("d-push");
+  });
+});
+
+describe("LINK-03 GeneratePlan saves linked routines", () => {
+  it("links each saved routine to the split day it was generated from", async () => {
+    // Four training days so the label shows once the saved split has loaded.
+    await saveSplit({ ...PPL, days: [...PPL.days, { name: "Arms", muscles: ["Biceps"] }] });
+    const split = (await db.meta.get("split"))!.value as Split;
+    const [push, pull, legs] = split.days.map((d) => d.id!);
+    const fn = mockFetch(() => json(okBody()));
+    render(<GeneratePlan equipment={["Barbell"]} getHistory={noHistory} />);
+    await screen.findByText("Generate 4-day plan");
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const list = await screen.findByRole("list", { name: "Generated plan" });
+    await waitFor(() => expect(within(list).getByText("For Push")).toBeInTheDocument());
+    expect(within(list).getByText("For Legs")).toBeInTheDocument();
+    // Split day ids never go to the route.
+    expect(String(routeCalls(fn)[0][1]!.body)).not.toContain(push);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Keep Pull" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save 2 routines" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved 2 routines.");
+    const saved = await listRoutines();
+    expect(Object.fromEntries(saved.map((r) => [r.name, r.split_day_id]))).toEqual({ Push: push, Legs: legs });
+    expect(saved.some((r) => r.split_day_id === pull)).toBe(false);
+  });
+
+  it("with a split prop that has no day ids, saves routines with no link", async () => {
+    mockFetch(() => json(okBody()));
+    render(<GeneratePlan split={PPL} equipment={["Barbell"]} getHistory={noHistory} />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const list = await screen.findByRole("list", { name: "Generated plan" });
+    await waitFor(() => expect(within(list).getByText("Bench Press")).toBeInTheDocument());
+    expect(within(list).queryByText(/^For /)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save 3 routines" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved 3 routines.");
+    expect((await db.routines.toArray()).every((r) => !("split_day_id" in r))).toBe(true);
   });
 });

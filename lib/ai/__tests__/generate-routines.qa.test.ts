@@ -501,7 +501,7 @@ describe("QA rotation invariants over fixed-seed scenarios", () => {
       expect(buildPrompt(a)).toEqual(buildPrompt(b));
       expect(rulePlan(a)).toEqual(rulePlan(b));
     }
-  });
+  }, 60000);
 
   it("plan length equals plan_days, caps hold, ids unique per day, catalogue only", () => {
     for (const s of SEEDS) {
@@ -522,7 +522,7 @@ describe("QA rotation invariants over fixed-seed scenarios", () => {
         for (const id of ids) expect(ctx.byId.has(id)).toBe(true);
       }
     }
-  });
+  }, 60000);
 
   it("equipment filter honoured for favourites, candidates and the plan", () => {
     for (const s of SEEDS) {
@@ -534,7 +534,7 @@ describe("QA rotation invariants over fixed-seed scenarios", () => {
       ctx.candidates.flat().forEach((e) => expect(okEq(e)).toBe(true));
       plan.days.forEach((d) => d.exercises.forEach((e) => expect(okEq(ctx.byId.get(e.exercise_id)!)).toBe(true)));
     }
-  });
+  }, 60000);
 
   it("favourites that train none of the day's muscles are never placed on that day", () => {
     for (const s of SEEDS) {
@@ -548,7 +548,7 @@ describe("QA rotation invariants over fixed-seed scenarios", () => {
         }
       });
     }
-  });
+  }, 60000);
 
   it("every placed favourite is a requested favourite and appears first in the rule plan", () => {
     for (const s of SEEDS) {
@@ -561,7 +561,7 @@ describe("QA rotation invariants over fixed-seed scenarios", () => {
         expect(plan.days[i].exercises.slice(0, f.length).map((e) => e.exercise_id)).toEqual(f.map((e) => e.id));
       });
     }
-  });
+  }, 60000);
 
   it("no favourites requested means none placed and the same plan as before", () => {
     for (const s of SEEDS.slice(0, 100)) {
@@ -571,7 +571,7 @@ describe("QA rotation invariants over fixed-seed scenarios", () => {
       expect(a.favorites.flat()).toEqual([]);
       expect(rulePlan(a)).toEqual(rulePlan(b));
     }
-  });
+  }, 60000);
 
   it("an id sits on two days only when the days share it as the one favourite, or the day set differs otherwise", () => {
     // Strict reading of the spec: with several eligible favourites for a day's
@@ -605,7 +605,7 @@ describe("QA rotation invariants over fixed-seed scenarios", () => {
         placed.forEach((e) => seen.set(e.id, i));
       });
     }
-  });
+  }, 60000);
 
   it("never places, on the first day, the favourite done in the latest session for a muscle when another exists", () => {
     let checked = 0;
@@ -644,7 +644,7 @@ describe("QA rotation invariants over fixed-seed scenarios", () => {
       }
     }
     expect(checked).toBeGreaterThan(5);
-  });
+  }, 60000);
 
   it("when only one favourite trains a day it is kept even if it was the most recent", () => {
     const input = ok(

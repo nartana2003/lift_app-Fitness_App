@@ -22,7 +22,8 @@ import {
 } from "@/lib/planner";
 import { listRoutines, type Routine } from "@/lib/routines";
 import { useSettings } from "@/lib/settings";
-import { useSplit } from "@/lib/splits";
+import { useSplit, type Split } from "@/lib/splits";
+import { lastDoneByRoutine, nextRoutineForDay, routinesForDay, splitDayIds, type LastDone } from "@/lib/splitRoutines";
 import { startWorkout } from "@/lib/workout";
 import {
   autoFillPlan,
@@ -74,6 +75,34 @@ export function circleClass(s: {
   return `${base} ${look}${muted}${drag}`;
 }
 
+/**
+ * LINK-03: routines to offer when planning a day. Each split day with linked
+ * routines comes first, in split order, with its next routine (done longest
+ * ago) first; every other routine follows in its existing order. With no
+ * links there are no groups and `others` is the list as given.
+ */
+export function planChoices<R extends { id: string; created_at: string; kind?: "routine" | "mini"; split_day_id?: string | null }>(
+  split: Pick<Split, "days">,
+  routines: readonly R[],
+  lastDone: LastDone = new Map(),
+): { groups: { dayId: string; name: string; routines: R[] }[]; others: R[] } {
+  const groups: { dayId: string; name: string; routines: R[] }[] = [];
+  const ids = splitDayIds(split);
+  const seen = new Set<string>();
+  split.days.forEach((d, i) => {
+    if (!d.id || seen.has(d.id)) return;
+    seen.add(d.id);
+    // Mini routines linked to the day are listed too (they are never picked automatically).
+    const linked = routinesForDay(routines, d.id, { includeMini: true });
+    if (linked.length === 0) return;
+    const next = nextRoutineForDay(linked, d.id, lastDone);
+    const ordered = next ? [next, ...linked.filter((r) => r.id !== next.id)] : linked;
+    groups.push({ dayId: d.id, name: d.name.trim() || `Day ${i + 1}`, routines: ordered });
+  });
+  const others = routines.filter((r) => !r.split_day_id || !ids.has(r.split_day_id));
+  return { groups, others };
+}
+
 /** The day cell under a screen point, if any. */
 function dayAt(x: number, y: number): string | null {
   if (typeof document === "undefined" || typeof document.elementFromPoint !== "function") return null;
@@ -88,6 +117,9 @@ export function WeekStrip() {
   const { weekStart } = useSettings();
   const routines = useLiveQuery(() => listRoutines(), [], []);
   const planRows = useLiveQuery(() => db.planned_days.toArray(), [], []);
+  // LINK-03: when each routine was last done, so the longest-ago linked routine goes first.
+  const workoutRows = useLiveQuery(() => db.workouts.toArray(), [], []);
+  const lastDone = lastDoneByRoutine(workoutRows);
   const [open, setOpen] = useState<string | null>(null);
   const [filling, setFilling] = useState(false);
   const [notice, setNotice] = useState("");
@@ -248,6 +280,7 @@ export function WeekStrip() {
         <AutoFillPanel
           days={days.map(dayKey)}
           routines={routines}
+          lastDone={lastDone}
           plan={plan}
           today={today}
           onClose={() => setFilling(false)}
@@ -263,6 +296,7 @@ export function WeekStrip() {
           date={open}
           row={selected}
           routines={routines}
+          lastDone={lastDone}
           plan={plan}
           days={days}
           onClose={() => setOpen(null)}
@@ -289,6 +323,7 @@ function DayPanel({
   date,
   row,
   routines,
+  lastDone,
   plan,
   days,
   onClose,
@@ -296,12 +331,15 @@ function DayPanel({
 }: {
   date: string;
   row: PlannedDayRow | null;
-  routines: { id: string; name: string }[];
+  routines: Routine[];
+  lastDone?: LastDone;
   plan: Map<string, PlannedDayRow>;
   days: Date[];
   onClose: () => void;
   onStart: (routineId: string) => void;
 }) {
+  const split = useSplit();
+  const choices = planChoices(split, routines, lastDone);
   const [skipping, setSkipping] = useState<null | "skip" | "move">(null);
   const [reason, setReason] = useState<SkipReason>("busy");
   const [note, setNote] = useState("");
@@ -411,13 +449,42 @@ function DayPanel({
           ) : (
             <>
               <p className="text-sm text-muted mb-2">Plan a routine</p>
-              <div className="flex flex-wrap gap-1.5">
-                {routines.map((r) => (
-                  <button key={r.id} className="chip text-xs" onClick={() => planDay(date, r.id)}>
-                    {r.name}
-                  </button>
-                ))}
-              </div>
+              {choices.groups.length === 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {routines.map((r) => (
+                    <button key={r.id} className="chip text-xs" onClick={() => planDay(date, r.id)}>
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {choices.groups.map((g) => (
+                    <div key={g.dayId} role="group" aria-label={`${g.name} routines`}>
+                      <p className="text-[11px] text-muted mb-1">{g.name}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {g.routines.map((r) => (
+                          <button key={r.id} className="chip text-xs" onClick={() => planDay(date, r.id)}>
+                            {r.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {choices.others.length > 0 && (
+                    <div role="group" aria-label="Other routines">
+                      <p className="text-[11px] text-muted mb-1">Other routines</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {choices.others.map((r) => (
+                          <button key={r.id} className="chip text-xs" onClick={() => planDay(date, r.id)}>
+                            {r.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </>
@@ -485,6 +552,7 @@ function GymDayToggle({
 function AutoFillPanel({
   days,
   routines,
+  lastDone,
   plan,
   today,
   onClose,
@@ -492,6 +560,7 @@ function AutoFillPanel({
 }: {
   days: string[];
   routines: Routine[];
+  lastDone?: LastDone;
   plan: Map<string, PlannedDayRow>;
   today: string;
   onClose: () => void;
@@ -500,7 +569,8 @@ function AutoFillPanel({
   const split = useSplit();
   const [picked, setPicked] = useState<number[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const order = splitRoutineOrder(split, routines);
+  // Linked routines come first (LINK-01); lastDone picks the one done longest ago.
+  const order = splitRoutineOrder(split, routines, lastDone);
   // Dates already marked as gym days (no routine yet) are filled first and set the default pick.
   const marked = markedOpenDates(days, plan, today);
   const gymDays = picked ?? defaultPickedDays(marked, split.days.length || 3);

@@ -104,26 +104,50 @@ export function reminderSummary(r: ReminderSettings, weekStart: 0 | 1 = 1): stri
   return `${r.days.length === 7 ? "Every day" : names.join(", ")} at ${r.time}`;
 }
 
+/** Pure: true for a real local calendar date "YYYY-MM-DD" (rejects 2026-02-30). */
+function isCalendarDate(d: unknown): d is string {
+  if (typeof d !== "string" || !DATE_RE.test(d)) return false;
+  const [y, m, day] = d.split("-").map(Number);
+  return localDateKey(new Date(y, m - 1, day)) === d;
+}
+
 /**
  * Pure: when the next reminder is due after `now`, or null when no gym days are
  * picked. Today's reminders are dropped if today is skipped; a snooze moves
  * the reminder to the end of the snooze.
+ *
+ * `gymDates` (optional) are the dates marked as gym days on the This Week strip
+ * ("YYYY-MM-DD"). Each one gets a reminder at the reminder time, alongside any
+ * usual weekdays in `r.days`; the earliest one still ahead of `now` wins. With
+ * no dates (or an empty list) this is the weekday-only schedule.
  */
-export function nextReminder(r: ReminderSettings, now: Date): Date | null {
-  if (r.days.length === 0 || !isValidTime(r.time)) return null;
+export function nextReminder(r: ReminderSettings, now: Date, gymDates?: readonly string[]): Date | null {
+  const dates = (gymDates ?? []).filter(isCalendarDate);
+  if ((r.days.length === 0 && dates.length === 0) || !isValidTime(r.time)) return null;
   const [hh, mm] = r.time.split(":").map(Number);
   const snooze = r.snoozedUntil ? new Date(r.snoozedUntil) : null;
   const snoozeActive = snooze && snooze.getTime() > now.getTime() && localDateKey(snooze) !== r.skipDate ? snooze : null;
 
+  const usable = (c: Date) => {
+    if (c.getTime() <= now.getTime()) return false;
+    if (localDateKey(c) === r.skipDate) return false;
+    // A reminder on the snoozed day that falls before the snooze ends is replaced by it.
+    if (snoozeActive && localDateKey(c) === localDateKey(snoozeActive) && c.getTime() <= snoozeActive.getTime()) return false;
+    return true;
+  };
+
   let best: Date | null = null;
-  for (let i = 0; i <= 7 && !best; i++) {
+  for (let i = 0; i <= 7 && !best && r.days.length > 0; i++) {
     const c = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i, hh, mm, 0, 0);
     if (!r.days.includes(c.getDay())) continue;
-    if (c.getTime() <= now.getTime()) continue;
-    if (localDateKey(c) === r.skipDate) continue;
-    // A reminder on the snoozed day that falls before the snooze ends is replaced by it.
-    if (snoozeActive && localDateKey(c) === localDateKey(snoozeActive) && c.getTime() <= snoozeActive.getTime()) continue;
+    if (!usable(c)) continue;
     best = c;
+  }
+  for (const d of dates) {
+    const [y, m, day] = d.split("-").map(Number);
+    const c = new Date(y, m - 1, day, hh, mm, 0, 0);
+    if (!usable(c)) continue;
+    if (!best || c.getTime() < best.getTime()) best = c;
   }
   if (snoozeActive && (!best || snoozeActive.getTime() < best.getTime())) return snoozeActive;
   return best;
@@ -169,6 +193,21 @@ export async function saveReminders(r: ReminderSettings): Promise<ReminderSettin
 /** Reads, changes and saves in one transaction. */
 export async function updateReminders(fn: (r: ReminderSettings) => ReminderSettings): Promise<ReminderSettings> {
   return db.transaction("rw", db.meta, async () => saveReminders(fn(await getReminders())));
+}
+
+/**
+ * Dates marked as gym days on the This Week strip (planned_days rows with
+ * status "planned") from `today` on, sorted. Done, skipped and moved days are
+ * left out.
+ */
+export async function getMarkedGymDates(today: string): Promise<string[]> {
+  const rows = await db.planned_days.where("date").aboveOrEqual(today).toArray();
+  return rows.filter((d) => d.status === "planned").map((d) => d.date).sort();
+}
+
+/** Live marked gym dates from today on (empty while loading). */
+export function useMarkedGymDates(today: string): string[] {
+  return useLiveQuery(() => getMarkedGymDates(today), [today], [] as string[]);
 }
 
 /** Live saved reminder settings for components. */
