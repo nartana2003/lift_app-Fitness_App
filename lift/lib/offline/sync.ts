@@ -2,7 +2,7 @@
 
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { supabaseConfigured } from "@/lib/supabase/configured";
-import { classifySyncError, customExerciseFromRemote, measurementFromRemote, outboxChildren, splitPlannedDays, plannedDayFromRemote, routineExerciseFromRemote, routineFromRemote, toRemoteRow } from "./remote";
+import { classifySyncError, customExerciseFromRemote, isTransientServerError, obsoleteDeadLetters, measurementFromRemote, outboxChildren, splitPlannedDays, plannedDayFromRemote, routineExerciseFromRemote, routineFromRemote, toRemoteRow } from "./remote";
 import { db, type OutboxItem, type SetRow, type SyncTable, type WorkoutExerciseRow, type WorkoutRow } from "./db";
 
 import Dexie from "dexie";
@@ -22,8 +22,12 @@ import { claimOwner } from "./owner";
  *   never blocks the rest of the queue. Network/auth/server errors are retried
  *   (coded ones at most MAX_CODED_RETRIES times per session). The local rows of
  *   a dead letter are kept (pull never deletes them) and the banner shows the
- *   count. The list keeps the newest MAX_DEAD_LETTERS entries; there is no
- *   re-send or export UI yet.
+ *   count. The list keeps the newest MAX_DEAD_LETTERS entries. Profile > Sync
+ *   (components/SyncCard.tsx) lists them with Resend and Dismiss (BLK-04).
+ * - A dead letter is dropped when its row is deleted on this device or a newer
+ *   write of the same row is queued (obsoleteDeadLetters): deleting a workout or
+ *   routine also drops its children's letters. Transient server errors (5xx,
+ *   timeouts) never count towards the coded retry cap.
  * - The device belongs to the first account that syncs it (owner.ts); another
  *   account signed in on the same browser is refused.
  */
@@ -55,8 +59,13 @@ export const MAX_DEAD_LETTER_TRIES = 5;
  */
 export async function enqueue(items: Omit<OutboxItem, "created_at" | "seq">[]) {
   await db.outbox.bulkAdd(items.map((i) => ({ ...i, created_at: now() })));
-  if (Dexie.currentTransaction) setTimeout(() => void flush(), 0);
-  else void flush();
+  if (Dexie.currentTransaction) {
+    setTimeout(() => void dropDeadLettersFor(items).catch(() => 0), 0);
+    setTimeout(() => void flush(), 0);
+  } else {
+    await dropDeadLettersFor(items).catch(() => 0);
+    void flush();
+  }
 }
 
 /**
@@ -71,12 +80,37 @@ export async function writeAndQueue(
   const queued = await db.transaction("rw", [...tables, db.outbox], async () => {
     const items = await write();
     if (items.length) await db.outbox.bulkAdd(items.map((i) => ({ ...i, created_at: now() })));
-    return items.length;
+    return items;
   });
-  if (!queued) return;
+  if (!queued.length) return;
   // Called inside an outer transaction: upload only after it (flush must not run in its scope).
-  if (Dexie.currentTransaction) setTimeout(() => void flush(), 0);
-  else void flush();
+  if (Dexie.currentTransaction) {
+    setTimeout(() => void dropDeadLettersFor(queued).catch(() => 0), 0);
+    setTimeout(() => void flush(), 0);
+  } else {
+    await dropDeadLettersFor(queued).catch(() => 0);
+    void flush();
+  }
+}
+
+/**
+ * Drop dead letters made obsolete by `items` (deletes of the same row or of a
+ * parent, newer upserts of the same row). `known` carries local child ids read
+ * before the local rows were deleted. Runs in its own transaction on meta, so
+ * it must not be awaited inside a transaction that does not include db.meta.
+ */
+async function dropDeadLettersFor(
+  items: readonly { table: SyncTable; op: "upsert" | "delete"; row: Record<string, unknown> }[],
+  known: { workoutExerciseIds?: Iterable<string>; setIds?: Iterable<string> } = {},
+): Promise<number> {
+  if (!items.length) return 0;
+  return db.transaction("rw", db.meta, async () => {
+    const list = await deadLetters();
+    if (!list.length) return 0;
+    const gone = obsoleteDeadLetters(list, items, known);
+    if (gone.size) await db.meta.put({ key: DEAD_LETTER_KEY, value: list.filter((d) => !gone.has(d)) });
+    return gone.size;
+  });
 }
 
 let flushing: Promise<number> | null = null;
@@ -128,9 +162,17 @@ async function deadLetterWorkoutIds(): Promise<Set<string>> {
  */
 export async function retryDeadLetters(): Promise<number> {
   const n = await db.transaction("rw", db.outbox, db.meta, async () => {
-    const list = await deadLetters();
+    // A letter superseded by a queued delete (of it or its parent) or a newer
+    // upsert of the same row is dropped, never re-sent over the newer write.
+    const all = await deadLetters();
+    if (!all.length) return 0;
+    const gone = obsoleteDeadLetters(all, await db.outbox.toArray());
+    const list = all.filter((d) => !gone.has(d));
     const again = list.filter((d) => (d.tries ?? 1) < MAX_DEAD_LETTER_TRIES);
-    if (!again.length) return 0;
+    if (!again.length) {
+      if (gone.size) await db.meta.put({ key: DEAD_LETTER_KEY, value: list });
+      return 0;
+    }
     await db.outbox.bulkAdd(again.map((d) => ({ table: d.table, op: d.op, row: d.row, created_at: now(), retries: d.tries ?? 1 })));
     await db.meta.put({ key: DEAD_LETTER_KEY, value: list.filter((d) => (d.tries ?? 1) >= MAX_DEAD_LETTER_TRIES) });
     return again.length;
@@ -143,6 +185,49 @@ export async function retryDeadLetters(): Promise<number> {
 export async function deadLetters(): Promise<DeadLetter[]> {
   const v = (await db.meta.get(DEAD_LETTER_KEY))?.value;
   return Array.isArray(v) ? (v as DeadLetter[]) : [];
+}
+
+/** Stable id of a dead letter for the Profile > Sync list (table, op, row id, time). */
+export function deadLetterKey(d: Pick<DeadLetter, "table" | "op" | "row" | "at">): string {
+  return [d.table, d.op, String(d.row?.id ?? ""), d.at].join("|");
+}
+
+const pick = (list: DeadLetter[], keys?: readonly string[]) => {
+  if (!keys) return { chosen: list, rest: [] as DeadLetter[] };
+  const want = new Set(keys);
+  return { chosen: list.filter((d) => want.has(deadLetterKey(d))), rest: list.filter((d) => !want.has(deadLetterKey(d))) };
+};
+
+/**
+ * User-initiated re-send (Profile > Sync): queue the chosen dead letters (all
+ * when `keys` is omitted) in their original order, even past
+ * MAX_DEAD_LETTER_TRIES, and remove them from the list. Letters made obsolete
+ * by newer queued writes are dropped instead of sent. Returns how many were queued.
+ */
+export async function resendDeadLetters(keys?: readonly string[]): Promise<number> {
+  const n = await db.transaction("rw", db.outbox, db.meta, async () => {
+    const { chosen, rest } = pick(await deadLetters(), keys);
+    if (!chosen.length) return 0;
+    const gone = obsoleteDeadLetters(chosen, await db.outbox.toArray());
+    const send = chosen.filter((d) => !gone.has(d));
+    if (send.length) await db.outbox.bulkAdd(send.map((d) => ({ table: d.table, op: d.op, row: d.row, created_at: now(), retries: d.tries ?? 1 })));
+    await db.meta.put({ key: DEAD_LETTER_KEY, value: rest });
+    return send.length;
+  });
+  if (n) void flush();
+  return n;
+}
+
+/**
+ * Forget the chosen dead letters (all when `keys` is omitted): they are never
+ * re-sent and the banner count drops. The local rows are not touched.
+ */
+export async function dismissDeadLetters(keys?: readonly string[]): Promise<number> {
+  return db.transaction("rw", db.meta, async () => {
+    const { chosen, rest } = pick(await deadLetters(), keys);
+    if (chosen.length) await db.meta.put({ key: DEAD_LETTER_KEY, value: rest });
+    return chosen.length;
+  });
 }
 
 /**
@@ -182,10 +267,11 @@ async function flushOnce(): Promise<number> {
     // A user's own exercises are rows in the shared `exercises` table, owned by them.
     // toRemoteRow also makes planned_days.was_marked and routines.split_day_id explicit.
     const row = await guardForeignKeys(item.table, toRemoteRow(item.table, item.row, uid));
-    const { error } =
+    const { error, status } =
       item.op === "upsert" ? await q.upsert(row) : await q.delete().eq("id", item.row.id as string);
     if (error) {
-      const coded = typeof error.code === "string" && error.code !== "";
+      // Transient server errors (5xx, timeouts) are retried like network errors.
+      const coded = typeof error.code === "string" && error.code !== "" && !isTransientServerError(error, status);
       const tries = (attempts.get(item.seq!) ?? 0) + 1;
       attempts.set(item.seq!, tries);
       if (classifySyncError(error) === "permanent" || (coded && tries >= MAX_CODED_RETRIES)) {
@@ -204,6 +290,8 @@ async function flushOnce(): Promise<number> {
       if (sentWorkouts.size > 500) sentWorkouts.delete(sentWorkouts.keys().next().value!);
     }
     await db.outbox.delete(item.seq!);
+    // A delete reached the server: its own and its children's dead letters are moot.
+    if (item.op === "delete") await dropDeadLettersFor([item]);
     sent++;
   }
   if (sent) window.dispatchEvent(new CustomEvent("lift:synced", { detail: sent }));
@@ -392,6 +480,10 @@ async function deleteWorkoutsLocal(ids: string[]) {
 
 /** Delete a workout locally and remotely (cascade on the server). */
 export async function deleteWorkout(id: string) {
+  // Local child ids, read first, so dead letters of exercises and sets that
+  // synced fine (or of their records) are dropped with the workout.
+  const knownWes = (await db.workout_exercises.where("workout_id").equals(id).toArray()).map((w) => w.id);
+  const knownSets = (await db.sets.where("workout_exercise_id").anyOf(knownWes).primaryKeys()) as string[];
   // Local delete, outbox purge and the queued delete commit together.
   await db.transaction("rw", [db.workouts, db.workout_exercises, db.sets, db.outbox], async () => {
     await deleteWorkoutsLocal([id]);
@@ -410,6 +502,7 @@ export async function deleteWorkout(id: string) {
       .delete();
     await enqueue([{ table: "workouts" as SyncTable, op: "delete", row: { id } }]);
   });
+  await dropDeadLettersFor([{ table: "workouts", op: "delete", row: { id } }], { workoutExerciseIds: knownWes, setIds: knownSets }).catch(() => 0);
 }
 
 /** Start background syncing: on load, when connectivity returns, and periodically. */

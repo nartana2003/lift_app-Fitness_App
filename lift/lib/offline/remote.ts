@@ -97,6 +97,12 @@ export function splitPlannedDays(rows: readonly PlannedDayRow[]): { keep: Planne
     } else losers.push(r);
   }
   // Never lose a workout link: a winner without one takes a loser's.
+  // When winner and loser link DIFFERENT workouts, the winner keeps its own and
+  // the loser's link is not carried over: a planned day has one workout_id
+  // column (local store and server), and the date is unique locally. Nothing is
+  // lost: the loser's workout itself is never deleted (workouts are separate
+  // rows), it stays in History and in every stat; only the planner tile for
+  // that date points at one of the two sessions. (BLK-04, documented by design.)
   const relinked = new Map<string, PlannedDayRow>();
   for (const l of losers) {
     const w = byDate.get(l.date)!;
@@ -251,7 +257,61 @@ export function classifySyncError(error: { code?: unknown; message?: unknown } |
   return "retry";
 }
 
+/**
+ * True for errors that carry a code but come from a server that is briefly
+ * unwell (HTTP 5xx, Postgres connection 08xxx, insufficient resources 53xxx,
+ * operator intervention 57xxx such as a statement timeout, system errors 58xxx,
+ * serialization failure / deadlock, PostgREST connection errors PGRST000-003).
+ * flush retries these without limit, like network errors, instead of counting
+ * them towards MAX_CODED_RETRIES and dead-lettering a valid row.
+ */
+export function isTransientServerError(error: { code?: unknown } | null | undefined, status?: number): boolean {
+  if (typeof status === "number" && status >= 500) return true;
+  const code = typeof error?.code === "string" ? error.code : "";
+  if (/^(08|53|57|58)[0-9A-Z]{3}$/.test(code)) return true;
+  if (code === "40001" || code === "40P01") return true;
+  return /^PGRST00[0-3]$/.test(code);
+}
+
 type QueueItem = { seq?: number; table: SyncTable; op: "upsert" | "delete"; row: Row };
+
+/**
+ * Dead letters made obsolete by newer queue items (BLK-04):
+ * - any newer upsert or delete of the same table and row id (the newer write wins);
+ * - children of a deleted parent: a deleted workout's exercises, the sets of a
+ *   deleted workout exercise, a deleted routine's exercises, and personal
+ *   records of a deleted set.
+ * `known` adds local child ids gathered before the local rows were removed
+ * (a workout's exercises and sets that synced fine but have dead-lettered sets
+ * or records). Pure; returns the obsolete letters.
+ */
+export function obsoleteDeadLetters<T extends QueueItem>(
+  letters: readonly T[],
+  newer: readonly QueueItem[],
+  known: { workoutExerciseIds?: Iterable<string>; setIds?: Iterable<string> } = {},
+): Set<T> {
+  const key = (table: string, id: unknown) => `${table}\u0000${String(id)}`;
+  const same = new Set(newer.map((i) => key(i.table, i.row.id)));
+  const deleted = (table: SyncTable) => new Set(newer.filter((i) => i.op === "delete" && i.table === table).map((i) => i.row.id));
+  const delW = deleted("workouts");
+  const delR = deleted("routines");
+  const delWE = new Set<unknown>([...deleted("workout_exercises"), ...(known.workoutExerciseIds ?? [])]);
+  for (const d of letters) if (d.table === "workout_exercises" && delW.has(d.row.workout_id)) delWE.add(d.row.id);
+  const delS = new Set<unknown>([...deleted("sets"), ...(known.setIds ?? [])]);
+  for (const d of letters) if (d.table === "sets" && delWE.has(d.row.workout_exercise_id)) delS.add(d.row.id);
+
+  const out = new Set<T>();
+  for (const d of letters) {
+    const gone =
+      same.has(key(d.table, d.row.id)) ||
+      (d.table === "workout_exercises" && (delW.has(d.row.workout_id) || delWE.has(d.row.id))) ||
+      (d.table === "sets" && delS.has(d.row.id)) ||
+      (d.table === "routine_exercises" && delR.has(d.row.routine_id)) ||
+      (d.table === "personal_records" && delS.has(d.row.set_id));
+    if (gone) out.add(d);
+  }
+  return out;
+}
 
 /**
  * Queued items that depend on `parent` (an upsert that failed for good):
