@@ -8,6 +8,7 @@ import {
   isSkippedToday,
   isSnoozed,
   isValidTime,
+  localDateKey,
   nextReminder,
   orderedDays,
   SNOOZE_OPTIONS,
@@ -15,6 +16,7 @@ import {
   toggleSkipToday,
   toggleSnooze,
   updateReminders,
+  useMarkedGymDates,
   useReminders,
   type SnoozeMin,
 } from "@/lib/reminders";
@@ -30,14 +32,17 @@ export function ReminderSettings() {
   const { weekStart } = useSettings();
   const [notice, setNotice] = useState<string | null>(null);
   const now = new Date();
-  const next = nextReminder(r, now);
+  const marked = useMarkedGymDates(localDateKey(now));
+  const next = nextReminder(r, now, marked);
   const skipped = isSkippedToday(r, now);
   const snoozed = isSnoozed(r, now);
 
   return (
     <div className="space-y-3.5">
+      <p className="text-sm text-muted">Reminders follow the days you mark on the This Week strip.</p>
       <div>
-        <span className="font-semibold block mb-2">Gym days</span>
+        <span className="font-semibold block">Gym days</span>
+        <span className="text-xs text-muted block mb-2">Optional usual days, reminded every week as well.</span>
         <div className="grid grid-cols-7 gap-1.5" role="group" aria-label="Gym days">
           {orderedDays(weekStart).map((d) => {
             const on = r.days.includes(d);
@@ -122,7 +127,7 @@ export function ReminderSettings() {
       </div>
 
       <p className="text-sm" aria-live="polite">
-        {r.days.length === 0 ? (
+        {r.days.length === 0 && marked.length === 0 ? (
           <span className="text-muted">Pick at least one gym day to get reminders.</span>
         ) : next ? (
           <>
