@@ -26,7 +26,6 @@ import { createRoutine } from "@/lib/routines";
 import { useSplit, type Split } from "@/lib/splits";
 import { ensureCustomExercise } from "@/lib/customExercises";
 import { db, type RoutineRow } from "@/lib/offline/db";
-import { enqueue } from "@/lib/offline/sync";
 import { safeThumbnailUrl } from "@/components/routines/MiniWorkoutCard";
 
 export const ROUTE = "/api/ai/social-import";
@@ -366,21 +365,11 @@ async function saveSocialRoutine(input: SocialRoutineInput, kind: "mini" | "rout
     kind,
     notes: input.notes ?? undefined,
     ...(input.split_day_id ? { split_day_id: input.split_day_id } : {}),
-  });
-  // createRoutine has no link fields: add them to the saved row and queue it again (upserts are idempotent).
-  // Read, write and queue in one transaction (with db.outbox), so a pull cannot land in between.
-  await db.transaction("rw", db.routines, db.outbox, async () => {
-    const row = await db.routines.get(id);
-    if (!row) return;
-    const next: RoutineRow = {
-      ...row,
-      source_url: input.url,
-      platform: input.platform,
-      thumbnail_url: cleanThumbnailUrl(input.thumbnail_url) ?? row.thumbnail_url ?? null,
-      creator: plainText(input.creator, MAX_CREATOR) ?? row.creator ?? null,
-    };
-    await db.routines.put(next);
-    await enqueue([{ table: "routines", op: "upsert", row: next }]);
+    // SMALL-02: the link fields are written with the routine in one step.
+    source_url: input.url,
+    platform: input.platform,
+    thumbnail_url: cleanThumbnailUrl(input.thumbnail_url),
+    creator: plainText(input.creator, MAX_CREATOR),
   });
   return id;
 }

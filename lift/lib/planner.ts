@@ -68,6 +68,16 @@ async function writeDayAtomic(date: string, next: (cur: PlannedDayRow | undefine
   return ok;
 }
 
+/**
+ * True when any day other than `date` has `routineId` on its plan (in any
+ * status: planned, done, skipped or moved). Used before changing a routine in
+ * place for one day, so the change never leaks into another day's plan.
+ */
+export async function routineUsedOnOtherDay(routineId: string, date: string): Promise<boolean> {
+  const rows = await db.planned_days.toArray();
+  return rows.some((r) => r.routine_id === routineId && r.date !== date);
+}
+
 /** Plan a routine on a day (replacing whatever was there). */
 export async function planDay(date: string, routineId: string) {
   await writeDayAtomic(date, (cur) => ({
