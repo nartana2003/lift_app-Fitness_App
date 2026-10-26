@@ -46,6 +46,10 @@ test("coach setup walks the steps on the unavailable path and saves the goal and
   await nav.getByRole("button", { name: "Save" }).click();
 
   await expect(page.getByText("Coach setup saved.")).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Goals/ })).toContainText("Get stronger · 5×/week");
   await expect(page.getByText("Workouts per week · 5")).toBeVisible();
+  // The Goals card shows its summary only while collapsed.
+  const goalsHeader = page.getByRole("button", { name: /^Goals/ });
+  await goalsHeader.click();
+  await expect(goalsHeader).toHaveAttribute("aria-expanded", "false");
+  await expect(goalsHeader).toContainText("Get stronger · 5×/week");
 });
