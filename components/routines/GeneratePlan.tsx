@@ -12,7 +12,8 @@
 // split from this (POST /api/ai/suggest-split, rule-based buildSplit() when the
 // route is unavailable). The label follows the split's training days (2 to 6).
 // With none of the extras used the card sends and shows exactly what it did.
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { db } from "@/lib/offline/db";
 import { MUSCLE_GROUPS, EQUIPMENT, type Equipment, type MuscleGroup } from "@/lib/muscles";
 import { saveSplit, useSplit, type Split, type SplitDay } from "@/lib/splits";
 import { equipmentForAi, useEquipment } from "@/lib/equipment";
@@ -402,6 +403,16 @@ type PlanResult = { ok: true; days: PlanDay[] } | { ok: false; message: string }
 
 const offline = () => typeof navigator !== "undefined" && navigator.onLine === false;
 
+/** True when the split in the store has a training day. Unreadable counts as yes (ask first). */
+async function storedSplitHasDays(): Promise<boolean> {
+  try {
+    const stored = (await db.meta.get("split"))?.value as Split | undefined;
+    return !!stored && Array.isArray(stored.days) && hasTrainingDay(stored);
+  } catch {
+    return true;
+  }
+}
+
 /** Generate an N-day plan, review it, keep the days you want, save them as routines. */
 export function GeneratePlan({
   getHistory = loadHistory,
@@ -422,6 +433,9 @@ export function GeneratePlan({
   const savedFavs = useFavorites();
   const [state, setState] = useState<State>({ kind: "idle" });
   const [splitState, setSplitState] = useState<SplitState>({ kind: "idle" });
+  // Set while a split save (or the pre-save store check) is in flight, so a
+  // double tap cannot start a second one before the re-render disables the button.
+  const applying = useRef(false);
 
   // Favourites for this plan only: the saved ones until the user edits the list.
   // They are sent only once the user has opened the picker ("used" it).
@@ -548,19 +562,29 @@ export function GeneratePlan({
   };
 
   const applyProposal = async (confirmed: boolean) => {
-    if (splitState.kind !== "review" || splitState.saving) return;
+    if (splitState.kind !== "review" || splitState.saving || applying.current) return;
+    const review = splitState;
     // An existing split is only replaced after an explicit confirm.
     if (!confirmed && (hasTrainingDay(savedSplit) || hasTrainingDay(split))) {
-      setSplitState({ ...splitState, confirming: true });
+      setSplitState({ ...review, confirming: true });
       return;
     }
-    setSplitState({ ...splitState, saving: true });
+    applying.current = true;
+    setSplitState({ ...review, saving: true });
     try {
-      await saveSplit(splitState.proposal.split);
+      // The saved split is a live query and may not have loaded yet: check the
+      // store itself so a fast tap never replaces a split without the confirm.
+      if (!confirmed && (await storedSplitHasDays())) {
+        setSplitState({ ...review, confirming: true, saving: false });
+        return;
+      }
+      await saveSplit(review.proposal.split);
       setSplitState({ kind: "saved" });
       setState((s) => (s.kind === "needSplit" || s.kind === "error" ? { kind: "idle" } : s));
     } catch {
       setSplitState({ kind: "error", message: "Could not save the split. Try again." });
+    } finally {
+      applying.current = false;
     }
   };
 
