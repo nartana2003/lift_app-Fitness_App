@@ -122,7 +122,8 @@ describe("QA marking rules", () => {
     await renderStrip();
     fireEvent.click(dayButton(WED));
     await waitFor(async () => expect(await getDay(WED)).toMatchObject({ routine_id: null, status: "planned" }));
-    expect(dayButton(WED)).toHaveClass("bg-accent", "ring-2");
+    // The row commits before the live query re-renders the strip, so wait for the UI too.
+    await waitFor(() => expect(dayButton(WED)).toHaveClass("bg-accent", "ring-2"));
   });
 
   it("tapping every past date never writes a row, even when tapped repeatedly", async () => {
