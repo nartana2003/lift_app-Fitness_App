@@ -5,6 +5,7 @@
  */
 import { getAiClient, type AiClient, type AiFailureReason } from "./client";
 import type { AiEnv } from "./configured";
+import { guardAiRequest } from "./guard";
 
 export type AiUnavailableBody = { unavailable: true };
 export type AiErrorBody = { error: Exclude<AiFailureReason, "unavailable"> };
@@ -34,7 +35,10 @@ export function aiOk<T>(data: T): Response {
 
 /**
  * Route helper: run `fn` with a client, or answer 503 {unavailable:true}
- * when the server has no key.
+ * when the server has no key. With Supabase configured the caller must be
+ * signed in (401 {error:"unauthorized"}) and under the per-user rate limit
+ * (429 {error:"rate_limited"}); see lib/ai/guard.ts. Both checks run before
+ * `fn`, so before the route reads its body.
  */
 export async function withAiClient(
   fn: (client: AiClient) => Promise<Response>,
@@ -42,5 +46,7 @@ export async function withAiClient(
 ): Promise<Response> {
   const client = getAiClient(env);
   if (!client) return aiUnavailable();
+  const blocked = await guardAiRequest(env);
+  if (blocked) return blocked;
   return fn(client);
 }
