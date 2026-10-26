@@ -17,12 +17,18 @@ import { photoSignature } from "./remote";
 export const DEAD_KEY = "outbox:dead";
 export const PHOTOS_SYNCED_KEY = "photos:synced";
 export const PHOTOS_DELETED_KEY = "photos:deleted";
+/** Same as sync.ts DISMISSED_KEY / RECENT_DELETES_KEY (literal: import cycle). */
+export const DISMISSED_KEY = "outbox:dismissed";
+export const RECENT_DELETES_KEY = "outbox:deleted";
 
 /** True when nothing on this device still waits for the server (safe to hand to another account). */
 async function nothingUnsent(): Promise<boolean> {
   if ((await db.outbox.count()) > 0) return false;
   const dead = (await db.meta.get(DEAD_KEY))?.value;
   if (Array.isArray(dead) && dead.length) return false;
+  // Dismissed dead letters name rows that were never uploaded: still unsent.
+  const dismissed = (await db.meta.get(DISMISSED_KEY))?.value;
+  if (Array.isArray(dismissed) && dismissed.length) return false;
   const tomb = (await db.meta.get(PHOTOS_DELETED_KEY))?.value;
   if (Array.isArray(tomb) && tomb.length) return false;
   const synced = ((await db.meta.get(PHOTOS_SYNCED_KEY))?.value ?? {}) as Record<string, string>;
@@ -41,11 +47,16 @@ export const OWNER_OK_EVENT = "lift:owner-ok";
 /**
  * meta keys that belong to the previous account and are dropped when another
  * account takes the device over (BLK-04): sync bookkeeping, the personal
- * profile and the Lyfta API key and exercise map. Device preferences (settings,
- * theme, rest times, equipment, reminders, split, goals, favourites) are kept.
+ * profile, the Lyfta API key and exercise map, and everything that holds the
+ * account's own ids or training data (renames, plateau state, split, goals,
+ * favourites). Every meta key the app writes is in this list, in
+ * ACCOUNT_META_PREFIXES, or in DEVICE_META_KEYS / DEVICE_META_PREFIXES (owner
+ * test checks the source).
  */
 export const ACCOUNT_META_KEYS = [
   DEAD_KEY,
+  DISMISSED_KEY,
+  RECENT_DELETES_KEY,
   PHOTOS_SYNCED_KEY,
   PHOTOS_DELETED_KEY,
   "photos:fails",
@@ -53,7 +64,24 @@ export const ACCOUNT_META_KEYS = [
   "profile",
   "lyfta_key",
   "lyfta_map",
+  "renames",
+  "plateau_fix_applied",
+  "plateau_dismissed",
+  "split",
+  "goals",
+  "favorites",
 ] as const;
+
+/** meta key prefixes cleared on takeover: monthly photo analyses, evidence-picks cache (built from the goals). */
+export const ACCOUNT_META_PREFIXES = ["photo_analysis:", "evidence-picks:"] as const;
+
+/**
+ * meta keys KEPT on takeover: preferences of the device and the person holding
+ * it, not of an account (unit, week start, theme, reminder times, the gym's
+ * equipment, picks per muscle, rest timers) and the owner key itself.
+ */
+export const DEVICE_META_KEYS = ["settings", "reminders", "equipment", "today_picks_per_muscle", "default_rest_sec", "sync:owner"] as const;
+export const DEVICE_META_PREFIXES = ["rest:"] as const;
 
 /**
  * Remove the previous account's already-synced rows. Only called when nothing
@@ -74,6 +102,7 @@ async function clearPreviousAccount() {
     db.planned_days.clear(),
   ]);
   await db.meta.bulkDelete([...ACCOUNT_META_KEYS]);
+  for (const p of ACCOUNT_META_PREFIXES) await db.meta.where("key").startsWith(p).delete();
 }
 
 /**
@@ -83,7 +112,12 @@ async function clearPreviousAccount() {
  * rows are cleared first, so the new account never sees or references them.
  */
 export async function claimOwner(uid: string): Promise<boolean> {
-  // Common case first, in a small transaction: already the owner, or no owner yet.
+  // Already the owner: a plain read, no write transaction.
+  if ((await db.meta.get(OWNER_KEY))?.value === uid) {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") window.dispatchEvent(new CustomEvent(OWNER_OK_EVENT));
+    return true;
+  }
+  // No owner yet, or another one: decide in a small transaction.
   const quick = await db.transaction("rw", [db.meta, db.outbox, db.photos], async () => {
     const cur = (await db.meta.get(OWNER_KEY))?.value;
     if (typeof cur === "string" && cur === uid) return true;
@@ -92,6 +126,9 @@ export async function claimOwner(uid: string): Promise<boolean> {
     return true;
   });
   const ok = quick === "takeover" ? await takeOver(uid) : quick;
+  // The previous account's rest timer goes too; the theme mirror is a device
+  // preference (mirrored from the kept settings) and stays.
+  if (quick === "takeover" && ok) clearAppLocalStorage(undefined, ["lift-theme"]);
   if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
     window.dispatchEvent(new CustomEvent(ok ? OWNER_OK_EVENT : OWNER_MISMATCH_EVENT));
   }
@@ -134,7 +171,10 @@ export const APP_LOCAL_STORAGE_KEYS = ["lift:rest", "lift-theme"] as const;
  * under the "lift:" / "lift-" prefixes. Other sites' or libraries' keys are left
  * alone (Supabase clears its own session on sign-out). Never throws.
  */
-export function clearAppLocalStorage(store: Pick<Storage, "length" | "key" | "removeItem"> | undefined = typeof localStorage !== "undefined" ? localStorage : undefined): number {
+export function clearAppLocalStorage(
+  store: Pick<Storage, "length" | "key" | "removeItem"> | undefined = typeof localStorage !== "undefined" ? localStorage : undefined,
+  except: readonly string[] = [],
+): number {
   if (!store) return 0;
   try {
     const keys = new Set<string>(APP_LOCAL_STORAGE_KEYS);
@@ -142,6 +182,7 @@ export function clearAppLocalStorage(store: Pick<Storage, "length" | "key" | "re
       const k = store.key(i);
       if (k && (k.startsWith("lift:") || k.startsWith("lift-"))) keys.add(k);
     }
+    for (const k of except) keys.delete(k);
     for (const k of keys) store.removeItem(k);
     return keys.size;
   } catch {

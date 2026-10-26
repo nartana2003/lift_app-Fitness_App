@@ -72,6 +72,7 @@ export default function ProfilePage() {
   const latestHeight = useLiveQuery(() => latestMeasurement("height"), []);
   const latestWeight = useLiveQuery(() => latestMeasurement("body_weight"), []);
   const deadCount = useLiveQuery(async () => {
+    // Same count as the SyncStatus banner.
     const v = (await db.meta.get(DEAD_LETTER_KEY))?.value;
     return Array.isArray(v) ? v.length : 0;
   }, [], 0);

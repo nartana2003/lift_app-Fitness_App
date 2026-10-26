@@ -290,24 +290,44 @@ export function obsoleteDeadLetters<T extends QueueItem>(
   newer: readonly QueueItem[],
   known: { workoutExerciseIds?: Iterable<string>; setIds?: Iterable<string> } = {},
 ): Set<T> {
-  const key = (table: string, id: unknown) => `${table}\u0000${String(id)}`;
-  const same = new Set(newer.map((i) => key(i.table, i.row.id)));
-  const deleted = (table: SyncTable) => new Set(newer.filter((i) => i.op === "delete" && i.table === table).map((i) => i.row.id));
+  // Corrupt entries (no row, no table) are tolerated: they never match and never throw.
+  const field = (x: unknown, f: string): string | null => {
+    const row = x && typeof x === "object" ? (x as { row?: unknown }).row : null;
+    const v = row && typeof row === "object" ? (row as Row)[f] : undefined;
+    return typeof v === "string" || typeof v === "number" ? String(v) : null;
+  };
+  const tableOf = (x: unknown) => (x && typeof x === "object" ? (x as { table?: unknown }).table : undefined);
+  const items = newer.filter((i) => i && typeof i === "object");
+  const valid = letters.filter((d) => d && typeof d === "object");
+  const key = (table: unknown, id: string) => `${String(table)}\u0000${id}`;
+  const same = new Set<string>();
+  for (const i of items) {
+    const id = field(i, "id");
+    if (id !== null) same.add(key(i.table, id));
+  }
+  const deleted = (table: SyncTable) => {
+    const s = new Set<string>();
+    for (const i of items) if (i.op === "delete" && i.table === table && field(i, "id") !== null) s.add(field(i, "id")!);
+    return s;
+  };
+  const has = (s: Set<string>, v: string | null) => v !== null && s.has(v);
   const delW = deleted("workouts");
   const delR = deleted("routines");
-  const delWE = new Set<unknown>([...deleted("workout_exercises"), ...(known.workoutExerciseIds ?? [])]);
-  for (const d of letters) if (d.table === "workout_exercises" && delW.has(d.row.workout_id)) delWE.add(d.row.id);
-  const delS = new Set<unknown>([...deleted("sets"), ...(known.setIds ?? [])]);
-  for (const d of letters) if (d.table === "sets" && delWE.has(d.row.workout_exercise_id)) delS.add(d.row.id);
+  const delWE = new Set<string>([...deleted("workout_exercises"), ...[...(known.workoutExerciseIds ?? [])].map(String)]);
+  for (const d of valid) if (tableOf(d) === "workout_exercises" && has(delW, field(d, "workout_id")) && field(d, "id") !== null) delWE.add(field(d, "id")!);
+  const delS = new Set<string>([...deleted("sets"), ...[...(known.setIds ?? [])].map(String)]);
+  for (const d of valid) if (tableOf(d) === "sets" && has(delWE, field(d, "workout_exercise_id")) && field(d, "id") !== null) delS.add(field(d, "id")!);
 
   const out = new Set<T>();
-  for (const d of letters) {
+  for (const d of valid) {
+    const t = tableOf(d);
+    const id = field(d, "id");
     const gone =
-      same.has(key(d.table, d.row.id)) ||
-      (d.table === "workout_exercises" && (delW.has(d.row.workout_id) || delWE.has(d.row.id))) ||
-      (d.table === "sets" && delS.has(d.row.id)) ||
-      (d.table === "routine_exercises" && delR.has(d.row.routine_id)) ||
-      (d.table === "personal_records" && delS.has(d.row.set_id));
+      (id !== null && same.has(key(t, id))) ||
+      (t === "workout_exercises" && (has(delW, field(d, "workout_id")) || has(delWE, id))) ||
+      (t === "sets" && has(delS, id)) ||
+      (t === "routine_exercises" && has(delR, field(d, "routine_id"))) ||
+      (t === "personal_records" && has(delS, field(d, "set_id")));
     if (gone) out.add(d);
   }
   return out;
