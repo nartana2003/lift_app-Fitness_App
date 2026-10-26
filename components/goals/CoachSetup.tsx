@@ -23,6 +23,7 @@ import { poolByMuscle } from "@/lib/pool";
 import { suggestForMuscle } from "@/lib/suggest";
 import { buildSplit, MAX_DAYS, MAX_NAME, MIN_DAYS } from "@/lib/splitBuilder";
 import { reviewSetup } from "@/lib/coachReview";
+import { EvidencePicks, MAX_EVIDENCE_MUSCLES } from "./EvidencePicks";
 
 export const SPLIT_ROUTE = "/api/ai/suggest-split";
 export const REVIEW_ROUTE = "/api/ai/review-setup";
@@ -246,6 +247,13 @@ export function parseReviewAnswer(
   return { lines, picks, source: "ai" };
 }
 
+/** Muscles for the evidence search: focus muscles first, then the rest in order, capped. */
+export function evidenceMusclesFor(muscles: readonly MuscleGroup[], focus: readonly MuscleGroup[]): MuscleGroup[] {
+  const first = muscles.filter((m) => focus.includes(m));
+  const rest = muscles.filter((m) => !focus.includes(m));
+  return [...first, ...rest].slice(0, MAX_EVIDENCE_MUSCLES);
+}
+
 // ---------------------------------------------------------------------------
 // Fetch
 // ---------------------------------------------------------------------------
@@ -377,6 +385,11 @@ function CoachPanel({
     for (const m of draft.focusMuscles) set.add(m);
     return [...set].sort(byMuscleOrder);
   }, [usedSplit, draft.focusMuscles]);
+  /** Muscles for the opt-in evidence search (COACH-05): focus muscles first, at most MAX_EVIDENCE_MUSCLES. */
+  const evidenceMuscles = useMemo(
+    () => evidenceMusclesFor(stepMuscles, draft.focusMuscles),
+    [stepMuscles, draft.focusMuscles],
+  );
 
   // ---- review ----
 
@@ -798,6 +811,22 @@ function CoachPanel({
                 </div>
               )}
             </>
+          )}
+          {evidenceMuscles.length > 0 && (
+            <EvidencePicks
+              key={`${draft.goalType}|${draft.experience}|${draft.focusMuscles.join(",")}|${evidenceMuscles.join(",")}`}
+              goals={{
+                goalType: draft.goalType,
+                experience: draft.experience,
+                sessionsPerWeek: draft.sessionsPerWeek,
+                focusMuscles: draft.focusMuscles,
+              }}
+              muscles={evidenceMuscles}
+              equipment={equipment}
+              isAdded={(id) => added.includes(id) || favorites.includes(id)}
+              onAdd={addExercise}
+              onRemove={removeAdded}
+            />
           )}
           {pendingSplit && <p className="text-xs text-muted">Your new split is saved when you tap Save.</p>}
           {saveError && (
