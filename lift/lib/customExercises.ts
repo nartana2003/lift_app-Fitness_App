@@ -32,10 +32,12 @@ export async function createCustomExercise(input: {
     video_url: input.video_url,
     custom: true,
   };
-  await db.custom_exercises.put(row);
   const remote: Record<string, unknown> = { ...row };
   delete remote.custom; // local-only marker
-  await enqueue([{ table: "exercises", op: "upsert", row: remote }]);
+  await db.transaction("rw", db.custom_exercises, db.outbox, async () => {
+    await db.custom_exercises.put(row);
+    await enqueue([{ table: "exercises", op: "upsert", row: remote }]);
+  });
   return row;
 }
 
@@ -46,6 +48,8 @@ export async function ensureCustomExercise(name: string, extra: Omit<Parameters<
 }
 
 export async function deleteCustomExercise(id: string) {
-  await db.custom_exercises.delete(id);
-  await enqueue([{ table: "exercises", op: "delete", row: { id } }]);
+  await db.transaction("rw", db.custom_exercises, db.outbox, async () => {
+    await db.custom_exercises.delete(id);
+    await enqueue([{ table: "exercises", op: "delete", row: { id } }]);
+  });
 }

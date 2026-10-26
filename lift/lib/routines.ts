@@ -69,14 +69,15 @@ export async function createRoutine(input: {
   };
   if (input.split_day_id !== undefined) row.split_day_id = input.split_day_id || null;
   const exercises = toRows(row.id, input.exercises);
-  await db.transaction("rw", db.routines, db.routine_exercises, async () => {
+  // Local write and outbox entries commit together, so a pull cannot land in between.
+  await db.transaction("rw", db.routines, db.routine_exercises, db.outbox, async () => {
     await db.routines.put(row);
     await db.routine_exercises.bulkPut(exercises);
+    await enqueue([
+      { table: "routines", op: "upsert", row },
+      ...exercises.map((r) => ({ table: "routine_exercises" as const, op: "upsert" as const, row: r })),
+    ]);
   });
-  await enqueue([
-    { table: "routines", op: "upsert", row },
-    ...exercises.map((r) => ({ table: "routine_exercises" as const, op: "upsert" as const, row: r })),
-  ]);
   return row.id;
 }
 
@@ -102,14 +103,14 @@ export async function updateRoutine(
     for (const o of old) items.push({ table: "routine_exercises", op: "delete", row: { id: o.id } });
     for (const r of fresh) items.push({ table: "routine_exercises", op: "upsert", row: r });
   }
-  await db.transaction("rw", db.routines, db.routine_exercises, async () => {
+  await db.transaction("rw", db.routines, db.routine_exercises, db.outbox, async () => {
     await db.routines.put(next);
     if (fresh) {
       await db.routine_exercises.bulkDelete(old.map((o) => o.id));
       await db.routine_exercises.bulkPut(fresh);
     }
+    await enqueue(items);
   });
-  await enqueue(items);
 }
 
 /** Link a routine to a split day, or unlink it with null. Never touches its exercises. */
@@ -128,12 +129,17 @@ export async function unlinkRoutinesOutside(dayIds: ReadonlySet<string>): Promis
 
 export async function deleteRoutine(id: string) {
   const old = await db.routine_exercises.where("routine_id").equals(id).toArray();
-  await db.transaction("rw", db.routines, db.routine_exercises, async () => {
+  await db.transaction("rw", db.routines, db.routine_exercises, db.outbox, async () => {
     await db.routine_exercises.bulkDelete(old.map((o) => o.id));
     await db.routines.delete(id);
+    // Unsent uploads of the routine and its exercises are dropped: they would
+    // only recreate it, or fail on the deleted parent.
+    await db.outbox
+      .filter((i) => i.op === "upsert" && ((i.table === "routines" && i.row.id === id) || (i.table === "routine_exercises" && i.row.routine_id === id)))
+      .delete();
+    // The server deletes the routine's exercises along with it (cascade).
+    await enqueue([{ table: "routines", op: "delete", row: { id } }]);
   });
-  // The server deletes the routine's exercises along with it (cascade).
-  await enqueue([{ table: "routines", op: "delete", row: { id } }]);
 }
 
 export async function getRoutine(id: string): Promise<Routine | undefined> {

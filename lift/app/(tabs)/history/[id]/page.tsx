@@ -42,8 +42,11 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
 
   async function saveSet(s: SetRow, patch: Partial<SetRow>) {
     const row = { ...s, ...patch };
-    await db.sets.put(row);
-    await enqueue([{ table: "sets", op: "upsert", row }]);
+    // Write and queue in one transaction, so a pull cannot land in between.
+    await db.transaction("rw", db.sets, db.outbox, async () => {
+      await db.sets.put(row);
+      await enqueue([{ table: "sets", op: "upsert", row }]);
+    });
   }
 
   return (

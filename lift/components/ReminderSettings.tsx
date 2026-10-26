@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSettings } from "@/lib/settings";
 import {
   DAY_SHORT,
@@ -22,9 +22,18 @@ import {
   useReminders,
   type SnoozeMin,
 } from "@/lib/reminders";
+import { currentPushState, disablePush, enablePush, pushAvailable, syncReminderSettings, type EnableResult } from "@/lib/push/client";
 
 export const PUSH_UNAVAILABLE =
   "Push notifications are not set up yet. Your reminder schedule is saved on this device and will be used once they are.";
+
+export const PUSH_MESSAGES: Record<Exclude<EnableResult, "unavailable">, string> = {
+  on: "Notifications are on for this phone.",
+  denied: "Notifications are blocked. Allow them for Lift in your phone's settings.",
+  signin: "Sign in to get reminders on this phone.",
+  error: "Could not turn on notifications. Try again later.",
+};
+export const PUSH_OFF = "Notifications are off for this phone.";
 
 const snoozeLabel = (m: number) => (m < 60 ? `${m} min` : `${m / 60} h`);
 
@@ -39,6 +48,44 @@ export function ReminderSettings() {
   const skipped = isSkippedToday(r, now);
   const snoozed = isSnoozed(r, now);
   const suggested = suggestedReminderTime(r, useRecentWorkoutStarts(), now);
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  // Is this phone already subscribed? (Only where push can work at all.)
+  useEffect(() => {
+    if (!pushAvailable()) return;
+    let live = true;
+    void currentPushState().then((s) => live && setPushOn(s === "on"));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Keep the server copy of the schedule in step while push is on.
+  const schedule = JSON.stringify(r);
+  useEffect(() => {
+    if (!pushOn) return;
+    const t = setTimeout(() => void syncReminderSettings(JSON.parse(schedule)), 800);
+    return () => clearTimeout(t);
+  }, [pushOn, schedule]);
+
+  async function togglePush() {
+    if (!pushAvailable()) return setNotice(PUSH_UNAVAILABLE);
+    setPushBusy(true);
+    try {
+      if (pushOn) {
+        await disablePush();
+        setPushOn(false);
+        setNotice(PUSH_OFF);
+      } else {
+        const res = await enablePush(r);
+        setPushOn(res === "on");
+        setNotice(res === "unavailable" ? PUSH_UNAVAILABLE : PUSH_MESSAGES[res]);
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-3.5">
@@ -155,8 +202,8 @@ export function ReminderSettings() {
         )}
       </p>
 
-      <button type="button" className="btn-ghost w-full" onClick={() => setNotice(PUSH_UNAVAILABLE)}>
-        Enable notifications
+      <button type="button" className="btn-ghost w-full" disabled={pushBusy} onClick={() => void togglePush()}>
+        {pushOn ? "Turn off notifications" : "Enable notifications"}
       </button>
       {notice && (
         <p className="text-xs text-muted" role="status">

@@ -1,7 +1,7 @@
 "use client";
 
 import { db, uuid, type MeasurementRow } from "./offline/db";
-import { enqueue } from "./offline/sync";
+import { writeAndQueue } from "./offline/sync";
 
 export const MEASUREMENTS = [
   { key: "body_weight", label: "Body weight", unit: "kg" },
@@ -33,16 +33,22 @@ export const todayISO = () => {
 
 /** One entry per type per day: logging again on the same day replaces the value. */
 export async function saveMeasurement(type: MeasurementKey, value: number, date = todayISO()) {
-  const existing = await db.measurements.where("[type+date]").equals([type, date]).first();
-  const row: MeasurementRow = { id: existing?.id ?? uuid(), type, value, date };
-  await db.measurements.put(row);
-  await enqueue([{ table: "measurements", op: "upsert", row }]);
+  let row!: MeasurementRow;
+  // Read, write and queue in one transaction (writeAndQueue): no pull can land in between.
+  await writeAndQueue([db.measurements], async () => {
+    const existing = await db.measurements.where("[type+date]").equals([type, date]).first();
+    row = { id: existing?.id ?? uuid(), type, value, date };
+    await db.measurements.put(row);
+    return [{ table: "measurements", op: "upsert", row }];
+  });
   return row;
 }
 
 export async function deleteMeasurement(id: string) {
-  await db.measurements.delete(id);
-  await enqueue([{ table: "measurements", op: "delete", row: { id } }]);
+  await writeAndQueue([db.measurements], async () => {
+    await db.measurements.delete(id);
+    return [{ table: "measurements", op: "delete", row: { id } }];
+  });
 }
 
 /** Entries for one measurement, oldest first. */

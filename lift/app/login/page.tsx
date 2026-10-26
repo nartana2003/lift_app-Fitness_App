@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { authCallbackUrl, NEXT_PARAM, safeNext } from "@/lib/authRedirect";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,21 +13,34 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // /auth/callback sends an expired or reused confirmation link back here.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("error") === "link") {
+      setMsg("That link did not work. Sign in, or create the account again.");
+    }
+  }, []);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setMsg(null);
     const supabase = supabaseBrowser();
+    // Return-to: only a same-origin relative path is ever used (lib/authRedirect.ts).
+    const next = safeNext(new URLSearchParams(window.location.search).get(NEXT_PARAM));
     const { data, error } =
       mode === "signin"
         ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+        : await supabase.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: authCallbackUrl(window.location.origin, next) },
+          });
     setBusy(false);
     if (error) return setMsg(error.message);
     if (mode === "signup" && !data.session) {
       return setMsg("Check your email to confirm your account, then sign in.");
     }
-    router.replace("/");
+    router.replace(next);
     router.refresh();
   }
 

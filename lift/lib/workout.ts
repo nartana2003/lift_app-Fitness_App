@@ -171,23 +171,24 @@ export async function finishWorkout(notes?: string): Promise<string | null> {
     });
   });
 
-  await db.transaction("rw", db.workouts, db.workout_exercises, db.sets, db.active, async () => {
+  // The workout and its outbox entries commit together, so a pull running at
+  // the same time can never delete a finished workout that is not queued yet.
+  await db.transaction("rw", db.workouts, db.workout_exercises, db.sets, db.active, db.outbox, async () => {
     if (wes.length) {
       await db.workouts.put(workout);
       await db.workout_exercises.bulkPut(wes);
       await db.sets.bulkPut(sets);
+      await enqueue([
+        { table: "workouts", op: "upsert", row: workout },
+        ...wes.map((row) => ({ table: "workout_exercises" as const, op: "upsert" as const, row })),
+        ...sets.map((row) => ({ table: "sets" as const, op: "upsert" as const, row })),
+        ...prs.map((row) => ({ table: "personal_records" as const, op: "upsert" as const, row })),
+      ]);
     }
     await db.active.delete(KEY);
   });
   if (!wes.length) return null;
   await markDone(dayKey(new Date(w.started_at)), w.id);
-
-  await enqueue([
-    { table: "workouts", op: "upsert", row: workout },
-    ...wes.map((row) => ({ table: "workout_exercises" as const, op: "upsert" as const, row })),
-    ...sets.map((row) => ({ table: "sets" as const, op: "upsert" as const, row })),
-    ...prs.map((row) => ({ table: "personal_records" as const, op: "upsert" as const, row })),
-  ]);
   return w.id;
 }
 
