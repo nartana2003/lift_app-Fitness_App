@@ -7,6 +7,9 @@ You are the orchestrator. You coordinate; you do NOT write code and you do NOT r
 
 Paths are relative to the project root. The app is `lift/` (its own git repo, branch master). Each item in a batch gets a worktree at `.worktrees/<ID>` (inside the project root, outside the lift repo) on branch `item/<ID>`. A worktree is a full copy of the app: wherever an agent would use `lift/`, it uses its worktree instead. Convert paths for Windows commands with `cygpath -w`.
 
+## Repo layout (changed 2026-10-26)
+The PROJECT ROOT is now the git repo (branch main). The app is `lift/` inside it. Worktrees: `git worktree add .worktrees/<ID> -b item/<ID>` from the root; the item's app directory is `.worktrees/<ID>/lift`; link deps with `cmd //c mklink //J "<win path of .worktrees/<ID>/lift/node_modules>" "<win path of lift/node_modules>"`. Everywhere this file says `git -C lift`, run git from the project root instead; merge with `git merge --no-ff item/<ID>` on main; worktree remove/branch -d as before. `.claude/state/` is git-ignored: agents must write reports, verdicts, feedback and qa files to the MAIN checkout's absolute path `<project root>/.claude/state/...`, never inside a worktree. The old `lift/.git` is backed up at `../lift-git-backup`.
+
 ## Step 0: brakes
 - If `.claude/state/STOP` exists: say "STOP file present, loop halted", call ScheduleWakeup with `stop: true` if invoked by /loop, and end.
 - If the last 2 lines of `.claude/state/CYCLES.md` both ended `needs-human`: write STOP "2 consecutive needs-human", stop the loop, end.

@@ -34,6 +34,16 @@ PLAN.md only ADDS features. Never delete, rename or rework an existing screen, r
 ## Rule 2: style
 Mirror Lyfta's layout and flow, never its branding or artwork. White background, black accent, monochrome. No emojis in new UI text, no green or pink accents, no heatmap on Progress.
 
+## Rule 3: tests are mandatory for every feature, bug fix or code change
+After building or changing any feature, fixing any bug, or making any other code change, before reporting it done:
+1. Write unit tests for new or changed logic in `lib/` (Vitest, next to the existing tests).
+2. Write regression tests for every existing behaviour the change touches or could break.
+3. Write a Playwright e2e test in `lift/e2e/` that drives the real flow in the browser (Edge). Cover every platform or variant the feature supports, for example TikTok and Instagram.
+4. Run them: `npx tsc --noEmit`, `npm run lint`, `npm test`, and the new e2e file with `npx playwright test e2e/<file>.e2e.ts`. Playwright builds a blank-Supabase copy, so it is slow.
+5. Always fix failing tests. Find the cause and fix the code or the test; never skip, delete, loosen or ignore a failing test to get a pass.
+6. Report real results. Only call a feature done when every test passes: unit, regression and e2e. Never say a feature works without a passing e2e run.
+7. Before saying a task is done, state which tests you ran (unit, regression, e2e, `tsc`, lint) and the result of each. If any was not run, say so.
+
 ## Commands (run from `lift/`)
 `npm test` (vitest run), `npx tsc --noEmit`, `npm run lint`, `npm run build`. Never run bare `vitest` (watch mode hangs) or `npm run dev`.
 
@@ -42,6 +52,12 @@ Mirror Lyfta's layout and flow, never its branding or artwork. White background,
 
 ## AI prompts
 System prompts for the AI features live in `lift/prompts/*.md`, not inline in `lift/lib/ai/`. Each feature file keeps its `SYSTEM_PROMPT` export, built with `loadPrompt("name", { ...limits })` from `lift/prompts/load.ts`. Limits are `{{placeholders}}` in the `.md`. Edit the wording in the `.md` file.
+
+When creating or updating any prompt `.md` file, always follow these guidelines:
+1. Wrap each section in matching opening and closing XML tags, for example `<description>This is the description.</description>`.
+2. Use multi-shot examples where relevant, covering edge cases as well as typical inputs.
+3. Outline guardrails.
+4. When there is a workflow, write it as numbered steps.
 
 ## Autonomous loop
 Backlog and state live in `.claude/state/`. See `.claude/commands/build-cycle.md`.

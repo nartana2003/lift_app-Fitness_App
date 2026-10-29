@@ -20,6 +20,7 @@ Set the item's `attempts` to the round number in backlog.yml. Spawn the `builder
 
 ## Step 3: verify (tester and plan-reviewer IN PARALLEL)
 Both agents are read-only, so start them together: make BOTH Agent calls in ONE message.
+- Rule 3 (CLAUDE.md) applies: an item is not done without unit tests, regression tests and a passing e2e spec for every variant it supports.
 - `tester` gets ONLY the item id (plus the baseline test count from the last CYCLES.md line).
 - `plan-reviewer` gets ONLY the item id, plus this line: "The tester is running the full gate (tsc, lint, full test suite, build) at the same time, so do not re-run the full suite or the build; run only the item's own new test files and tsc."
 When both return, read the first line of `.claude/state/verdicts/<ID>.md` (PASS or FAIL) and of `.claude/state/feedback/<ID>.md` (PASS or REWORK; anything else counts as REWORK with the note "reviewer returned an invalid verdict").

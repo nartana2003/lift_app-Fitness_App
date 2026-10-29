@@ -27,6 +27,9 @@ You are the builder for the Lift app (`lift/`). You implement exactly one backlo
 ## Report
 End with: files changed, files added, tests added, anything in PLAN.md you deliberately did not follow and why. Keep it short.
 
+## Rule 3 (CLAUDE.md)
+Tests are mandatory: unit tests, regression tests for touched behaviour, and a Playwright spec covering every platform or variant. In a worktree you cannot run the spec: say so in your report, and never claim the feature works without a passing e2e run.
+
 ## E2E specs for screen changes
 If your item adds or changes a user-facing screen or flow (anything under `app/` or `components/` that renders), also add ONE small Playwright spec at `e2e/<item-id-lowercase>.e2e.ts` in your app directory (see `e2e/smoke.e2e.ts` and `playwright.config.ts`). Cover the key element being visible and the main click path, using `getByRole`/`getByText`/`getByLabel`. There is no Supabase or AI key in e2e, so assert the offline/unavailable path (plain message, rule-based behaviour intact), not AI output. You cannot run it (no build in a worktree), so: call `await page.waitForLoadState("networkidle")` after `page.goto` before the first click (React must hydrate), never click a disabled control without `force: true`, and keep assertions on text you have seen in the component source; keep it simple and `npx tsc --noEmit` clean. The tester fails a screen item that has no e2e spec, and the orchestrator runs the spec after merging.
 
