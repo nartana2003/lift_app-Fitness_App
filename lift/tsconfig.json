@@ -33,10 +33,11 @@
     "**/*.tsx",
     ".next-e2e-3200/types/**/*.ts",
     ".next-e2e-3211/types/**/*.ts",
+    ".next-e2e-3212/types/**/*.ts",
     ".next-e2e-3400/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-e2e-3212/types/**/*.ts"
+    ".next-e2e-3500/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"
