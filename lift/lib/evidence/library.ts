@@ -17,6 +17,10 @@ export const EVIDENCE_TOPICS = [
 ] as const;
 export type EvidenceTopic = (typeof EVIDENCE_TOPICS)[number];
 
+/** How strong the source is: pooled studies, one trial, a narrative review, or an expert position stand. */
+export const EVIDENCE_DESIGNS = ["meta-analysis", "trial", "review", "position-stand"] as const;
+export type EvidenceDesign = (typeof EVIDENCE_DESIGNS)[number];
+
 export type EvidenceSource = {
   title: string;
   authors: string;
@@ -30,6 +34,9 @@ export type EvidenceSource = {
 
 export type EvidenceEntry = {
   id: string;
+  design: EvidenceDesign;
+  /** People in the study, for a single trial. */
+  participants?: number;
   topic: EvidenceTopic;
   /** Set when the finding is about particular muscles; absent when it applies to training in general. */
   muscles?: MuscleGroup[];
@@ -45,6 +52,7 @@ const source = (s: Omit<EvidenceSource, "url">): EvidenceSource => ({ ...s, url:
 export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   {
     id: "volume-hypertrophy",
+    design: "meta-analysis",
     topic: "volume",
     claim: "Across 15 studies, doing more sets per muscle each week went with more muscle growth, in a graded way.",
     source: source({
@@ -58,6 +66,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "volume-strength",
+    design: "meta-analysis",
     topic: "volume",
     claim: "Across 9 studies, more weekly sets per exercise gave more strength. For novice and intermediate men, low weekly volumes fell short of medium and high volumes.",
     source: source({
@@ -71,6 +80,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "volume-multiple-sets",
+    design: "meta-analysis",
     topic: "volume",
     claim: "Across 8 studies, several sets of an exercise grew more muscle than a single set.",
     source: source({
@@ -84,6 +94,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "frequency-twice-weekly",
+    design: "meta-analysis",
     topic: "frequency",
     claim: "Across 10 studies, training a muscle twice a week grew more muscle than once a week when volume was matched. There was too little data to say whether three times beats twice.",
     source: source({
@@ -97,6 +108,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "frequency-volume-equated",
+    design: "meta-analysis",
     topic: "frequency",
     claim: "When total weekly volume was matched, training a muscle more often gave no meaningful extra growth. Studies that did not match volume showed a small edge for higher frequency.",
     source: source({
@@ -110,6 +122,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "frequency-strength",
+    design: "meta-analysis",
     topic: "frequency",
     claim: "Across 22 studies, more training days per week went with more strength, but with equal volume frequency made no significant difference. Volume looks like the main driver.",
     source: source({
@@ -123,6 +136,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "load-range",
+    design: "meta-analysis",
     topic: "load",
     claim: "Across 21 studies, heavy loads gave bigger gains in one-rep-max strength. Muscle growth was similar across a wide range of loads.",
     source: source({
@@ -136,6 +150,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "failure-proximity",
+    design: "meta-analysis",
     topic: "failure",
     claim: "Across 15 studies, training to failure gave at most a trivial growth edge over stopping short of it, and no edge for going to momentary failure specifically.",
     source: source({
@@ -149,6 +164,8 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "rest-three-minutes",
+    design: "trial",
+    participants: 21,
     topic: "rest",
     claim: "In 21 experienced young men over 8 weeks, resting 3 minutes between sets gave more strength and thigh muscle thickness than resting 1 minute.",
     source: source({
@@ -162,6 +179,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "rest-review",
+    design: "review",
     topic: "rest",
     claim: "No long-term study found more growth with shorter rests between sets, so building muscle does not need shorter rests than building strength.",
     source: source({
@@ -175,6 +193,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "prescription-network",
+    design: "meta-analysis",
     topic: "prescription",
     claim: "Every resistance training prescription improved strength and muscle size compared with none. Loads above 80% of one-rep max gave the biggest strength gains, and the top prescriptions for growth used multiple sets per session.",
     source: source({
@@ -188,6 +207,7 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "prescription-acsm",
+    design: "position-stand",
     topic: "prescription",
     claim: "The American College of Sports Medicine advises lower-volume, lower-frequency programs for novices and periodized, heavier loading for intermediate and advanced trainees.",
     source: source({
@@ -201,6 +221,8 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "hamstrings-seated-curl",
+    design: "trial",
+    participants: 20,
     topic: "muscle_length",
     muscles: ["Hamstrings"],
     exerciseIds: ["Seated_Leg_Curl"],
@@ -216,6 +238,8 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "triceps-overhead",
+    design: "trial",
+    participants: 21,
     topic: "muscle_length",
     muscles: ["Triceps"],
     exerciseIds: ["Cable_Rope_Overhead_Triceps_Extension", "Triceps_Overhead_Extension_with_Rope", "Standing_Overhead_Barbell_Triceps_Extension"],
@@ -231,6 +255,8 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "quads-lengthened-range",
+    design: "trial",
+    participants: 45,
     topic: "muscle_length",
     muscles: ["Quads"],
     exerciseIds: ["Leg_Extensions"],
@@ -246,6 +272,8 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "calves-lengthened-range",
+    design: "trial",
+    participants: 42,
     topic: "muscle_length",
     muscles: ["Calves"],
     claim: "In 42 young women over 8 weeks, calf raises through the lengthened (bottom) part of the range grew the inner calf muscle most.",
@@ -260,6 +288,8 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
   },
   {
     id: "glutes-thrust-squat",
+    design: "trial",
+    participants: 34,
     topic: "muscle_length",
     muscles: ["Glutes"],
     exerciseIds: ["Barbell_Hip_Thrust", "Barbell_Squat"],
@@ -274,6 +304,14 @@ export const EVIDENCE_LIBRARY: readonly EvidenceEntry[] = [
     }),
   },
 ];
+
+/** Short strength label to show beside a claim, for example "Single trial, 21 people". */
+export function evidenceStrength(e: Pick<EvidenceEntry, "design" | "participants">): string {
+  if (e.design === "meta-analysis") return "Pooled analysis of several studies";
+  if (e.design === "trial") return `Single trial${e.participants ? `, ${e.participants} people` : ""}`;
+  if (e.design === "review") return "Review of studies";
+  return "Expert position stand";
+}
 
 export type EvidenceQuery = { muscle?: MuscleGroup; exerciseId?: string; topic?: EvidenceTopic };
 

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { evidenceById, evidenceFor, EVIDENCE_LIBRARY, EVIDENCE_TOPICS, knownEvidenceIds } from "../evidence/library";
+import { EVIDENCE_DESIGNS, evidenceById, evidenceFor, evidenceStrength, EVIDENCE_LIBRARY, EVIDENCE_TOPICS, knownEvidenceIds } from "../evidence/library";
 import { MUSCLE_GROUPS } from "../muscles";
 
 const catalogue = JSON.parse(readFileSync(join(__dirname, "../../data/exercises.json"), "utf8")) as { id: string }[];
@@ -57,6 +57,28 @@ describe("evidence library data", () => {
     for (const m of ["Hamstrings", "Triceps", "Quads", "Calves", "Glutes"] as const) {
       expect(evidenceFor({ muscle: m }).length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("study design", () => {
+  it("every entry has a known design, and a participant count exactly when it is a single trial", () => {
+    for (const e of EVIDENCE_LIBRARY) {
+      expect(EVIDENCE_DESIGNS).toContain(e.design);
+      if (e.design === "trial") expect(e.participants).toBeGreaterThan(0);
+      else expect(e.participants).toBeUndefined();
+    }
+  });
+
+  it("the exercise-specific findings are all single trials, so they are never shown as settled", () => {
+    for (const e of EVIDENCE_LIBRARY.filter((x) => x.exerciseIds || x.muscles)) expect(e.design).toBe("trial");
+  });
+
+  it("labels each design in plain words", () => {
+    expect(evidenceStrength({ design: "meta-analysis" })).toBe("Pooled analysis of several studies");
+    expect(evidenceStrength({ design: "trial", participants: 21 })).toBe("Single trial, 21 people");
+    expect(evidenceStrength({ design: "trial" })).toBe("Single trial");
+    expect(evidenceStrength({ design: "review" })).toBe("Review of studies");
+    expect(evidenceStrength({ design: "position-stand" })).toBe("Expert position stand");
   });
 });
 
