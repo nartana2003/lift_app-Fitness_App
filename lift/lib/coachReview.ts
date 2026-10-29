@@ -6,7 +6,7 @@ import { MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "./muscles";
 import { suggestForMuscle } from "./suggest";
 // Type-only imports: lib/goals.ts and lib/splits.ts are client modules (Dexie),
 // so nothing runtime is pulled in from them.
-import type { Goals } from "./goals";
+import type { Goals, Priority } from "./goals";
 import type { Split } from "./splits";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +17,8 @@ import type { Split } from "./splits";
 export type ReviewGoals = Pick<Goals, "goalType" | "experience" | "sessionsPerWeek" | "focusMuscles"> & {
   /** The user's own weekly targets (only muscles they changed). */
   targets?: Goals["targets"];
+  /** Per muscle priority. Without an entry a focus muscle counts as high. */
+  priorities?: Partial<Record<MuscleGroup, Priority>>;
 };
 
 /**
@@ -113,13 +115,14 @@ export function reviewDefaultTarget(muscle: MuscleGroup, goals: ReviewGoals): nu
   const base = goals.experience === "beginner" ? 8 : goals.experience === "advanced" ? 14 : 11;
   const byGoal = goals.goalType === "strength" ? -2 : goals.goalType === "fat_loss" || goals.goalType === "general" ? -3 : 0;
   const size = SMALL.includes(muscle) ? -4 : 0;
-  const focus = goals.focusMuscles.includes(muscle) ? 4 : 0;
+  const priority = goals.priorities?.[muscle] ?? (goals.focusMuscles.includes(muscle) ? "high" : undefined);
+  const focus = priority === "high" ? 4 : priority === "medium" ? 2 : priority === "low" ? -2 : 0;
   const sessions = goals.sessionsPerWeek <= 2 ? -3 : goals.sessionsPerWeek >= 5 ? 2 : 0;
   return Math.max(4, Math.min(24, base + byGoal + size + focus + sessions));
 }
 
 /** The user's own target when set, else the rule default (same as allTargets()). */
-function targetFor(muscle: MuscleGroup, goals: ReviewGoals): number {
+export function targetFor(muscle: MuscleGroup, goals: ReviewGoals): number {
   const own = goals.targets?.[muscle];
   return typeof own === "number" && Number.isFinite(own) ? own : reviewDefaultTarget(muscle, goals);
 }
