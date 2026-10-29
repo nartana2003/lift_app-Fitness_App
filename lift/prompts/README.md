@@ -19,6 +19,7 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 | `swap-exercise.md` | Swap an exercise mid-workout | Workout: `components/workout/SwapSheet.tsx` |
 | `generate-routines.md` | Generate plan | Routines: `components/routines/GeneratePlan.tsx` |
 | `evidence-picks.md` | Evidence-backed exercise picks | Goals: `components/goals/EvidencePicks.tsx` |
+| `optimise-split.md` | Order and word the Coach's proposed split changes | Coach: Optimise |
 
 ## ask-coach
 
@@ -85,6 +86,12 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 - Interaction: the user asks for the best exercises per muscle for their goal and reads each pick with its cited sources.
 - How the prompt helps: it searches the web, picks exercises from the fixed list, and attaches a claim and source links, with an honest strength-of-evidence rating.
 - Why a prompt: only a model with search can gather and summarise research. The prompt forces every claim to carry a citation copied from real search results and forbids overstating weak evidence.
+
+## optimise-split
+
+- Interaction: on the Coach tab, Optimise shows proposed changes to the user's split and routines, each with a reason, to accept or reject.
+- How the prompt helps: the rules decide the changes; the prompt only puts them in the best order for this user (safety swaps first) and words each reason in plain language, keeping the app's numbers.
+- Why a prompt: the rules produce correct but stiff sentences. The model cannot add, remove or change a change, add research or invent numbers; the app clamps its answer to the proposed ids and falls back to the rule text.
 
 ## Editing a prompt
 
