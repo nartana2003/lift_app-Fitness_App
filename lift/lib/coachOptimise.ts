@@ -457,7 +457,10 @@ export function proposeChanges(input: OptimiseInput): Proposals {
     if (mine.length < 2) {
       if (addExercise(r, home, routine, lead(r))) continue;
     }
-    const lowest = [...mine].sort((a, b) => a.target_sets - b.target_sets)[0];
+    // Never add sets to an exercise the user dislikes or that loads a limitation (it is swapped above).
+    const lowest = mine
+      .filter((x) => !disliked.has(x.exercise_id) && allowedFor(ctx.byId.get(x.exercise_id)!, limits))
+      .sort((a, b) => a.target_sets - b.target_sets)[0];
     if (lowest && lowest.target_sets < MAX_SETS_PER_EXERCISE) {
       const name = ctx.byId.get(lowest.exercise_id)?.name ?? "this exercise";
       push({
