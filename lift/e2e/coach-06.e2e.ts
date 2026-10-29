@@ -1,11 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-// COACH-06: "Ask the coach" card on Profile. There is no AI key in e2e, so
+// COACH-06: "Ask the coach" card on the Coach tab. There is no AI key in e2e, so
 // /api/ai/ask-coach answers 503: the card shows a plain message and hints from
 // the built-in rules (a fresh browser has no split yet), and no answer.
 
 test("ask the coach on the unavailable path shows a plain message and rule hints", async ({ page }) => {
-  await page.goto("/profile");
+  await page.goto("/coach");
   await page.waitForLoadState("networkidle");
 
   const header = page.getByRole("button", { name: /^Ask the coach/ });

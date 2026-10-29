@@ -1,27 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { PageHeader } from "@/components/PageHeader";
 import { Collapsible } from "@/components/Collapsible";
-import { LyftaImport } from "@/components/LyftaImport";
-import { DataBackup } from "@/components/DataBackup";
-import { SyncCard, syncCardSummary } from "@/components/SyncCard";
-import { db } from "@/lib/offline/db";
-import { DEAD_LETTER_KEY } from "@/lib/offline/sync";
-import { GoalsSection } from "@/components/goals/GoalsSection";
-import { SplitEditor } from "@/components/goals/SplitEditor";
-import { AskCoach } from "@/components/goals/AskCoach";
 import { ReminderSettings } from "@/components/ReminderSettings";
 import { reminderSummary, useReminders } from "@/lib/reminders";
-import { useSplit } from "@/lib/splits";
-import { allTargets, GOAL_LABELS, useGoals } from "@/lib/goals";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { supabaseConfigured } from "@/lib/supabase/configured";
 import { getRestSec, setRestSec } from "@/lib/workout";
 import { fmtClock } from "@/lib/restTimer";
-import { ageFrom, emptyProfile, loadProfile, saveProfile, type Gender, type Profile } from "@/lib/profile";
+import { ageFrom, changedFields, emptyProfile, loadProfileStatus, saveProfile, type Gender, type Profile } from "@/lib/profile";
 import { bmi, bmiLabel, latestMeasurement, saveMeasurement } from "@/lib/measurements";
 import { saveSettings, saveTheme, useSettings, useThemePref } from "@/lib/settings";
 import { THEME_LABELS, THEME_PREFS } from "@/lib/theme";
@@ -31,14 +22,10 @@ const ICONS = {
   person: "M20 21a8 8 0 10-16 0M12 11a4 4 0 100-8 4 4 0 000 8z",
   body: "M12 3.5a1.6 1.6 0 110 3.2 1.6 1.6 0 010-3.2zM7 9h10M9.5 9v4l-1 7.5M14.5 9v4l1 7.5",
   sliders: "M4 7h10M18 7h2M4 17h4M12 17h8",
-  download: "M12 3v12M7.5 10.5L12 15l4.5-4.5M4 20h16",
-  archive: "M4 4h16v4H4zM5 8v12h14V8M10 12h4",
-  key: "M15 7a4 4 0 110 8 4 4 0 010-8zM11.5 12.5L3 21M6 18l2 2M9 15l2 2",
   dumbbell: "M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11",
   split: "M4 6h7M4 12h7M4 18h7M15 6h5M15 12h5M15 18h5",
   target: "M12 21a9 9 0 110-18 9 9 0 010 18zM12 16.5a4.5 4.5 0 110-9 4.5 4.5 0 010 9zM12 13a1 1 0 110-2 1 1 0 010 2z",
   bell: "M6 16V11a6 6 0 1112 0v5l1.5 2h-15L6 16zM10 20.5a2 2 0 004 0",
-  sync: "M20 11a8 8 0 00-14.5-4.5M4 4v3h3M4 13a8 8 0 0014.5 4.5M20 20v-3h-3",
 } as const;
 
 const Icon = ({ d }: { d: string }) => (
@@ -58,8 +45,6 @@ export default function ProfilePage() {
   const router = useRouter();
   const { unit, weekStart } = useSettings();
   const theme = useThemePref();
-  const goals = useGoals();
-  const split = useSplit();
   const reminders = useReminders();
   const [profile, setProfile] = useState<Profile>(emptyProfile());
   const [height, setHeight] = useState("");
@@ -67,31 +52,68 @@ export default function ProfilePage() {
   const [rest, setRest] = useState(90);
   const [signedIn, setSignedIn] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const loaded = useRef(false);
+  // The profile as last loaded or saved; null until a load could be trusted. Autosave waits for it.
+  const baseline = useRef<Profile | null>(null);
+  // What an untrusted load put on screen, so edits made meanwhile survive the later trusted load.
+  const shown = useRef<Profile>(emptyProfile());
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const latestHeight = useLiveQuery(() => latestMeasurement("height"), []);
   const latestWeight = useLiveQuery(() => latestMeasurement("body_weight"), []);
-  const deadCount = useLiveQuery(async () => {
-    // Same count as the SyncStatus banner.
-    const v = (await db.meta.get(DEAD_LETTER_KEY))?.value;
-    return Array.isArray(v) ? v.length : 0;
-  }, [], 0);
-  const pendingCount = useLiveQuery(() => db.outbox.count(), [], 0);
+
+  const load = useCallback(async () => {
+    if (baseline.current) return;
+    const r = await loadProfileStatus();
+    let p = r.profile;
+    if (supabaseConfigured) {
+      try {
+        const { data } = await supabaseBrowser().auth.getUser();
+        setSignedIn(!!data.user);
+        p = { ...p, email: p.email || data.user?.email || "" };
+      } catch {}
+    }
+    if (baseline.current) return;
+    // Keep anything typed before this load arrived; after a trusted load autosave sends just that.
+    const before = shown.current;
+    shown.current = p;
+    setProfile((cur) => {
+      const merged = { ...p };
+      for (const k of changedFields(before, cur)) (merged as Record<string, string>)[k] = cur[k];
+      return merged;
+    });
+    if (!r.reliable) {
+      // The cloud copy could not be read: show what we have, but never save it over the cloud.
+      setLoadFailed(true);
+      return;
+    }
+    baseline.current = p;
+    setLoadFailed(false);
+    // Fields an earlier save could not push go up now.
+    if (r.pending.length) void saveProfile(p, p);
+  }, []);
 
   useEffect(() => {
-    void (async () => {
-      setProfile(await loadProfile());
-      loaded.current = true;
-      setRest(await getRestSec(""));
-      if (supabaseConfigured) {
-        try {
-          const { data } = await supabaseBrowser().auth.getUser();
-          setSignedIn(!!data.user);
-          setProfile((p) => ({ ...p, email: p.email || data.user?.email || "" }));
-        } catch {}
-      }
-    })();
-  }, []);
+    void load();
+    void getRestSec("").then(setRest);
+  }, [load]);
+
+  // A failed or not-ready cloud read is retried once the session appears or the device is back online.
+  useEffect(() => {
+    if (!loadFailed || !supabaseConfigured) return;
+    const retry = () => void load();
+    window.addEventListener("online", retry);
+    let unsubscribe = () => {};
+    try {
+      const { data } = supabaseBrowser().auth.onAuthStateChange((_event: string, session: { user?: unknown } | null) => {
+        if (session?.user) retry();
+      });
+      unsubscribe = () => data.subscription.unsubscribe();
+    } catch {}
+    return () => {
+      window.removeEventListener("online", retry);
+      unsubscribe();
+    };
+  }, [loadFailed, load]);
 
   useEffect(() => {
     if (latestHeight) setHeight(String(latestHeight.value));
@@ -106,11 +128,14 @@ export default function ProfilePage() {
     setTimeout(() => setStatus((cur) => (cur === msg ? null : cur)), 2000);
   }, []);
 
-  // Saves on its own a moment after you stop typing — no Save button.
+  // Saves on its own a moment after you stop typing — no Save button. Only after a
+  // trusted load, and only when something actually changed.
   useEffect(() => {
-    if (!loaded.current) return;
+    const base = baseline.current;
+    if (!base || !changedFields(base, profile).length) return;
     const t = setTimeout(async () => {
-      const synced = await saveProfile(profile);
+      const synced = await saveProfile(profile, base);
+      baseline.current = profile;
       flash(supabaseConfigured && !synced ? "Saved on this device" : "Saved");
     }, 700);
     return () => clearTimeout(t);
@@ -169,7 +194,11 @@ export default function ProfilePage() {
         </div>
       )}
 
-      <Collapsible title="Personal information" icon={<Icon d={ICONS.person} />} subtitle={personalSummary || "Name, email, phone, gender, date of birth"}>
+      <div className="card mb-2 overflow-hidden">
+      <Collapsible grouped title="Personal information" icon={<Icon d={ICONS.person} />} subtitle={personalSummary || "Name, email, phone, gender, date of birth"}>
+        {loadFailed && (
+          <p className="text-xs text-muted">Your saved profile could not be loaded yet. It loads when you are signed in and online; changes are kept until then.</p>
+        )}
         <Field label="Name">
           <input className="field" autoComplete="name" placeholder="Your name" value={profile.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
@@ -193,7 +222,7 @@ export default function ProfilePage() {
         </Field>
       </Collapsible>
 
-      <Collapsible title="Body" icon={<Icon d={ICONS.body} />} subtitle={bodySummary || "Height and weight"}>
+      <Collapsible grouped title="Body" icon={<Icon d={ICONS.body} />} subtitle={bodySummary || "Height and weight"}>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Height (cm)">
             <input className="field" inputMode="decimal" placeholder="175" value={height} onChange={(e) => setHeight(e.target.value)} onBlur={commitHeight} />
@@ -210,29 +239,24 @@ export default function ProfilePage() {
         <p className="text-xs text-muted">Changing your weight adds an entry to Progress → Measurements, so you can track it over time.</p>
       </Collapsible>
 
-      <Collapsible
-        title="Goals"
-        icon={<Icon d={ICONS.target} />}
-        subtitle={`${GOAL_LABELS[goals.goalType]} · ${goals.sessionsPerWeek}×/week · ${Object.values(allTargets(goals)).reduce((a, n) => a + n, 0)} sets`}
-      >
-        <GoalsSection />
-      </Collapsible>
+      <Link href="/coach" className="flex items-center gap-3 px-4 py-3.5 text-left border-t border-border">
+        <span className="shrink-0 size-9 rounded-xl bg-surface-2 grid place-items-center text-muted">
+          <Icon d={ICONS.target} />
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block font-semibold text-[15px]">Goals and split are in Coach</span>
+          <span className="block text-xs text-muted truncate mt-0.5">Set goals, edit your split and ask the coach</span>
+        </span>
+        <svg viewBox="0 0 24 24" className="size-5 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </Link>
 
-      <AskCoach />
-
-      <Collapsible
-        title="My split"
-        icon={<Icon d={ICONS.split} />}
-        subtitle={split.days.length ? `${split.name || "Split"} · ${split.days.map((d) => d.name).join(" · ")}` : "Not set up yet"}
-      >
-        <SplitEditor />
-      </Collapsible>
-
-      <Collapsible title="Reminders" icon={<Icon d={ICONS.bell} />} subtitle={reminderSummary(reminders, weekStart)}>
+      <Collapsible grouped title="Reminders" icon={<Icon d={ICONS.bell} />} subtitle={reminderSummary(reminders, weekStart)}>
         <ReminderSettings />
       </Collapsible>
 
-      <Collapsible title="Preferences" icon={<Icon d={ICONS.sliders} />} subtitle={prefSummary}>
+      <Collapsible grouped title="Preferences" icon={<Icon d={ICONS.sliders} />} subtitle={prefSummary}>
         <div>
           <span className="font-semibold block mb-2">Weight unit</span>
           <div className="grid grid-cols-2 gap-2">
@@ -290,40 +314,20 @@ export default function ProfilePage() {
           </select>
         </label>
       </Collapsible>
+      </div>
 
-      <Collapsible title="Backup" icon={<Icon d={ICONS.archive} />} subtitle="Export or restore all your data">
-        <DataBackup />
-      </Collapsible>
-
-      <Collapsible title="Import data" icon={<Icon d={ICONS.download} />} subtitle="Bring in your Lyfta workout history">
-        <LyftaImport />
-      </Collapsible>
-
-      <Collapsible title="Sync" icon={<Icon d={ICONS.sync} />} subtitle={syncCardSummary(deadCount, pendingCount, supabaseConfigured)}>
-        <SyncCard configured={supabaseConfigured} />
-      </Collapsible>
-
-      <Collapsible title="Account" icon={<Icon d={ICONS.key} />} subtitle={supabaseConfigured ? (signedIn ? "Signed in" : "Signed out") : "Local only"}>
-<p className="text-sm text-muted">
-          {supabaseConfigured
-            ? signedIn
-              ? "Your workouts sync to your account."
-              : "Sign in to sync across devices."
-            : "Everything is stored on this device. Add Supabase keys to sync and sign in."}
-        </p>
-        {supabaseConfigured && signedIn && (
-          <button
-            className="btn-ghost w-full text-bad"
-            onClick={async () => {
-              await supabaseBrowser().auth.signOut();
-              router.replace("/login");
-              router.refresh();
-            }}
-          >
-            Sign out
-          </button>
-        )}
-      </Collapsible>
+      {supabaseConfigured && signedIn && (
+        <button
+          className="btn-ghost w-full text-bad"
+          onClick={async () => {
+            await supabaseBrowser().auth.signOut();
+            router.replace("/login");
+            router.refresh();
+          }}
+        >
+          Sign out
+        </button>
+      )}
     </>
   );
 }

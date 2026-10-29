@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 // citations and no sources, and the fixed disclaimer.
 
 test("evidence search on the unavailable path shows the rule suggestions and the disclaimer", async ({ page }) => {
-  await page.goto("/profile");
+  await page.goto("/coach");
   await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: /^Goals/ }).click();

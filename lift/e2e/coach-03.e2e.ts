@@ -1,11 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-// COACH-03: guided Coach setup in Profile > Goals. There is no AI key in e2e, so
+// COACH-03: guided Coach setup in Coach > Goals. There is no AI key in e2e, so
 // suggest-split and review-setup answer 503: the split and the review are built
 // from the rules in the browser and a plain note says AI is unavailable.
 
 test("coach setup walks the steps on the unavailable path and saves the goal and day count", async ({ page }) => {
-  await page.goto("/profile");
+  await page.goto("/coach");
   await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: /^Goals/ }).click();

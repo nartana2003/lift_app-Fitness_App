@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// LINK-02: build a split day in Profile > My split, attach an existing
+// LINK-02: build a split day in Coach > My split, attach an existing
 // (unassigned) routine to it, then see that routine grouped under the day on
 // Home. The routine is seeded straight into IndexedDB. No AI involved.
 test("attach a routine to a split day and see it grouped on Home", async ({ page }) => {
@@ -48,7 +48,7 @@ test("attach a routine to a split day and see it grouped on Home", async ({ page
     db.close();
   });
 
-  await page.goto("/profile");
+  await page.goto("/coach");
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: /^My split/ }).click();
   await page.getByRole("button", { name: "Build my own" }).click();

@@ -55,6 +55,17 @@ const TrendIcon = ({ active }: IconProps) =>
     active,
   );
 
+/** Coach: a target, ringed and filled when selected. */
+const CoachIcon = ({ active }: IconProps) =>
+  svg(
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4.5" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+    </>,
+    active,
+  );
+
 const ProfileIcon = ({ active }: IconProps) =>
   svg(
     <>
@@ -67,6 +78,7 @@ const ProfileIcon = ({ active }: IconProps) =>
 const TABS = [
   { href: "/", label: "Home", Icon: HomeIcon },
   { href: "/exercises", label: "Exercises", Icon: DumbbellIcon },
+  { href: "/coach", label: "Coach", Icon: CoachIcon },
   { href: "/progress", label: "Progress", Icon: TrendIcon },
   { href: "/profile", label: "Profile", Icon: ProfileIcon },
 ];
@@ -78,8 +90,8 @@ export function TabBar() {
   const items: React.ReactNode[] = TABS.map(({ href, label, Icon }) => {
     const active = href === "/" ? path === "/" || path.startsWith("/history") : path.startsWith(href);
     return (
-      <li key={href}>
-        <Link href={href} className={`flex flex-col items-center gap-0.5 px-3 pt-2 text-[11px] ${active ? "text-accent font-semibold" : "text-muted"}`}>
+      <li key={href} className="flex-1 min-w-0">
+        <Link href={href} className={`flex flex-col items-center gap-0.5 px-1 pt-2 text-[11px] ${active ? "text-accent font-semibold" : "text-muted"}`}>
           <Icon active={active} />
           {label}
         </Link>
@@ -92,8 +104,8 @@ export function TabBar() {
     items.splice(
       2,
       0,
-      <li key="resume">
-        <Link href="/workout" className="flex flex-col items-center gap-0.5 px-3 text-[11px] text-accent font-semibold">
+      <li key="resume" className="flex-1 min-w-0">
+        <Link href="/workout" className="flex flex-col items-center gap-0.5 px-1 text-[11px] text-accent font-semibold">
           <span className="-mt-5 mb-0.5 grid place-items-center size-12 rounded-full bg-accent text-accent-ink shadow-md">
             <DumbbellIcon active={false} />
           </span>
@@ -105,7 +117,7 @@ export function TabBar() {
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 bg-bg/90 backdrop-blur border-t border-border pb-safe">
-      <ul className="flex justify-around max-w-lg mx-auto">{items}</ul>
+      <ul className="flex max-w-lg mx-auto">{items}</ul>
     </nav>
   );
 }

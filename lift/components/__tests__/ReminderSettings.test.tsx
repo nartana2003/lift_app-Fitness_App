@@ -125,9 +125,11 @@ describe("Profile reminders section", () => {
 
   it("keeps the existing Profile sections", () => {
     render(<ProfilePage />);
-    for (const name of ["Personal information", "Body", "Goals", "My split", "Preferences", "Backup", "Import data", "Account"]) {
+    for (const name of ["Personal information", "Body", "Preferences"]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
+    expect(screen.queryByRole("button", { name: /^(Goals|My split|Ask the coach|Backup|Sync|Account|Import data)/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Goals and split are in Coach/ })).toHaveAttribute("href", "/coach");
   });
 });
 

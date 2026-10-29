@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 // CO-01: goals gain priorities, ranked goals, limits and dislikes. Goals saved
-// before this existed must keep working in Profile > Goals: the old focus muscles
+// before this existed must keep working in Coach > Goals: the old focus muscles
 // show as focus, and toggling focus keeps focusMuscles and priorities in step.
 
 const readGoals = (page: Page) =>
@@ -44,7 +44,7 @@ const seedLegacyGoals = (page: Page) =>
   );
 
 test("goals saved before priorities existed show their focus and stay consistent when toggled", async ({ page }) => {
-  await page.goto("/profile");
+  await page.goto("/coach");
   await page.waitForLoadState("networkidle");
   await seedLegacyGoals(page);
   await page.reload();
