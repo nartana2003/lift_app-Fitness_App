@@ -12,7 +12,8 @@ test("profile details autosave locally and come back after a reload", async ({ p
 
   await page.getByLabel("Name").fill("Nat Tester");
   await page.getByLabel("Mobile phone").fill("+1 555 0100");
-  await page.getByRole("button", { name: "Female" }).click();
+  // exact: the Gender <label> wraps the chips, so the first chip's name contains every chip label.
+  await page.getByRole("button", { name: "Female", exact: true }).click();
   await page.getByLabel(/^Date of birth/).fill("1995-04-02");
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
@@ -23,5 +24,5 @@ test("profile details autosave locally and come back after a reload", async ({ p
   await expect(page.getByLabel("Name")).toHaveValue("Nat Tester");
   await expect(page.getByLabel("Mobile phone")).toHaveValue("+1 555 0100");
   await expect(page.getByLabel(/^Date of birth/)).toHaveValue("1995-04-02");
-  await expect(page.getByRole("button", { name: "Female" })).toHaveClass(/chip-on/);
+  await expect(page.getByRole("button", { name: "Female", exact: true })).toHaveClass(/chip-on/);
 });

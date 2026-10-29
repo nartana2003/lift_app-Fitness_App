@@ -112,7 +112,8 @@ test("mouse: drag a planned day onto another planned day swaps them", async ({ p
   await page.mouse.down();
   await page.mouse.move(b.x, b.y, { steps: 8 });
   await page.mouse.up();
-  await expect.poll(() => plan(page)).toEqual([`${FRI}:${PUSH.id}`, `${WED}:${LEGS.id}`]);
+  // plan() is sorted, so sort the expectation too: Push on Friday, Legs on Wednesday.
+  await expect.poll(() => plan(page)).toEqual([`${FRI}:${PUSH.id}`, `${WED}:${LEGS.id}`].sort());
   await expect(page.getByText(/^Swapped /)).toBeVisible();
 });
 
