@@ -282,7 +282,7 @@ describe("every /api/ai/* route", () => {
   });
 
   it("finds the routes", () => {
-    expect(ROUTES.length).toBeGreaterThanOrEqual(14);
+    expect(ROUTES.length).toBeGreaterThanOrEqual(13);
   });
 
   it.each(ROUTES)("%s: 401 JSON when signed out, model never called", async (name) => {

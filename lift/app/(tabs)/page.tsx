@@ -26,31 +26,26 @@ export default function Home() {
   const sessions = week?.length ?? 0;
   const duration = week?.reduce((a, w) => a + (Date.parse(w.ended_at!) - Date.parse(w.started_at)) / 1000, 0) ?? 0;
   const volume = week?.reduce((a, w) => a + w.volume, 0) ?? 0;
-  const hour = new Date().getHours();
 
   return (
     <>
-      <header className="py-4">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Good {hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening"}
-        </h1>
-      </header>
-
-      {active ? (
-        <Link href="/workout" className="btn-primary w-full text-lg py-4">
-          Resume workout
-        </Link>
-      ) : (
-        <button
-          className="btn-primary w-full text-lg py-4"
-          onClick={async () => {
-            await startWorkout();
-            router.push("/workout");
-          }}
-        >
-          Start Workout
-        </button>
-      )}
+      <div className="pt-4">
+        {active ? (
+          <Link href="/workout" className="btn-primary w-full text-lg py-4">
+            Resume workout
+          </Link>
+        ) : (
+          <button
+            className="btn-primary w-full text-lg py-4"
+            onClick={async () => {
+              await startWorkout();
+              router.push("/workout");
+            }}
+          >
+            Start Workout
+          </button>
+        )}
+      </div>
 
       <section className="card p-4 mt-4">
         <h2 className="font-semibold mb-3">My Week</h2>

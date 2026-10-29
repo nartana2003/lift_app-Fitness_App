@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { fetchLinkThumbnail } from "@/components/routines/SaveFromLink";
+import { fetchLinkDetails, fetchLinkThumbnail } from "@/components/routines/SaveFromLink";
 import { createCustomExercise } from "@/lib/customExercises";
 import { EQUIPMENT, MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "@/lib/muscles";
 
@@ -73,7 +73,19 @@ export default function NewExercisePage() {
 
       <label className="block mb-4">
         <span className="block text-xs text-muted mb-1">Video link (optional)</span>
-        <input className="field" inputMode="url" placeholder="TikTok, Instagram or YouTube link" value={video} onChange={(e) => setVideo(e.target.value)} />
+        <input
+          className="field"
+          inputMode="url"
+          placeholder="TikTok, Instagram or YouTube link"
+          value={video}
+          onChange={(e) => setVideo(e.target.value)}
+          onBlur={async () => {
+            // Prefill an empty name from the post title.
+            if (name.trim() || !video.trim()) return;
+            const title = (await fetchLinkDetails(video.trim()))?.title;
+            if (title) setName((n) => (n.trim() ? n : title.slice(0, 60)));
+          }}
+        />
       </label>
 
       <label className="block mb-4">

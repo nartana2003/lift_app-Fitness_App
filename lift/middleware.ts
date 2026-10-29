@@ -6,7 +6,7 @@ import { NEXT_PARAM, safeNext } from "@/lib/authRedirect";
 
 // /api/cron is not on this list: cron routes have no user session and are
 // gated by CRON_SECRET below instead of being open to everyone.
-const PUBLIC = ["/login", "/auth", "/manifest.webmanifest", "/sw.js", "/icons"];
+const PUBLIC = ["/login", "/auth", "/manifest.webmanifest", "/sw.js", "/icon"];
 
 export async function middleware(request: NextRequest) {
   // Cron routes: require `Authorization: Bearer <CRON_SECRET>` in every mode,
@@ -64,5 +64,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
+  // Vercel runs middleware on Node and cannot load the Turbopack edge bundle (ESM in a CJS context).
+  runtime: "nodejs",
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|svg|webp)$).*)"],
 };

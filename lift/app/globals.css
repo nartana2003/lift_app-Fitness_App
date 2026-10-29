@@ -56,6 +56,14 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* Safety net: a stray wide child never makes the page scroll sideways on a phone.
+   clip (not hidden) keeps position: sticky working. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 /* iPhone safe areas (notch / home indicator) */
 .pt-safe {
   padding-top: max(env(safe-area-inset-top), 12px);

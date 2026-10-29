@@ -35,6 +35,6 @@ export default defineConfig({
       SUPABASE_SERVICE_ROLE_KEY: "",
       ANTHROPIC_API_KEY: "",
     },
-    timeout: 300_000,
+    timeout: 900_000,
   },
 });

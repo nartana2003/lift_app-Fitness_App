@@ -1,8 +1,22 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useId, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type CollisionDetection,
+  type KeyboardCoordinateGetter,
+  type PointerSensorOptions,
+} from "@dnd-kit/core";
 import { db, type PlannedDayRow, type SkipReason } from "@/lib/offline/db";
 import {
   clearDay,
@@ -111,6 +125,67 @@ function dayAt(x: number, y: number): string | null {
   return cell?.dataset.day ?? null;
 }
 
+const longDay = (key: string) =>
+  new Date(key + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", day: "numeric" });
+
+/**
+ * Pointer drag (mouse, pen and touch). Same as dnd-kit's PointerSensor but,
+ * like the old pointer-event drag, only a non-primary button is refused.
+ */
+class DayPointerSensor extends PointerSensor {
+  static activators = [
+    {
+      eventName: "onPointerDown" as const,
+      handler: ({ nativeEvent }: React.PointerEvent, { onActivation }: PointerSensorOptions) => {
+        if (nativeEvent.button > 0) return false;
+        onActivation?.({ event: nativeEvent });
+        return true;
+      },
+    },
+  ];
+}
+
+/** Pointer drags drop on the day under the pointer; keyboard drags on the closest day. */
+const dayCollision: CollisionDetection = (args) => {
+  if (!args.pointerCoordinates) return closestCenter(args);
+  const key = dayAt(args.pointerCoordinates.x, args.pointerCoordinates.y);
+  const c = key ? args.droppableContainers.find((x) => x.id === key) : undefined;
+  return c ? [{ id: c.id, data: { droppableContainer: c, value: 0 } }] : [];
+};
+
+/** Left and right arrow keys jump the dragged day to the previous or next day. */
+const dayKeys: KeyboardCoordinateGetter = (event, { context, currentCoordinates }) => {
+  if (event.code !== "ArrowRight" && event.code !== "ArrowLeft") return undefined;
+  const w = context.collisionRect?.width ?? 0;
+  const h = context.collisionRect?.height ?? 0;
+  const cur = currentCoordinates.x + w / 2;
+  const rects = [...context.droppableRects.values()].sort((a, b) => a.left - b.left);
+  const mid = (r: { left: number; width: number }) => r.left + r.width / 2;
+  const next =
+    event.code === "ArrowRight" ? rects.find((r) => mid(r) > cur + 1) : rects.reverse().find((r) => mid(r) < cur - 1);
+  return next ? { x: mid(next) - w / 2, y: next.top + next.height / 2 - h / 2 } : undefined;
+};
+
+const KEYBOARD_CODES = {
+  // Space picks a day up; Enter still opens the day panel.
+  start: ["Space"],
+  cancel: ["Escape"],
+  end: ["Space", "Enter", "Tab"],
+};
+
+const ANNOUNCEMENTS: Announcements = {
+  onDragStart: ({ active }) => `Picked up ${longDay(String(active.id))}.`,
+  onDragOver: ({ over }) => (over ? `Over ${longDay(String(over.id))}.` : undefined),
+  onDragEnd: ({ active, over }) =>
+    over && over.id !== active.id ? `Dropped on ${longDay(String(over.id))}.` : "Dropped.",
+  onDragCancel: () => "Drag cancelled.",
+};
+
+const INSTRUCTIONS = {
+  draggable:
+    "To move a planned day, press space, use the left and right arrow keys to choose a day, then press space to drop it, or escape to cancel.",
+};
+
 const EMPTY: { routines: Routine[]; planRows: PlannedDayRow[] } = { routines: [], planRows: [] };
 
 /** This week at a glance: plan a routine per day, skip with a reason, or move it. */
@@ -134,8 +209,13 @@ export function WeekStrip() {
   const [filling, setFilling] = useState(false);
   const [notice, setNotice] = useState("");
   const [drag, setDrag] = useState<{ from: string; over: string | null } | null>(null);
-  const press = useRef<{ from: string; x: number; y: number; id: number; active: boolean } | null>(null);
-  const suppressClick = useRef(false);
+  // DND-01: drag runs on @dnd-kit. A press becomes a drag after DRAG_START px;
+  // dnd-kit then swallows the click the browser fires after the drop.
+  const dndId = useId();
+  const sensors = useSensors(
+    useSensor(DayPointerSensor, { activationConstraint: { distance: DRAG_START } }),
+    useSensor(KeyboardSensor, { keyboardCodes: KEYBOARD_CODES, coordinateGetter: dayKeys }),
+  );
 
   const days = weekDays(weekStart);
   const plan = new Map(planRows.map((p) => [p.date, p]));
@@ -176,105 +256,83 @@ export function WeekStrip() {
           Auto-fill from my split
         </button>
       </div>
-      <ul className="grid grid-cols-7 gap-1">
-        {days.map((d) => {
-          const k = dayKey(d);
-          const p = plan.get(k);
-          const isToday = k === today;
-          const routine = p?.routine_id ? routines.find((r) => r.id === p.routine_id) : undefined;
-          const draggable = canDrag(p);
-          const dragging = drag?.from === k;
-          const target = drag && drag.from !== k ? dropAction(drag.from, k, plan, today) : null;
-          const gym = isGymDay(p);
-          const isPast = k < today;
-          const longName = `${d.toLocaleDateString(undefined, { weekday: "long" })} ${d.getDate()}`;
-          const state = gym
-            ? "gym day, tap to change"
-            : p?.status === "skipped"
-              ? "skipped, tap to change"
-              : p?.status === "moved"
-                ? "moved, tap to change"
-                : isPast
-                  ? "not a gym day"
-                  : "not a gym day, tap to mark";
-          return (
-            <li key={k} className="flex justify-center pt-4 pb-5">
-              <button
-                data-day={k}
-                aria-label={`${longName}, ${state}`}
-                aria-pressed={gym}
-                style={draggable ? { touchAction: "pan-y" } : undefined}
-                onPointerDown={(e) => {
-                  if (!draggable || e.button > 0) return;
-                  press.current = { from: k, x: e.clientX, y: e.clientY, id: e.pointerId, active: false };
-                }}
-                onPointerMove={(e) => {
-                  const s = press.current;
-                  if (!s || s.id !== e.pointerId) return;
-                  if (!s.active) {
-                    if (Math.hypot(e.clientX - s.x, e.clientY - s.y) < DRAG_START) return;
-                    s.active = true;
-                    try {
-                      e.currentTarget.setPointerCapture?.(e.pointerId);
-                    } catch {
-                      // capture is best-effort (not every environment supports it)
+      <DndContext
+        id={dndId}
+        sensors={sensors}
+        collisionDetection={dayCollision}
+        accessibility={{ announcements: ANNOUNCEMENTS, screenReaderInstructions: INSTRUCTIONS }}
+        onDragStart={({ active }) => setDrag({ from: String(active.id), over: null })}
+        onDragOver={({ active, over }) => setDrag({ from: String(active.id), over: over ? String(over.id) : null })}
+        onDragEnd={({ active, over }) => {
+          setDrag(null);
+          if (over) void reschedule(String(active.id), String(over.id));
+        }}
+        onDragCancel={() => setDrag(null)}
+      >
+        <ul className="grid grid-cols-7 gap-1">
+          {days.map((d) => {
+            const k = dayKey(d);
+            const p = plan.get(k);
+            const isToday = k === today;
+            const routine = p?.routine_id ? routines.find((r) => r.id === p.routine_id) : undefined;
+            const draggable = canDrag(p);
+            const dragging = drag?.from === k;
+            const target = drag && drag.from !== k ? dropAction(drag.from, k, plan, today) : null;
+            const gym = isGymDay(p);
+            const isPast = k < today;
+            const longName = `${d.toLocaleDateString(undefined, { weekday: "long" })} ${d.getDate()}`;
+            const state = gym
+              ? "gym day, tap to change"
+              : p?.status === "skipped"
+                ? "skipped, tap to change"
+                : p?.status === "moved"
+                  ? "moved, tap to change"
+                  : isPast
+                    ? "not a gym day"
+                    : "not a gym day, tap to mark";
+            return (
+              <li key={k} className="flex justify-center pt-4 pb-5">
+                <DayCircle
+                  day={k}
+                  draggable={draggable}
+                  label={`${longName}, ${state}`}
+                  pressed={gym}
+                  onClick={() => {
+                    setFilling(false);
+                    if (open === k) {
+                      setOpen(null);
+                      return;
                     }
-                  }
-                  setDrag({ from: s.from, over: dayAt(e.clientX, e.clientY) });
-                }}
-                onPointerUp={(e) => {
-                  const s = press.current;
-                  press.current = null;
-                  if (!s?.active) return;
-                  // The browser fires a click after a drag; ignore that one.
-                  suppressClick.current = true;
-                  setTimeout(() => {
-                    suppressClick.current = false;
-                  }, 0);
-                  setDrag(null);
-                  const to = dayAt(e.clientX, e.clientY);
-                  if (to) void reschedule(s.from, to);
-                }}
-                onPointerCancel={() => {
-                  press.current = null;
-                  setDrag(null);
-                }}
-                onClick={() => {
-                  if (suppressClick.current) return;
-                  setFilling(false);
-                  if (open === k) {
-                    setOpen(null);
-                    return;
-                  }
-                  setOpen(k);
-                  // Tapping an unmarked date from today on marks it as a gym day.
-                  // A failed write leaves the date unmarked (the live query shows the truth),
-                  // so it is caught here rather than left as an unhandled rejection.
-                  if (!p && !isPast) markGymDay(k).catch(() => {});
-                }}
-                className={circleClass({
-                  gym,
-                  isToday,
-                  isPast,
-                  open: open === k,
-                  target: !!target,
-                  over: !!target && drag?.over === k,
-                  dragging,
-                })}
-              >
-                {/* Weekday letter above and status marker below sit outside the circle. */}
-                <span aria-hidden className="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] font-normal leading-3 text-muted">
-                  {DOW[d.getDay()]}
-                </span>
-                <span>{d.getDate()}</span>
-                <span aria-hidden className="pointer-events-none absolute -bottom-5 left-1/2 h-4 -translate-x-1/2 text-[13px] font-normal leading-4 text-text">
-                  {p?.status === "done" ? "✓" : p?.status === "skipped" ? "–" : p?.status === "moved" ? "→" : routine ? "•" : ""}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                    setOpen(k);
+                    // Tapping an unmarked date from today on marks it as a gym day.
+                    // A failed write leaves the date unmarked (the live query shows the truth),
+                    // so it is caught here rather than left as an unhandled rejection.
+                    if (!p && !isPast) markGymDay(k).catch(() => {});
+                  }}
+                  className={circleClass({
+                    gym,
+                    isToday,
+                    isPast,
+                    open: open === k,
+                    target: !!target,
+                    over: !!target && drag?.over === k,
+                    dragging,
+                  })}
+                >
+                  {/* Weekday letter above and status marker below sit outside the circle. */}
+                  <span aria-hidden className="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] font-normal leading-3 text-muted">
+                    {DOW[d.getDay()]}
+                  </span>
+                  <span>{d.getDate()}</span>
+                  <span aria-hidden className="pointer-events-none absolute -bottom-5 left-1/2 h-4 -translate-x-1/2 text-[13px] font-normal leading-4 text-text">
+                    {p?.status === "done" ? "✓" : p?.status === "skipped" ? "–" : p?.status === "moved" ? "→" : routine ? "•" : ""}
+                  </span>
+                </DayCircle>
+              </li>
+            );
+          })}
+        </ul>
+      </DndContext>
 
       {anyDraggable && !drag && <p className="mt-1 text-[11px] text-muted">Drag a planned day to move it.</p>}
       {drag && (
@@ -328,6 +386,46 @@ export function WeekStrip() {
         />
       )}
     </section>
+  );
+}
+
+/** One round day tile: a drop target always, draggable only when a routine is planned on it. */
+function DayCircle({
+  day,
+  draggable,
+  label,
+  pressed,
+  className,
+  onClick,
+  children,
+}: {
+  day: string;
+  draggable: boolean;
+  label: string;
+  pressed: boolean;
+  className: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  const drag = useDraggable({ id: day, disabled: !draggable });
+  const drop = useDroppable({ id: day });
+  return (
+    <button
+      ref={(el) => {
+        drag.setNodeRef(el);
+        drop.setNodeRef(el);
+      }}
+      data-day={day}
+      aria-label={label}
+      aria-pressed={pressed}
+      aria-describedby={draggable ? drag.attributes["aria-describedby"] : undefined}
+      style={draggable ? { touchAction: "pan-y" } : undefined}
+      {...drag.listeners}
+      onClick={onClick}
+      className={className}
+    >
+      {children}
+    </button>
   );
 }
 

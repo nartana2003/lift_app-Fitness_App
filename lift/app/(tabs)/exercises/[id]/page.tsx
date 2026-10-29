@@ -11,6 +11,7 @@ import { renameExercise } from "@/lib/renames";
 import { safeHttpUrl } from "@/components/routines/MiniWorkoutCard";
 import { deleteCustomExercise, isCustomId } from "@/lib/customExercises";
 import { parseLink } from "@/lib/social/oembed";
+import { tiktokAppSearchUrl } from "@/lib/muscles";
 
 const PLATFORM_NAMES = { tiktok: "TikTok", youtube: "YouTube", instagram: "Instagram" } as const;
 
@@ -71,6 +72,15 @@ export default function ExerciseDetail({ params }: { params: Promise<{ id: strin
           target="_blank"
           rel="noopener noreferrer"
           className="btn w-full mt-4 bg-[#fe2c55] text-white"
+          onClick={(e) => {
+            // Phones: try the TikTok app first; if this page stays in front, open the web search.
+            if (!/iPhone|iPad|Android/i.test(navigator.userAgent)) return;
+            e.preventDefault();
+            window.location.href = tiktokAppSearchUrl(ex.name);
+            window.setTimeout(() => {
+              if (document.visibilityState === "visible") window.open(ex.tiktok_url, "_blank", "noopener,noreferrer");
+            }, 1500);
+          }}
         >
           <svg viewBox="0 0 24 24" className="size-5" fill="currentColor">
             <path d="M16.6 5.82A4.28 4.28 0 0115.54 3h-3.09v12.4a2.59 2.59 0 01-2.59 2.5 2.6 2.6 0 01-2.59-2.6 2.6 2.6 0 013.4-2.47V9.67a5.68 5.68 0 00-.81-.06 5.69 5.69 0 105.69 5.69V9.01a7.34 7.34 0 004.3 1.38V7.3a4.3 4.3 0 01-3.25-1.48z" />

@@ -255,8 +255,8 @@ describe("RoutineList with mini workouts and filters", () => {
     expect(screen.getByText("Push day")).toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "Mini workout: Push day" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "New routine" })).toHaveAttribute("href", "/routines/new");
-    expect(screen.getByText("Generate 3-day plan")).toBeInTheDocument();
-    expect(screen.getByText("Save from link")).toBeInTheDocument();
+    expect(screen.queryByText("Generate 3-day plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Save from link")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Start" })).toHaveLength(3);
   });
 

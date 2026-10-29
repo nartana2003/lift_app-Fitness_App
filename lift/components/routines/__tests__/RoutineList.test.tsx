@@ -126,8 +126,8 @@ describe("RoutineList grouping", () => {
     expect(screen.queryByRole("group", { name: "Unassigned" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("list")).toHaveLength(1);
     expect(screen.getByRole("link", { name: "New routine" })).toHaveAttribute("href", "/routines/new");
-    expect(screen.getByText("Generate 3-day plan")).toBeInTheDocument();
-    expect(screen.getByText("Save from link")).toBeInTheDocument();
+    expect(screen.queryByText("Generate 3-day plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Save from link")).not.toBeInTheDocument();
   });
 
   it("with a split but no links stays ungrouped", async () => {

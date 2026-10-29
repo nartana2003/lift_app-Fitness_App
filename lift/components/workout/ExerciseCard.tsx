@@ -31,12 +31,7 @@ import { useSettings } from "@/lib/settings";
 import { dispNum, fmtWeight } from "@/lib/units";
 import { fmtClock } from "@/lib/restTimer";
 
-export const RIR_OPTIONS = [
-  { v: 3, emoji: "😎", label: "Easy" },
-  { v: 2, emoji: "💪", label: "Good" },
-  { v: 1, emoji: "😤", label: "Hard" },
-  { v: 0, emoji: "🔥", label: "Failure" },
-];
+export const RIR_OPTIONS = [1, 2, 3, 4, 5];
 
 export function ExerciseCard({
   ex,
@@ -215,16 +210,16 @@ export function ExerciseCard({
 
       {rateSet && (
         <div className="mt-2 rounded-xl bg-surface-2 p-2">
-          <p className="text-xs text-muted mb-1.5 px-1">How did the last reps feel?</p>
-          <div className="grid grid-cols-4 gap-1.5">
-            {RIR_OPTIONS.map((o) => (
+          <p className="text-xs text-muted mb-1.5 px-1">How many more reps could you have done?</p>
+          <div className="grid grid-cols-5 gap-1.5">
+            {RIR_OPTIONS.map((n) => (
               <button
-                key={o.v}
-                className="rounded-lg bg-surface border border-border py-1.5 text-xs"
-                onClick={() => updateSet(ex.id, rateSet.id, { rir: o.v })}
+                key={n}
+                className="rounded-lg bg-surface border border-border py-2 text-base font-semibold"
+                aria-label={`${n} more reps`}
+                onClick={() => updateSet(ex.id, rateSet.id, { rir: n })}
               >
-                <span className="block text-base">{o.emoji}</span>
-                {o.label}
+                {n}
               </button>
             ))}
           </div>

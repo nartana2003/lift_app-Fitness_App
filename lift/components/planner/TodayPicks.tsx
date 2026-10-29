@@ -45,6 +45,17 @@ export function lastDoneLabel(days: number | null): string {
   return `last done ${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+/**
+ * Collapsed card subtitle. When the day has muscles but none of them has a
+ * single pick (nothing starred for them), hint at starring instead of
+ * "0 exercises". Unticking every pick keeps the count wording.
+ */
+export function picksSubtitle(dayName: string, ticked: number, slotsPerMuscle: readonly number[]): string {
+  if (ticked === 0 && slotsPerMuscle.length > 0 && slotsPerMuscle.every((n) => n === 0))
+    return `${dayName} · star exercises to get picks`;
+  return `${dayName} · ${ticked} exercise${ticked === 1 ? "" : "s"}`;
+}
+
 const DAY_MS = 864e5;
 const midnight = (t: number) => {
   const d = new Date(t);
@@ -214,7 +225,7 @@ export function TodayPicks() {
 
   const count = ticked.length;
   return (
-    <Collapsible title="Today's exercises" subtitle={`${day.name} · ${count} exercise${count === 1 ? "" : "s"}`}>
+    <Collapsible title="Today's exercises" subtitle={picksSubtitle(day.name, count, rows.map((r) => r.slots.length))}>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex-1 min-w-[9rem] text-xs text-muted">
           Split day

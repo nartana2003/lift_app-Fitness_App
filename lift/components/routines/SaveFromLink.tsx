@@ -219,8 +219,8 @@ export function buildDetailsBody(url: string) {
   return { url };
 }
 
-/** The post's thumbnail for a pasted link, or null when offline, unsupported or the lookup fails. */
-export async function fetchLinkThumbnail(raw: string): Promise<string | null> {
+/** The post's title, thumbnail and creator for a pasted link, or null when offline, unsupported or the lookup fails. */
+export async function fetchLinkDetails(raw: string): Promise<LinkDetails | null> {
   const parsed = parseLink(raw);
   if (!parsed || (typeof navigator !== "undefined" && navigator.onLine === false)) return null;
   try {
@@ -231,10 +231,15 @@ export async function fetchLinkThumbnail(raw: string): Promise<string | null> {
     });
     if (!res.ok) return null;
     const d = parseDetails(await res.json(), parsed);
-    return d && d !== "manual" ? d.thumbnail_url : null;
+    return d && d !== "manual" ? d : null;
   } catch {
     return null;
   }
+}
+
+/** The post's thumbnail for a pasted link, or null when offline, unsupported or the lookup fails. */
+export async function fetchLinkThumbnail(raw: string): Promise<string | null> {
+  return (await fetchLinkDetails(raw))?.thumbnail_url ?? null;
 }
 
 /** Request body in the route's shape. The link is never sent. */
@@ -273,11 +278,12 @@ export async function saveRoutineFromLink(input: SocialRoutineInput): Promise<st
   return saveSocialRoutine(input, "routine");
 }
 
-/** What Save from link stores: a routine (the default) or single exercises. */
-export type SaveAs = "routine" | "exercise";
+/** What Save from link stores: a routine (the default), single exercises, or both (exercises grouped in a routine). */
+export type SaveAs = "routine" | "exercise" | "both";
 export const SAVE_AS_OPTIONS: readonly { value: SaveAs; label: string }[] = [
   { value: "routine", label: "Routine" },
   { value: "exercise", label: "Exercise" },
+  { value: "both", label: "Exercises + routine" },
 ];
 export const DEFAULT_SAVE_AS: SaveAs = "routine";
 
@@ -590,9 +596,24 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
     if (r.saveAs === "exercise") return saveExercises(r);
     const chosen = r.result.exercises.filter((_, i) => r.keep[i]);
     if (chosen.length === 0) return;
+    const both = r.saveAs === "both";
+    if (both && chosen.some((e) => !isExisting(e) && e.muscle_groups.length === 0)) {
+      setState({ ...r, kind: "review", error: MSG_NO_MUSCLE });
+      return;
+    }
     setState({ ...r, kind: "saving" });
     try {
       const d = details && details.url === r.url ? details : null;
+      const thumbnail_url = d ? d.thumbnail_url : await fetchLinkThumbnail(r.url);
+      // Exercises first, so the routine picks them up by name.
+      if (both) {
+        await saveExercisesFromLink({
+          url: r.url,
+          exercises: chosen.map((e) => ({ ...e, name: displayName(e) })),
+          knownNames: allExercises.map((e) => e.name),
+          thumbnail_url,
+        });
+      }
       // Only a day still in the split is linked (it may have been removed meanwhile).
       const dayId = splitDays.some((x) => x.id === r.splitDayId) ? r.splitDayId : "";
       await saveRoutineFromLink({
@@ -601,20 +622,22 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
         url: r.url,
         platform: r.platform,
         exercises: chosen,
-        thumbnail_url: d ? d.thumbnail_url : await fetchLinkThumbnail(r.url),
+        thumbnail_url,
         creator: d?.creator ?? null,
         ...(dayId ? { split_day_id: dayId } : {}),
       });
-      setState({ kind: "saved", message: `Saved ${plainText(r.result.name, MAX_NAME) ?? DEFAULT_NAME} as a routine.` });
+      const label = plainText(r.result.name, MAX_NAME) ?? DEFAULT_NAME;
+      setState({ kind: "saved", message: both ? `Saved the exercises and ${label} as a routine.` : `Saved ${label} as a routine.` });
       resetForm();
-    } catch {
-      setState({ ...r, kind: "review", error: MSG_SAVE_FAILED });
+    } catch (err) {
+      setState({ ...r, kind: "review", error: err instanceof NoMuscleError ? MSG_NO_MUSCLE : MSG_SAVE_FAILED });
     }
   };
 
   const reviewing = state.kind === "review" || state.kind === "saving";
   const kept = reviewing ? state.keep.filter(Boolean).length : 0;
   const asExercise = reviewing && state.saveAs === "exercise";
+  const asBoth = reviewing && state.saveAs === "both";
   const newCount = reviewing ? state.result.exercises.filter((e, i) => state.keep[i] && !isExisting(e)).length : 0;
   const showForm = state.kind === "form" || state.kind === "loading";
 
@@ -778,13 +801,13 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
                       aria-label={`Keep ${name}`}
                     />
                     <span className="text-sm font-semibold flex-1 truncate">{name}</span>
-                    {asExercise && existing ? (
+                    {(asExercise || asBoth) && existing ? (
                       <span className="text-xs text-muted shrink-0">Already in your exercises</span>
                     ) : (
                       e.custom && <span className="text-xs text-muted shrink-0">New exercise</span>
                     )}
                   </label>
-                  {asExercise && !existing && (
+                  {(asExercise || asBoth) && !existing && (
                     <div className="flex flex-wrap gap-1 mt-1" role="group" aria-label={`Muscle groups for ${name}`}>
                       {MUSCLE_GROUPS.map((m) => {
                         const on = e.muscle_groups.includes(m);
@@ -846,7 +869,7 @@ export function SaveFromLink({ initialUrl }: { initialUrl?: string } = {}) {
               disabled={kept === 0 || (asExercise && newCount === 0) || state.kind === "saving"}
               onClick={() => void save(reviewOf(state))}
             >
-              {state.kind === "saving" ? "Saving..." : asExercise ? saveExercisesLabel(newCount) : "Save routine"}
+              {state.kind === "saving" ? "Saving..." : asExercise ? saveExercisesLabel(newCount) : asBoth ? "Save exercises + routine" : "Save routine"}
             </button>
             <button
               type="button"

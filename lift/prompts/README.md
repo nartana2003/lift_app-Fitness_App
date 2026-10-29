@@ -10,7 +10,6 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 | --- | --- | --- |
 | `ask-coach.md` | Ask the coach | Goals: `components/goals/AskCoach.tsx` |
 | `goal-gaps.md` | Catch-up picks for weekly goals | Goals: `components/goals/WeeklyGoalsCard.tsx` |
-| `goal-targets.md` | AI weekly set targets | Goals: `components/goals/AiTargets.tsx` |
 | `overload-suggestion.md` | Progressive overload suggestion | Workout: `components/workout/ExerciseCard.tsx` |
 | `parse-log.md` | Quick log from typed or dictated text | Workout: `components/workout/QuickLog.tsx` |
 | `photo-analysis.md` | Monthly photo comment | Progress, Photos: `components/progress/PhotosTab.tsx` |
@@ -32,12 +31,6 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 - Interaction: the user sees muscles behind their weekly set target and taps to accept suggested exercises on the days left this week.
 - How the prompt helps: it picks exercises from each muscle's candidate list, assigns dates and set counts, and spreads the work across the remaining days.
 - Why a prompt: choosing which exercise on which day, with limits per day and focus muscles first, is a small planning problem with many valid answers. The fixed output shape lets the app check every pick against the candidate list.
-
-## goal-targets
-
-- Interaction: the user asks the app to set weekly hard-set targets and can accept or edit each number.
-- How the prompt helps: it starts from the rule-based target and moves it only for a clear reason (recent volume, split, focus muscles), with a one-line explanation per muscle.
-- Why a prompt: the rule target ignores context such as a muscle the split never trains. The model weighs that context and explains the number, while the allowed range keeps it sane.
 
 ## overload-suggestion
 

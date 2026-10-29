@@ -165,10 +165,11 @@ describe("ExerciseCard: logging a set", () => {
     await seedActive([set("a", { weight: 60, reps: 10 })]);
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Complete set" }));
-    expect(await screen.findByText("How did the last reps feel?")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Good/ }));
+    expect(await screen.findByText("How many more reps could you have done?")).toBeInTheDocument();
+    for (const n of [1, 2, 3, 4, 5]) expect(screen.getByRole("button", { name: `${n} more reps` })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "2 more reps" }));
     await waitFor(async () => expect((await liveSets())[0].rir).toBe(2));
-    await waitFor(() => expect(screen.queryByText("How did the last reps feel?")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("How many more reps could you have done?")).toBeNull());
   });
 
   it("undo un-ticks a done set", async () => {

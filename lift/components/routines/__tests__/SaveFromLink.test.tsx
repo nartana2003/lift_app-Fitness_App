@@ -416,8 +416,8 @@ describe("RoutineList", () => {
     render(<RoutineList />);
     expect(await screen.findByRole("link", { name: "New routine" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "New routine" })).toHaveAttribute("href", "/routines/new");
-    expect(screen.getByText("Generate 3-day plan")).toBeInTheDocument();
-    expect(screen.getByText("Save from link")).toBeInTheDocument();
+    expect(screen.queryByText("Generate 3-day plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Save from link")).not.toBeInTheDocument();
   });
 });
 
@@ -662,8 +662,8 @@ describe("SaveFromLink Fetch details while pending", () => {
 // ---------- SOC-06: Save as Routine or Exercise ----------
 
 describe("Save as options", () => {
-  it("offers exactly Routine (the default) and Exercise", () => {
-    expect(SAVE_AS_OPTIONS.map((o) => o.label)).toEqual(["Routine", "Exercise"]);
+  it("offers Routine (the default), Exercise and Exercises + routine", () => {
+    expect(SAVE_AS_OPTIONS.map((o) => o.label)).toEqual(["Routine", "Exercise", "Exercises + routine"]);
     expect(DEFAULT_SAVE_AS).toBe("routine");
     expect(saveExercisesLabel(1)).toBe("Save 1 exercise");
     expect(saveExercisesLabel(2)).toBe("Save 2 exercises");
@@ -776,7 +776,7 @@ describe("SaveFromLink Save as", () => {
     expect(screen.queryByText(/as a mini workout/)).toBeNull();
     fillForm();
     await screen.findByRole("list", { name: "Imported exercises" });
-    expect(screen.getAllByRole("radio").map((r) => r.getAttribute("value"))).toEqual(["routine", "exercise"]);
+    expect(screen.getAllByRole("radio").map((r) => r.getAttribute("value"))).toEqual(["routine", "exercise", "both"]);
     expect(screen.queryByRole("button", { name: /mini workout/i })).toBeNull();
     expect(screen.queryByText(/mini workout/i)).toBeNull();
   });
@@ -844,6 +844,34 @@ describe("SaveFromLink Save as", () => {
     expect(screen.getByRole("button", { name: "Save 0 exercises" })).toBeDisabled();
     expect(await db.custom_exercises.count()).toBe(1);
     expect(MSG_NOTHING_NEW).toBe("These are already in your exercises.");
+  });
+
+  it("Exercises + routine saves each new move as an exercise with the link, then a routine using them", async () => {
+    await review();
+    fireEvent.click(screen.getByRole("radio", { name: "Exercises + routine" }));
+    // Muscle chips for the new move and sets and reps for the routine.
+    expect(screen.getByRole("group", { name: "Muscle groups for Hollow hold" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Sets for Crunch")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save exercises + routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved the exercises and Ab finisher as a routine.");
+    const custom = await db.custom_exercises.toArray();
+    expect(custom).toHaveLength(1);
+    expect(custom[0]).toMatchObject({ name: "Hollow hold", video_url: LINK });
+    const saved = await listRoutines();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ kind: "routine", source: "social", source_url: LINK });
+    expect(saved[0].exercises.map((x) => x.exercise_id)).toContain(custom[0].id);
+  });
+
+  it("Exercises + routine writes nothing when a new move has no muscle group", async () => {
+    await review();
+    fireEvent.click(screen.getByRole("radio", { name: "Exercises + routine" }));
+    const group = screen.getByRole("group", { name: "Muscle groups for Hollow hold" });
+    fireEvent.click(within(group).getByRole("button", { name: "Abs/Core" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save exercises + routine" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(MSG_NO_MUSCLE);
+    expect(await db.custom_exercises.count()).toBe(0);
+    expect(await listRoutines()).toEqual([]);
   });
 
   it("switching back to Routine shows sets and reps and saves a routine", async () => {

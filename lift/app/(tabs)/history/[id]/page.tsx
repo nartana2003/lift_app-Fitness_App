@@ -4,7 +4,6 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { PageHeader } from "@/components/PageHeader";
-import { RIR_OPTIONS } from "@/components/workout/ExerciseCard";
 import { useCatalogue } from "@/lib/catalogue";
 import { db, type SetRow } from "@/lib/offline/db";
 import { deleteWorkout, enqueue } from "@/lib/offline/sync";
@@ -119,7 +118,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   ) : (
                     <span className="flex-1">{dispNum(s.weight, unit)}{unit} × {s.reps}</span>
                   )}
-                  {s.rir != null && <span title="Effort">{RIR_OPTIONS.find((o) => o.v === s.rir)?.emoji}</span>}
+                  {s.rir != null && <span className="text-xs text-muted" title="Reps in reserve">RIR {s.rir}</span>}
                 </li>
               ))}
             </ul>

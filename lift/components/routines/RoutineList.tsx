@@ -10,8 +10,6 @@ import { useSplit, type Split } from "@/lib/splits";
 import { routinesForDay, splitDayIds, unassignedRoutines } from "@/lib/splitRoutines";
 import { startWorkout } from "@/lib/workout";
 import { db } from "@/lib/offline/db";
-import { GeneratePlan } from "./GeneratePlan";
-import { SaveFromLink } from "./SaveFromLink";
 import {
   MiniWorkoutCard,
   NO_FILTER,
@@ -239,8 +237,6 @@ export function RoutineList() {
         </>
       )}
 
-      <GeneratePlan />
-      <SaveFromLink />
     </section>
   );
 }

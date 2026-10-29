@@ -556,7 +556,7 @@ describe("GoalsSection with CoachSetup", () => {
     render(<GoalsSection />);
     expect(screen.getByText("What are you training for?")).toBeInTheDocument();
     expect(screen.getByText("Weekly set targets")).toBeInTheDocument();
-    expect(screen.getByText("Suggest weekly targets")).toBeInTheDocument();
+    expect(screen.queryByText("Suggest weekly targets")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Set up with coach" }));
     expect(screen.getByRole("region", { name: "Coach setup" })).toBeInTheDocument();
   });

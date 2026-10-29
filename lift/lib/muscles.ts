@@ -88,3 +88,8 @@ export function mapEquipment(dbEquipment: string | null): Equipment {
 export function tiktokUrl(name: string): string {
   return `https://www.tiktok.com/search?q=${encodeURIComponent(`${name} exercise form`)}`;
 }
+
+/** The TikTok app's own search link (undocumented scheme; callers fall back to tiktokUrl). */
+export function tiktokAppSearchUrl(name: string): string {
+  return `snssdk1233://search?keyword=${encodeURIComponent(`${name} exercise form`)}`;
+}

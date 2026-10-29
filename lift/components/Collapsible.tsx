@@ -8,17 +8,20 @@ export function Collapsible({
   subtitle,
   icon,
   defaultOpen = false,
+  grouped = false,
   children,
 }: {
   title: string;
   subtitle?: string;
   icon?: React.ReactNode;
   defaultOpen?: boolean;
+  /** Sits inside a shared card with the others (no card of its own, divider above). */
+  grouped?: boolean;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="card mb-2 overflow-hidden">
+    <section className={grouped ? "overflow-hidden border-t border-border first:border-t-0" : "card mb-2 overflow-hidden"}>
       <button
         type="button"
         className="w-full flex items-center gap-3 px-4 py-3.5 text-left"

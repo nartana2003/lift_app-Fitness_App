@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { compare, daysLeftInWeek, delta, goalProgress, startOfWeek } from "../stats";
 import { applySet, bestsFromHistory, e1rm, emptyBests, isVolumePr, setPrs } from "../prs";
 import { formatSets, parseRepRange, suggest } from "../overload";
-import { mapEquipment, mapMuscles, tiktokUrl } from "../muscles";
+import { mapEquipment, mapMuscles, tiktokAppSearchUrl, tiktokUrl } from "../muscles";
 
 describe("stats", () => {
   it("computes deltas incl. divide-by-zero", () => {
@@ -123,6 +123,7 @@ describe("muscle + equipment mapping", () => {
     expect(mapEquipment(null)).toBe("Bodyweight");
     expect(mapEquipment("e-z curl bar")).toBe("Barbell");
     expect(tiktokUrl("Barbell Squat")).toBe("https://www.tiktok.com/search?q=Barbell%20Squat%20exercise%20form");
+    expect(tiktokAppSearchUrl("Barbell Squat")).toBe("snssdk1233://search?keyword=Barbell%20Squat%20exercise%20form");
   });
 });
 

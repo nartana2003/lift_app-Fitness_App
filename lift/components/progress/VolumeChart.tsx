@@ -30,7 +30,7 @@ export function VolumeChart({ workouts, unit, weekStart }: { workouts: WorkoutLi
 
   return (
     <section className="card p-3">
-      <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <Segmented
           value={metric}
           onChange={setMetric}

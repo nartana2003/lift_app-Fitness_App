@@ -14,15 +14,12 @@ import {
   type GoalType,
 } from "@/lib/goals";
 import { useSplit } from "@/lib/splits";
-import { useSettings } from "@/lib/settings";
-import { AiTargets } from "./AiTargets";
 import { CoachSetup } from "./CoachSetup";
 
 /** Goals + per-muscle weekly set targets. Lives in Profile; saves as you tap. */
 export function GoalsSection() {
   const goals = useGoals();
   const split = useSplit();
-  const { weekStart } = useSettings();
   const [showTargets, setShowTargets] = useState(false);
   const targets = allTargets(goals);
   const totalSets = Object.values(targets).reduce((a, n) => a + n, 0);
@@ -122,8 +119,6 @@ export function GoalsSection() {
           </p>
         )}
       </div>
-
-      <AiTargets goals={goals} split={split} weekStart={weekStart} />
     </div>
   );
 }
