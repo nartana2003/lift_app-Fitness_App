@@ -14,7 +14,11 @@ import { splitDayIds, splitHasDayIds, withDayIds } from "./splitRoutines";
  * reorders and muscle edits. Routines link to it via RoutineRow.split_day_id.
  */
 export type SplitDay = { name: string; muscles: MuscleGroup[]; id?: string };
-export type Split = { name: string; days: SplitDay[] };
+/**
+ * `builtFor` is the goals fingerprint (goalsFingerprint in lib/goals.ts) the
+ * Coach built or optimised this split for. Absent on a split made by hand.
+ */
+export type Split = { name: string; days: SplitDay[]; builtFor?: string };
 
 /** Ready-made splits to start from. */
 export const PRESETS: Split[] = [
