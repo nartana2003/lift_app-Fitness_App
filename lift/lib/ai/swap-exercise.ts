@@ -25,7 +25,7 @@
 import type { AiRequest } from "./client";
 import type { Exercise } from "../exercises";
 import type { Equipment } from "../muscles";
-import { ALL_SWAP_REASONS, SWAP_REASONS, swapOptions, type SwapReason } from "../swap";
+import { SWAP_REASONS, swapOptions, type SwapReason } from "../swap";
 import { cleanNote, equipmentOk } from "./generate-routines";
 import { equipmentList, escapeForTag, isObj, onlyKeys, parseJsonText } from "./validate";
 import { loadPrompt } from "../../prompts/load";
@@ -50,15 +50,13 @@ export const REASONS: readonly SwapReason[] = SWAP_REASONS.map((r) => r.v);
 
 /** What each reason asks of the alternatives. Fixed text, sent as data. */
 export const REASON_DETAIL: Record<SwapReason, string> = {
-  difficult: "This exercise is too hard for the user right now. Prefer easier, more stable alternatives such as machines or cables, or a simpler variation.",
-  discomfort: "This exercise causes the user discomfort. Prefer controlled, joint-friendly alternatives such as machines or cables. Give no medical advice.",
   busy: "The equipment for this exercise is taken right now. Prefer alternatives on different equipment that can be done now.",
   equipment: "The user does not have the equipment for this exercise. Prefer alternatives needing little or no equipment.",
   hurts: "This exercise is uncomfortable for the user today. Prefer controlled, joint-friendly alternatives such as machines or cables. Give no medical advice.",
   variety: "The user wants a different exercise for the same muscles.",
 };
 
-const isReason = (v: unknown): v is SwapReason => typeof v === "string" && (ALL_SWAP_REASONS as readonly string[]).includes(v);
+const isReason = (v: unknown): v is SwapReason => typeof v === "string" && (REASONS as readonly string[]).includes(v);
 
 // ---------------------------------------------------------------------------
 // Input
@@ -152,12 +150,9 @@ export function ruleReason(target: Exercise, alt: Exercise, reason: SwapReason):
     case "equipment":
       return alt.equipment === "Bodyweight" ? `Trains ${muscles} with no equipment.` : `Trains ${muscles} with only ${alt.equipment}.`;
     case "hurts":
-    case "discomfort":
       return alt.equipment === "Machine/Cable"
         ? `Trains ${muscles} on a guided path that is easier to control.`
         : `Trains ${muscles} with a different movement.`;
-    case "difficult":
-      return alt.equipment === "Machine/Cable" || alt.level === "beginner" ? `Trains ${muscles} in a way that is easier to do well.` : `A simpler way to train ${muscles}.`;
     case "variety":
       return `A different way to train ${muscles}.`;
   }

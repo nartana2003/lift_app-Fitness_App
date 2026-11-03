@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ExercisePicker } from "@/components/workout/ExercisePicker";
 import { ExerciseDemo } from "@/components/ExerciseDemo";
-import { ReplaceSheet } from "@/components/coach/ReplaceSheet";
 import { useCatalogue } from "@/lib/catalogue";
 import { createRoutine, deleteRoutine, getRoutine, updateRoutine, DEFAULT_REPS, DEFAULT_SETS, type RoutineExerciseInput } from "@/lib/routines";
 import { useSplit } from "@/lib/splits";
@@ -46,8 +45,6 @@ export function RoutineEditor({
   const [name, setName] = useState(initialName);
   const [rows, setRows] = useState<Row[]>(toRows(initialExercises));
   const [picker, setPicker] = useState(false);
-  // Index of the row whose options menu is open.
-  const [menuAt, setMenuAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const split = useSplit();
   // The split day this routine belongs to ("" = none), and the link it started with.
@@ -155,7 +152,6 @@ export function RoutineEditor({
                 <div className="flex flex-col gap-1 text-muted">
                   <button onClick={() => move(i, -1)} aria-label="Move up" className="px-1 leading-none">↑</button>
                   <button onClick={() => move(i, 1)} aria-label="Move down" className="px-1 leading-none">↓</button>
-                  <button onClick={() => setMenuAt(i)} aria-label={`Options for ${ex?.name ?? r.exercise_id}`} className="px-1 leading-none font-bold">•••</button>
                 </div>
               </div>
               <div className="grid grid-cols-[auto_4rem_auto_6rem_1fr] items-center gap-2 mt-2 text-sm">
@@ -202,18 +198,6 @@ export function RoutineEditor({
         >
           Delete routine
         </button>
-      )}
-
-      {menuAt !== null && rows[menuAt] && get(rows[menuAt].exercise_id) && (
-        <ReplaceSheet
-          current={get(rows[menuAt].exercise_id)!}
-          exclude={rows.map((r) => r.exercise_id)}
-          onClose={() => setMenuAt(null)}
-          onPick={(e) => {
-            patch(menuAt, { exercise_id: e.id });
-            setMenuAt(null);
-          }}
-        />
       )}
 
       {picker && (
