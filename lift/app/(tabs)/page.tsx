@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { startWorkout } from "@/lib/workout";
 import { HistoryList } from "@/components/HistoryList";
-import { RoutineList } from "@/components/routines/RoutineList";
 import { WeekStrip } from "@/components/planner/WeekStrip";
 import { TodayPicks } from "@/components/planner/TodayPicks";
 import { db } from "@/lib/offline/db";
@@ -70,8 +69,6 @@ export default function Home() {
       <div className="mt-4">
         <TodayPicks />
       </div>
-
-      <RoutineList />
 
       <HistoryList />
     </>

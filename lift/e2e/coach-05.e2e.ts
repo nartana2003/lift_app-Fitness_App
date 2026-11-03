@@ -9,7 +9,7 @@ test("evidence search on the unavailable path shows the rule suggestions and the
   await page.goto("/coach");
   await page.waitForLoadState("networkidle");
 
-  await page.getByRole("button", { name: /^Goals/ }).click();
+  await page.getByRole("button", { name: /^Build a split/ }).click();
   await page.getByRole("button", { name: "Set up with coach" }).click();
 
   const panel = page.getByRole("region", { name: "Coach setup" });

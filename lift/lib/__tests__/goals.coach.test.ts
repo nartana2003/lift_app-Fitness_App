@@ -10,7 +10,9 @@ import {
   mergeGoals,
   normalizeGoals,
   saveGoals,
+  setPriority,
   setTarget,
+  toggleLimitation,
   type Goals,
 } from "../goals";
 import { MUSCLE_GROUPS } from "../muscles";
@@ -159,5 +161,26 @@ describe("goalsFingerprint and goalsChanged", () => {
     const s = (await db.meta.get("split"))?.value as { builtFor?: string; days: { id?: string }[] };
     expect(s.builtFor).toBe("fp");
     expect(s.days[0].id).toBeTruthy();
+  });
+});
+
+describe("setPriority and toggleLimitation", () => {
+  it("quick successive changes do not overwrite each other", async () => {
+    await Promise.all([setPriority("Biceps", "high"), setPriority("Chest", "low"), toggleLimitation("Knee"), toggleLimitation("Wrist")]);
+    const s = await stored();
+    expect(s?.priorities).toEqual({ Biceps: "high", Chest: "low" });
+    expect(s?.focusMuscles).toEqual(["Biceps"]);
+    expect([...(s?.limitations ?? [])].sort()).toEqual(["Knee", "Wrist"]);
+  });
+
+  it("clears a priority with null and unticks a limit by toggling again", async () => {
+    await setPriority("Biceps", "high");
+    await setPriority("Biceps", null);
+    await toggleLimitation("Knee");
+    await toggleLimitation("Knee");
+    const s = await stored();
+    expect(s?.priorities).toEqual({});
+    expect(s?.focusMuscles).toEqual([]);
+    expect(s?.limitations).toEqual([]);
   });
 });

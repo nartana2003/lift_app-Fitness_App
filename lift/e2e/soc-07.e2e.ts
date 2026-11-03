@@ -37,8 +37,9 @@ test("Exercises + routine saves each move as an exercise with the link and a rou
   await page.getByText("Hollow hold zq").first().click();
   await expect(page.getByText("Watch original")).toBeVisible();
 
-  // And the routine is listed on Home.
-  await page.goto("/");
+  // And the routine is listed in My Routines (Exercises > Routines since NAV-01).
+  await page.goto("/exercises?view=routines");
+  await page.waitForLoadState("networkidle");
   await expect(page.getByText("Core finisher")).toBeVisible();
 });
 

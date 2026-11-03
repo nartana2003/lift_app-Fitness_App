@@ -13,6 +13,8 @@ export type Experience = "beginner" | "intermediate" | "advanced";
 export type Priority = "high" | "medium" | "low";
 
 export const PRIORITY_LABELS: Record<Priority, string> = { high: "High", medium: "Medium", low: "Low" };
+/** Most exercises on the never-suggest list (the AI route accepts the same number). */
+export const MAX_DISLIKED = 100;
 /** Most typed goals the user can rank. */
 export const MAX_RANKED_GOALS = 3;
 
@@ -171,5 +173,43 @@ export async function setTarget(muscle: MuscleGroup, sets: number | null) {
     if (sets === null) delete targets[muscle];
     else targets[muscle] = Math.max(0, Math.min(40, Math.round(sets)));
     await db.meta.put({ key: KEY, value: { ...cur, targets } });
+  });
+}
+
+/** Never suggest this exercise again (Coach and swaps). Capped at MAX_DISLIKED. */
+export async function dislikeExercise(id: string) {
+  await db.transaction("rw", db.meta, async () => {
+    const cur = normalizeGoals((await db.meta.get(KEY))?.value as Partial<Goals> | undefined);
+    if (cur.dislikedIds.includes(id)) return;
+    await db.meta.put({ key: KEY, value: mergeGoals(cur, { dislikedIds: [...cur.dislikedIds, id].slice(-MAX_DISLIKED) }) });
+  });
+}
+
+/** Allow a disliked exercise to be suggested again. */
+export async function undislikeExercise(id: string) {
+  await db.transaction("rw", db.meta, async () => {
+    const cur = normalizeGoals((await db.meta.get(KEY))?.value as Partial<Goals> | undefined);
+    if (!cur.dislikedIds.includes(id)) return;
+    await db.meta.put({ key: KEY, value: mergeGoals(cur, { dislikedIds: cur.dislikedIds.filter((x) => x !== id) }) });
+  });
+}
+
+/** Set (or clear, with null) one muscle's priority. Reads the latest goals, so quick changes do not overwrite each other. */
+export async function setPriority(muscle: MuscleGroup, priority: Priority | null) {
+  await db.transaction("rw", db.meta, async () => {
+    const cur = normalizeGoals((await db.meta.get(KEY))?.value as Partial<Goals> | undefined);
+    const priorities = { ...cur.priorities };
+    if (priority) priorities[muscle] = priority;
+    else delete priorities[muscle];
+    await db.meta.put({ key: KEY, value: mergeGoals(cur, { priorities }) });
+  });
+}
+
+/** Tick or untick one movement limit. Reads the latest goals, like setPriority. */
+export async function toggleLimitation(limit: Limitation) {
+  await db.transaction("rw", db.meta, async () => {
+    const cur = normalizeGoals((await db.meta.get(KEY))?.value as Partial<Goals> | undefined);
+    const limitations = cur.limitations.includes(limit) ? cur.limitations.filter((x) => x !== limit) : [...cur.limitations, limit];
+    await db.meta.put({ key: KEY, value: mergeGoals(cur, { limitations }) });
   });
 }

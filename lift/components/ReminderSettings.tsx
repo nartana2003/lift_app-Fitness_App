@@ -153,7 +153,7 @@ export function ReminderSettings() {
 
       <Switch
         label="You're behind nudge"
-        hint="If you're under your weekly sessions goal by Thursday"
+        hint="On Thursday, if any muscle is short of its weekly set target"
         on={r.behindNudge}
         onChange={(v) => void updateReminders((cur) => ({ ...cur, behindNudge: v }))}
       />

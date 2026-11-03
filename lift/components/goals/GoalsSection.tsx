@@ -13,13 +13,10 @@ import {
   type Experience,
   type GoalType,
 } from "@/lib/goals";
-import { useSplit } from "@/lib/splits";
-import { CoachSetup } from "./CoachSetup";
 
-/** Goals + per-muscle weekly set targets. Lives in Profile; saves as you tap. */
+/** Goals + per-muscle weekly set targets. Lives on the Coach tab; saves as you tap. */
 export function GoalsSection() {
   const goals = useGoals();
-  const split = useSplit();
   const [showTargets, setShowTargets] = useState(false);
   const targets = allTargets(goals);
   const totalSets = Object.values(targets).reduce((a, n) => a + n, 0);
@@ -33,8 +30,6 @@ export function GoalsSection() {
 
   return (
     <div className="space-y-4">
-      <CoachSetup goals={goals} split={split} />
-
       <Field label="What are you training for?">
         <div className="grid grid-cols-2 gap-2">
           {(Object.keys(GOAL_LABELS) as GoalType[]).map((t) => (

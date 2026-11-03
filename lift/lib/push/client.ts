@@ -9,7 +9,7 @@
 
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { supabaseConfigured } from "@/lib/supabase/configured";
-import type { ReminderSettings } from "@/lib/reminders";
+import { localDateKey, normalizeReminders, updateReminders, type ReminderSettings } from "@/lib/reminders";
 import { urlBase64ToUint8Array } from "./endpoint";
 
 export const SUBSCRIBE_URL = "/api/push/subscribe";
@@ -55,9 +55,35 @@ export function browserTimeZone(): string {
   }
 }
 
+type Pauses = Pick<ReminderSettings, "skipDate" | "snoozedUntil">;
+
+/**
+ * Skip / Snooze to save, given this device's values and the server's
+ * (profiles.reminders, which "Skip today" / "Snooze" on a notification
+ * writes). An active local value wins. Otherwise the server's skipDate is
+ * kept when it is today or later, and its snoozedUntil while it is still in
+ * the future, unless it is what this device last saved (then the user
+ * cleared it here on purpose).
+ */
+export function mergeServerPauses(local: Pauses, server: unknown, now: Date, lastSaved: Pauses | null): Pauses {
+  const s = normalizeReminders(server);
+  const skipLive = (d: string | null): d is string => !!d && d >= localDateKey(now);
+  const snoozeLive = (t: string | null): t is string => !!t && Date.parse(t) > now.getTime();
+  const keepSkip = !skipLive(local.skipDate) && skipLive(s.skipDate) && s.skipDate !== lastSaved?.skipDate;
+  const keepSnooze = !snoozeLive(local.snoozedUntil) && snoozeLive(s.snoozedUntil) && s.snoozedUntil !== lastSaved?.snoozedUntil;
+  return {
+    skipDate: keepSkip ? s.skipDate : local.skipDate,
+    snoozedUntil: keepSnooze ? s.snoozedUntil : local.snoozedUntil,
+  };
+}
+
+// What this tab last saved to the profile, per user (see mergeServerPauses).
+let lastSaved: (Pauses & { uid: string }) | null = null;
+
 /**
  * Copies the reminder schedule to the signed-in user's profile so the
- * /api/cron/reminders job can use it. Returns true when saved.
+ * /api/cron/reminders job can use it. An active server-side skip or snooze
+ * is kept and copied into this device's reminders. Returns true when saved.
  */
 export async function syncReminderSettings(r: ReminderSettings): Promise<boolean> {
   if (!supabaseConfigured || (typeof navigator !== "undefined" && !navigator.onLine)) return false;
@@ -66,14 +92,24 @@ export async function syncReminderSettings(r: ReminderSettings): Promise<boolean
     const { data } = await supabase.auth.getSession();
     const uid = data.session?.user.id;
     if (!uid) return false;
+    const read = await supabase.from("profiles").select("reminders").eq("id", uid).maybeSingle();
+    if (read.error) return false; // never overwrite a skip or snooze we could not read
+    const server = (read.data as { reminders?: unknown } | null)?.reminders ?? null;
+    const pauses = mergeServerPauses(r, server, new Date(), lastSaved?.uid === uid ? lastSaved : null);
+    const merged = { ...r, ...pauses };
     const { error } = await supabase.from("profiles").upsert({
       id: uid,
-      reminders: r,
+      reminders: merged,
       reminder_days: r.days,
       reminder_time: r.time,
       timezone: browserTimeZone(),
     });
-    return !error;
+    if (error) return false;
+    lastSaved = { uid, ...pauses };
+    if (pauses.skipDate !== r.skipDate || pauses.snoozedUntil !== r.snoozedUntil) {
+      await updateReminders((cur) => ({ ...cur, ...pauses }));
+    }
+    return true;
   } catch {
     return false;
   }

@@ -149,7 +149,7 @@ describe("RoutineEditor: create", () => {
     expect(rows()).toHaveLength(0);
   });
 
-  it("creates the routine in Dexie with the chosen targets, then goes Home", async () => {
+  it("creates the routine in Dexie with the chosen targets, then goes back to the routines list", async () => {
     render(<RoutineEditor />);
     fireEvent.change(nameInput(), { target: { value: "  Leg day  " } });
     addSquatAndRow();
@@ -157,7 +157,7 @@ describe("RoutineEditor: create", () => {
     fireEvent.change(repsInput(0), { target: { value: "3-5" } });
     fireEvent.click(screen.getByRole("button", { name: "Create routine" }));
 
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     const all = await listRoutines();
     expect(all).toHaveLength(1);
     expect(all[0].name).toBe("Leg day");
@@ -213,7 +213,7 @@ describe("RoutineEditor: edit", () => {
     fireEvent.click(within(rows()[2]).getByRole("button", { name: "Remove" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     const all = await listRoutines();
     expect(all).toHaveLength(1);
     expect(all[0].id).toBe(id);
@@ -232,7 +232,7 @@ describe("RoutineEditor: edit", () => {
     addSquatAndRow();
     expect(rowNames()).toEqual(["Bench Press", "Back Squat", "Barbell Row"]);
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     expect((await getRoutine(id))!.exercises.map((e) => e.exercise_id)).toEqual(["bench", "squat", "row"]);
   });
 
@@ -242,7 +242,7 @@ describe("RoutineEditor: edit", () => {
     vi.stubGlobal("confirm", confirm);
     await renderEdit(id);
     fireEvent.click(screen.getByRole("button", { name: "Delete routine" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(await getRoutine(id)).toBeUndefined();
     expect(await db.routine_exercises.count()).toBe(0);
@@ -287,7 +287,7 @@ describe("RoutineEditor: reorder", () => {
     moveDown(0); // squat, bench, row
     moveDown(1); // squat, row, bench
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     const r = (await getRoutine(id))!;
     expect(r.exercises.map((e) => [e.exercise_id, e.position, e.target_sets, e.target_reps])).toEqual([
       ["squat", 0, 3, "8-12"],
@@ -303,7 +303,7 @@ describe("RoutineEditor: reorder", () => {
     moveUp(1);
     expect(rowNames()).toEqual(["Barbell Row", "Back Squat"]);
     fireEvent.click(screen.getByRole("button", { name: "Create routine" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     const [r] = await listRoutines();
     expect(r.exercises.map((e) => e.exercise_id)).toEqual(["row", "squat"]);
   });
@@ -349,7 +349,7 @@ describe("RoutineEditor: Belongs to (split day link)", () => {
     fireEvent.change(nameInput(), { target: { value: "Push A" } });
     addSquatAndRow();
     fireEvent.click(screen.getByRole("button", { name: "Create routine" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     const [r] = await listRoutines();
     expect(r.split_day_id).toBe("push");
   });
@@ -363,7 +363,7 @@ describe("RoutineEditor: Belongs to (split day link)", () => {
     fireEvent.change(nameInput(), { target: { value: "X" } });
     addSquatAndRow();
     fireEvent.click(screen.getByRole("button", { name: "Create routine" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     const [r] = await listRoutines();
     expect(r.split_day_id).toBeUndefined();
   });
@@ -375,7 +375,7 @@ describe("RoutineEditor: Belongs to (split day link)", () => {
     fireEvent.change(nameInput(), { target: { value: "Free" } });
     addSquatAndRow();
     fireEvent.click(screen.getByRole("button", { name: "Create routine" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     expect((await listRoutines())[0].split_day_id).toBeUndefined();
   });
 
@@ -387,7 +387,7 @@ describe("RoutineEditor: Belongs to (split day link)", () => {
     fireEvent.change(belongsTo(), { target: { value: "legs" } });
     expect(screen.queryByText(/Suggested focus/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     expect((await getRoutine(id))!.split_day_id).toBe("legs");
 
     cleanup();
@@ -396,7 +396,7 @@ describe("RoutineEditor: Belongs to (split day link)", () => {
     await waitFor(() => expect(belongsTo().value).toBe("legs"));
     fireEvent.change(belongsTo(), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     const r = (await getRoutine(id))!;
     expect(r.split_day_id).toBeNull();
     expect(r.exercises.map((e) => e.exercise_id)).toEqual(["bench"]);
@@ -409,7 +409,7 @@ describe("RoutineEditor: Belongs to (split day link)", () => {
     await waitFor(() => expect(belongsTo().value).toBe("push"));
     fireEvent.change(nameInput(), { target: { value: "Push B" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/exercises?view=routines"));
     const r = (await getRoutine(id))!;
     expect(r.name).toBe("Push B");
     expect(r.split_day_id).toBe("push");

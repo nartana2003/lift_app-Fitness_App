@@ -70,7 +70,7 @@ export function groupRoutinesBySplit<T extends { id: string; created_at: string;
   return groups;
 }
 
-/** "My routines" on Home: tap one to start it with your last weights pre-filled. */
+/** "My routines" on the Exercises tab (Routines view): tap one to start it with your last weights pre-filled. */
 export function RoutineList() {
   const router = useRouter();
   const { get } = useCatalogue();

@@ -2,7 +2,8 @@ import { test, expect } from "@playwright/test";
 
 // LINK-02: build a split day in Coach > My split, attach an existing
 // (unassigned) routine to it, then see that routine grouped under the day on
-// Home. The routine is seeded straight into IndexedDB. No AI involved.
+// the routines list (Home before NAV-01, now Exercises > Routines). The routine
+// is seeded straight into IndexedDB. No AI involved.
 test("attach a routine to a split day and see it grouped on Home", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -61,7 +62,7 @@ test("attach a routine to a split day and see it grouped on Home", async ({ page
   await expect(day.getByText("E2E Upper")).toBeVisible();
   await expect(day.getByRole("button", { name: "Start" })).toBeVisible();
 
-  await page.goto("/");
+  await page.goto("/exercises?view=routines");
   await page.waitForLoadState("networkidle");
   const group = page.getByRole("group", { name: "Day 1", exact: true }).filter({ hasText: "E2E Upper" });
   await expect(group.getByRole("heading", { name: "Day 1" })).toBeVisible();

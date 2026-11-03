@@ -550,14 +550,13 @@ describe("CoachSetup panel", () => {
   });
 });
 
-describe("GoalsSection with CoachSetup", () => {
-  it("keeps the existing controls and adds the Set up with coach button", async () => {
+describe("GoalsSection without CoachSetup", () => {
+  it("keeps the existing controls; the Set up with coach wizard now lives in Coach > Build a split", async () => {
     mockFetch();
     render(<GoalsSection />);
     expect(screen.getByText("What are you training for?")).toBeInTheDocument();
     expect(screen.getByText("Weekly set targets")).toBeInTheDocument();
     expect(screen.queryByText("Suggest weekly targets")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Set up with coach" }));
-    expect(screen.getByRole("region", { name: "Coach setup" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set up with coach" })).toBeNull();
   });
 });

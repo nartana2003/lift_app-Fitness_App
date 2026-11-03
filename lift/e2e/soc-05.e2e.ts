@@ -46,7 +46,8 @@ test("mini workout: add to today, then start on its own", async ({ page }) => {
     db.close();
   });
 
-  await page.reload();
+  // NAV-01: the routines list lives on Exercises > Routines.
+  await page.goto("/exercises?view=routines");
   await page.waitForLoadState("networkidle");
 
   const card = page.getByRole("article", { name: "Mini workout: E2E Ab finisher" });

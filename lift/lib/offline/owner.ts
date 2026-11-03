@@ -68,6 +68,7 @@ export const ACCOUNT_META_KEYS = [
   "plateau_fix_applied",
   "plateau_dismissed",
   "split",
+  "split_undo",
   "goals",
   "favorites",
 ] as const;

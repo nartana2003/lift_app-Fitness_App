@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// SOC-04: a saved mini workout shows as a card on Home with its platform,
+// SOC-04: a saved mini workout shows as a card in My Routines with its platform,
 // creator and a link to the original, and the platform filter hides the
 // other routines without deleting them. Seeds straight into IndexedDB.
 const LINK = "https://www.tiktok.com/@coach/video/123";
@@ -64,7 +64,8 @@ test("mini workout card and platform filter", async ({ page }) => {
     db.close();
   }, LINK);
 
-  await page.reload();
+  // NAV-01: the routines list lives on Exercises > Routines.
+  await page.goto("/exercises?view=routines");
   await page.waitForLoadState("networkidle");
 
   const card = page.getByRole("article", { name: "Mini workout: E2E Core finisher" });

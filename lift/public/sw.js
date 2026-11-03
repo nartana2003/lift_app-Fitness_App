@@ -98,7 +98,7 @@ self.addEventListener("push", (event) => {
       icon: "/icons/192",
       badge: "/icons/192",
       tag: data.tag,
-      data: { url: data.url || "/", kind: data.kind },
+      data: { url: data.url || "/", kind: data.kind, token: data.token },
       actions: data.actions || [],
     }),
   );
@@ -106,11 +106,21 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const { url } = event.notification.data || {};
-  // Skip / snooze actions: there is no server snooze route yet (reminders are
-  // local only, see lib/reminders.ts), so the action just dismisses the
-  // notification. Skip and snooze are set in Profile > Reminders.
-  if (event.action === "skip" || event.action === "snooze") return;
+  const { url, token } = event.notification.data || {};
+  // Skip today / Snooze buttons: the server stores them (lib/push/reminderAction.ts)
+  // using the signed token the cron job put in the push. Without a token the
+  // action just dismisses the notification; Profile > Reminders still has both.
+  if (event.action === "skip" || event.action === "snooze") {
+    if (!token) return;
+    event.waitUntil(
+      fetch("/api/push/action", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: event.action, token }),
+      }).catch(() => {}),
+    );
+    return;
+  }
   event.waitUntil(
     self.clients.matchAll({ type: "window" }).then((list) => {
       const open = list.find((c) => "focus" in c);

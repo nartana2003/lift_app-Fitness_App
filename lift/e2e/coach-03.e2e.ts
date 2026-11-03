@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// COACH-03: guided Coach setup in Coach > Goals. There is no AI key in e2e, so
+// COACH-03: guided Coach setup in Coach > Build a split. There is no AI key in e2e, so
 // suggest-split and review-setup answer 503: the split and the review are built
 // from the rules in the browser and a plain note says AI is unavailable.
 
@@ -8,7 +8,7 @@ test("coach setup walks the steps on the unavailable path and saves the goal and
   await page.goto("/coach");
   await page.waitForLoadState("networkidle");
 
-  await page.getByRole("button", { name: /^Goals/ }).click();
+  await page.getByRole("button", { name: /^Build a split/ }).click();
   await page.getByRole("button", { name: "Set up with coach" }).click();
 
   const panel = page.getByRole("region", { name: "Coach setup" });
@@ -46,6 +46,8 @@ test("coach setup walks the steps on the unavailable path and saves the goal and
   await nav.getByRole("button", { name: "Save" }).click();
 
   await expect(page.getByText("Coach setup saved.")).toBeVisible();
+  // The goals live in their own card on the Coach tab.
+  await page.getByRole("button", { name: /^Goals/ }).click();
   await expect(page.getByText("Workouts per week · 5")).toBeVisible();
   // The Goals card shows its summary only while collapsed.
   const goalsHeader = page.getByRole("button", { name: /^Goals/ });

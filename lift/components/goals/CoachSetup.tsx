@@ -11,9 +11,14 @@
 // and the review with reviewSetup() from lib/coachReview.ts, both in the browser.
 // Custom exercises are never sent to the routes.
 import { useMemo, useRef, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "@/lib/muscles";
-import { EXPERIENCE_LABELS, GOAL_LABELS, saveGoals, type Experience, type Goals, type GoalType } from "@/lib/goals";
-import { saveSplit, type Split } from "@/lib/splits";
+import { db } from "@/lib/offline/db";
+import { EXPERIENCE_LABELS, GOAL_LABELS, goalsFingerprint, normalizeGoals, saveGoals, type Experience, type Goals, type GoalType } from "@/lib/goals";
+import { ensureSplitDayIds, saveSplit, type Split } from "@/lib/splits";
+import { createRoutine } from "@/lib/routines";
+import { buildDayRoutines, type DayPlan } from "@/lib/coachBuild";
+import { evidenceFor } from "@/lib/evidence/library";
 import { searchExercises, type Exercise } from "@/lib/exercises";
 import { useCatalogue } from "@/lib/catalogue";
 import { toggleFavorite, useFavorites } from "@/lib/favorites";
@@ -24,6 +29,8 @@ import { suggestForMuscle } from "@/lib/suggest";
 import { buildSplit, MAX_DAYS, MAX_NAME, MIN_DAYS } from "@/lib/splitBuilder";
 import { reviewSetup } from "@/lib/coachReview";
 import { EvidencePicks, MAX_EVIDENCE_MUSCLES } from "./EvidencePicks";
+import { EvidenceList } from "../coach/EvidenceList";
+import { ReplaceSheet } from "../coach/ReplaceSheet";
 
 export const SPLIT_ROUTE = "/api/ai/suggest-split";
 export const REVIEW_ROUTE = "/api/ai/review-setup";
@@ -373,11 +380,59 @@ function CoachPanel({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Draft routines for the days that have none, shown in the review step. They are
+  // worked out from the review's stage and recomputed if the catalogue, favourites or
+  // routines finish loading; the user's replacements sit on top, by day and place.
+  const routines = useLiveQuery(() => db.routines.toArray(), []);
+  const [reviewStage, setReviewStage] = useState<Stage | null>(null);
+  const [replacements, setReplacements] = useState<Record<string, { exercise_id: string; why: string; evidenceIds: string[] }>>({});
+  const [makeRoutines, setMakeRoutines] = useState(true);
+  const [whyOpen, setWhyOpen] = useState<string | null>(null);
+  const [replaceAt, setReplaceAt] = useState<{ day: number; item: number } | null>(null);
+
   const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
   const usedSplit: Split | null = pendingSplit ?? (hasSplit ? split : null);
   const poolSource = useMemo(() => [...new Set([...favorites, ...added])], [favorites, added]);
   const byId = useMemo(() => new Map(catalogue.exercises.map((e) => [e.id, e])), [catalogue.exercises]);
   const displayPool = useMemo(() => poolByMuscle(poolSource, catalogue.exercises, []), [poolSource, catalogue.exercises]);
+
+  const basePlan = useMemo((): DayPlan[] => {
+    const used = reviewStage ? (reviewStage.pendingSplit ?? (hasSplit ? split : null)) : null;
+    if (!reviewStage || !used) return [];
+    // A replaced split starts with no routines; a kept one skips days that already have one.
+    const linked = new Set((routines ?? []).filter((r) => r.kind === "routine" && r.split_day_id).map((r) => r.split_day_id as string));
+    const skip = new Set<number>();
+    if (!reviewStage.pendingSplit) used.days.forEach((d, i) => d.id && linked.has(d.id) && skip.add(i));
+    const gear = equipmentForAi(equipment);
+    return buildDayRoutines({
+      split: used,
+      pool: poolByMuscle([...new Set([...favorites, ...reviewStage.added])], catalogue.exercises, gear),
+      catalogue: catalogue.exercises,
+      equipment: gear,
+      limitations: goals.limitations,
+      dislikedIds: goals.dislikedIds,
+      goalType: reviewStage.draft.goalType,
+      skipDays: skip,
+    });
+  }, [reviewStage, hasSplit, split, routines, favorites, catalogue.exercises, equipment, goals.limitations, goals.dislikedIds]);
+
+  const routinePlan = useMemo(
+    () => basePlan.map((d, di) => ({ ...d, items: d.items.map((it, ii) => ({ ...it, ...replacements[`${di}:${ii}`] })) })),
+    [basePlan, replacements],
+  );
+
+  const replaceItem = (day: number, item: number, e: Exercise) => {
+    const old = routinePlan[day]?.items[item];
+    setReplacements((r) => ({
+      ...r,
+      [`${day}:${item}`]: {
+        exercise_id: e.id,
+        why: `${e.name} is the replacement you chose for ${old ? (catalogue.get(old.exercise_id)?.name ?? "this exercise") : "this exercise"}.`,
+        evidenceIds: evidenceFor({ exerciseId: e.id }).map((x) => x.id).slice(0, 2),
+      },
+    }));
+    setReplaceAt(null);
+  };
 
   const stepMuscles = useMemo(() => {
     const set = new Set<MuscleGroup>();
@@ -422,6 +477,10 @@ function CoachPanel({
     setQuery("");
     setConfirmReplace(false);
     setStep(to);
+    setReviewStage(to === STEPS.length - 1 ? stage : null);
+    setReplacements({});
+    setWhyOpen(null);
+    setReplaceAt(null);
     if (to === STEPS.length - 1) void startReview(stage);
   };
   const current: Stage = { draft, pendingSplit, added };
@@ -474,6 +533,28 @@ function CoachPanel({
 
   // ---- save ----
 
+  /**
+   * Records the goals this split was built for (so a later change can be noticed) and
+   * creates the draft routines, each linked to its split day. Does nothing without a saved split.
+   */
+  const finishPlan = async () => {
+    const stored = await ensureSplitDayIds();
+    if (!stored || stored.days.length === 0) return;
+    const fingerprint = goalsFingerprint(normalizeGoals((await db.meta.get("goals"))?.value as Partial<Goals> | undefined));
+    const stamped = stored.builtFor === fingerprint ? stored : { ...stored, builtFor: fingerprint };
+    if (stamped !== stored) await saveSplit(stamped);
+    if (!makeRoutines) return;
+    for (const d of routinePlan) {
+      const dayId = stamped.days[d.dayIndex]?.id;
+      if (!dayId || d.items.length === 0) continue;
+      await createRoutine({
+        name: d.name || stamped.days[d.dayIndex].name,
+        exercises: d.items.map((i) => ({ exercise_id: i.exercise_id, target_sets: i.target_sets, target_reps: i.target_reps })),
+        split_day_id: dayId,
+      });
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     setSaveError(null);
@@ -486,6 +567,7 @@ function CoachPanel({
         sessionsPerWeek: clampInt(draft.sessionsPerWeek, 1, 7),
       });
       if (pendingSplit) await saveSplit(pendingSplit);
+      await finishPlan();
       for (const id of added) if (!favorites.includes(id)) await toggleFavorite(id);
       onSaved();
     } catch {
@@ -826,6 +908,68 @@ function CoachPanel({
               isAdded={(id) => added.includes(id) || favorites.includes(id)}
               onAdd={addExercise}
               onRemove={removeAdded}
+            />
+          )}
+          {routinePlan.length > 0 && (
+            <section aria-label="Your routines" className="space-y-2">
+              <p className="text-xs text-muted">Routines for the days that have none</p>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={makeRoutines} onChange={(e) => setMakeRoutines(e.target.checked)} />
+                Create these routines when I save
+              </label>
+              {routinePlan.map((d, di) => (
+                <div key={d.dayIndex} className="rounded-lg bg-surface-2 p-2">
+                  <p className="text-sm font-semibold">{d.name}</p>
+                  <ul className="space-y-2 mt-1" aria-label={`${d.name} exercises`}>
+                    {d.items.map((it, ii) => {
+                      const key = `${di}-${ii}`;
+                      const name = catalogue.get(it.exercise_id)?.name ?? it.exercise_id;
+                      return (
+                        <li key={key} className="text-xs">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="min-w-0">
+                              <span className="block font-semibold">{name}</span>
+                              <span className="block text-muted">
+                                {it.muscle} · {it.target_sets} x {it.target_reps}
+                              </span>
+                            </span>
+                            <span className="flex gap-1 shrink-0">
+                              <button
+                                type="button"
+                                className={whyOpen === key ? "chip-on text-xs" : "chip text-xs"}
+                                aria-expanded={whyOpen === key}
+                                aria-label={`Why ${name} in ${d.name}`}
+                                onClick={() => setWhyOpen(whyOpen === key ? null : key)}
+                              >
+                                Why
+                              </button>
+                              <button type="button" className="chip text-xs" aria-label={`Replace ${name} in ${d.name}`} onClick={() => setReplaceAt({ day: di, item: ii })}>
+                                Replace
+                              </button>
+                            </span>
+                          </div>
+                          {whyOpen === key && (
+                            <div className="mt-1 space-y-1">
+                              <p>{it.why}</p>
+                              <EvidenceList ids={it.evidenceIds} />
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </section>
+          )}
+          {replaceAt && routinePlan[replaceAt.day]?.items[replaceAt.item] && catalogue.get(routinePlan[replaceAt.day].items[replaceAt.item].exercise_id) && (
+            <ReplaceSheet
+              current={catalogue.get(routinePlan[replaceAt.day].items[replaceAt.item].exercise_id)!}
+              why={routinePlan[replaceAt.day].items[replaceAt.item].why}
+              evidenceIds={routinePlan[replaceAt.day].items[replaceAt.item].evidenceIds}
+              exclude={routinePlan[replaceAt.day].items.map((x) => x.exercise_id)}
+              onClose={() => setReplaceAt(null)}
+              onPick={(e) => replaceItem(replaceAt.day, replaceAt.item, e)}
             />
           )}
           {pendingSplit && <p className="text-xs text-muted">Your new split is saved when you tap Save.</p>}
