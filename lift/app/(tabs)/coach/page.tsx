@@ -1,5 +1,7 @@
 "use client";
 
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { Collapsible } from "@/components/Collapsible";
 import { GoalsSection } from "@/components/goals/GoalsSection";
@@ -8,6 +10,7 @@ import { CoachSetup } from "@/components/goals/CoachSetup";
 import { SplitEditor } from "@/components/goals/SplitEditor";
 import { AskCoach } from "@/components/goals/AskCoach";
 import { OptimiseSplit } from "@/components/coach/OptimiseSplit";
+import { OPEN_OPTIMISE } from "@/components/coach/CoachCard";
 import { useSplit } from "@/lib/splits";
 import { allTargets, GOAL_LABELS, useGoals } from "@/lib/goals";
 
@@ -27,6 +30,15 @@ const Icon = ({ d }: { d: string }) => (
 
 /** Coach tab: goals, priorities, build a split, optimise it, the split itself and the coach. */
 export default function CoachPage() {
+  return (
+    <Suspense>
+      <CoachInner />
+    </Suspense>
+  );
+}
+
+function CoachInner() {
+  const openOptimise = useSearchParams()?.get("open") === OPEN_OPTIMISE;
   const goals = useGoals();
   const split = useSplit();
   const high = Object.values(goals.priorities).filter((p) => p === "high").length;
@@ -61,6 +73,7 @@ export default function CoachPage() {
 
       <Collapsible
         title="Optimise"
+        defaultOpen={openOptimise}
         icon={<Icon d={ICONS.check} />}
         subtitle={split.days.length ? "Check your split against your goals and apply changes" : "Set up a split first"}
       >

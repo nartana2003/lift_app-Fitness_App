@@ -16,7 +16,6 @@ import { restTimer } from "@/lib/restTimer";
 import {
   addSet,
   getRestSec,
-  moveExercise,
   removeExercise,
   removeSet,
   setRestSec,
@@ -96,8 +95,6 @@ export function ExerciseCard({
 
       {menu && (
         <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          <button className="btn-ghost py-2" onClick={() => moveExercise(ex.id, -1)}>↑ Move up</button>
-          <button className="btn-ghost py-2" onClick={() => moveExercise(ex.id, 1)}>↓ Move down</button>
           <label className="btn-ghost py-2 col-span-2">
             Rest
             <select

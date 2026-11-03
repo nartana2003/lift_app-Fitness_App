@@ -570,3 +570,19 @@ describe("ExerciseCard: swipe a set to delete it", () => {
     expect((await liveSets())[0].done).toBe(false);
   });
 });
+
+describe("ExerciseCard: options menu", () => {
+  it("is closed at first and opens with Rest, Swap exercise and Remove exercise, no Move up or Move down", async () => {
+    await seedActive([set("a")]);
+    renderCard();
+    await screen.findByText("Bench Press");
+    expect(screen.queryByRole("button", { name: /Swap exercise/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    expect(screen.getByText("Rest")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Swap exercise/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove exercise" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Move up/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Move down/ })).not.toBeInTheDocument();
+  });
+});

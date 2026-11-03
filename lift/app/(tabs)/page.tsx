@@ -6,6 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { startWorkout } from "@/lib/workout";
 import { HistoryList } from "@/components/HistoryList";
 import { WeekStrip } from "@/components/planner/WeekStrip";
+import { CoachCard } from "@/components/coach/CoachCard";
 import { db } from "@/lib/offline/db";
 import { workoutsBetween } from "@/lib/history";
 import { addDays, formatDuration, startOfWeek } from "@/lib/stats";
@@ -64,6 +65,8 @@ export default function Home() {
       </section>
 
       <WeekStrip />
+
+      <CoachCard />
 
       <HistoryList />
     </>
