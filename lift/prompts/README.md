@@ -20,6 +20,7 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 | `generate-routines.md` | Generate plan | Routines: `components/routines/GeneratePlan.tsx` |
 | `evidence-picks.md` | Evidence-backed exercise picks | Goals: `components/goals/EvidencePicks.tsx` |
 | `optimise-split.md` | Order and word the Coach's proposed split changes | Coach: Optimise |
+| `target-recheck.md` | Monthly re-check of weekly set targets | None yet: `GET /api/cron/target-recheck` stores suggestions in `target_suggestions` |
 
 ## ask-coach
 
@@ -92,6 +93,12 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 - Interaction: on the Coach tab, Optimise shows proposed changes to the user's split and routines, each with a reason, to accept or reject.
 - How the prompt helps: the rules decide the changes; the prompt only puts them in the best order for this user (safety swaps first) and words each reason in plain language, keeping the app's numbers.
 - Why a prompt: the rules produce correct but stiff sentences. The model cannot add, remove or change a change, add research or invent numbers; the app clamps its answer to the proposed ids and falls back to the rule text.
+
+## target-recheck
+
+- Interaction: none on screen yet. Once a month the cron job stores suggested raises or cuts to the weekly set targets for the user to approve.
+- How the prompt helps: it reads four weeks of sets per muscle against each target and the goals, and suggests only the changes the numbers support, each with a plain reason.
+- Why a prompt: a fixed rule only sees "met every week" or "never met". The model can weigh an improving trend, focus muscles and mixed weeks. The app clamps every number to a small step and to muscles that have a target, and falls back to the rule changes.
 
 ## Editing a prompt
 

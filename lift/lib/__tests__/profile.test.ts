@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // PROF-01: the profile must survive sign-out and sign-in. loadProfileStatus says
 // whether a read can be trusted, and saveProfile only sends the fields that
@@ -81,6 +81,15 @@ const signOut = () => {
 };
 const local = async () => (await db.meta.get("profile"))?.value as (Profile & { pending?: string[] }) | undefined;
 
+// A sign-in timer that outlives its test would hand a session to the next one; afterEach cancels it.
+const timers: ReturnType<typeof setTimeout>[] = [];
+const signInIn = (ms: number) => {
+  timers.push(setTimeout(() => signIn(), ms));
+};
+afterEach(() => {
+  for (const t of timers.splice(0)) clearTimeout(t);
+});
+
 beforeEach(async () => {
   await db.meta.clear();
   Object.assign(sb.state, { configured: true, session: null, row: null, readError: null, upsertError: null, upserts: [] });
@@ -92,7 +101,7 @@ describe("loadProfileStatus", () => {
   it("fresh login: waits for the session, then restores every field from the cloud", async () => {
     sb.state.row = { ...CLOUD };
     const pending = loadProfileStatus(1000);
-    setTimeout(() => signIn(), 20);
+    signInIn(20);
     const r = await pending;
     expect(r).toMatchObject({ status: "cloud", reliable: true, profile: FULL });
     expect(await local()).toEqual(FULL);
@@ -239,7 +248,7 @@ describe("edit, sign out, sign in on the same device", () => {
     expect(sb.state.row).toMatchObject({ display_name: "Nat" });
 
     const again = loadProfileStatus(1000);
-    setTimeout(() => signIn(), 20);
+    signInIn(20);
     expect(await again).toMatchObject({ reliable: true, profile: FULL });
   });
 
@@ -252,14 +261,14 @@ describe("edit, sign out, sign in on the same device", () => {
     await db.meta.delete("profile");
 
     const again = loadProfileStatus(1000);
-    setTimeout(() => signIn(), 20);
+    signInIn(20);
     expect(await again).toMatchObject({ status: "cloud", profile: { ...FULL, gender: "other" } });
   });
 
   it("a session that never arrives leaves the cloud row as it was", async () => {
     sb.state.row = { ...CLOUD };
     const r = await loadProfileStatus(30);
-    expect(r.reliable).toBe(false);
+    expect({ status: r.status, reliable: r.reliable }).toEqual({ status: "not-ready", reliable: false });
     // The page does not autosave after an unreliable load; even a plain save of what it showed sends nothing.
     await saveProfile(r.profile);
     expect(sb.state.upserts).toEqual([]);
@@ -288,7 +297,7 @@ describe("helpers", () => {
 
   it("waitForSessionUser picks up a sign-in that arrives later", async () => {
     const p = waitForSessionUser(sb.client as never, 1000);
-    setTimeout(() => signIn(), 10);
+    signInIn(10);
     expect(await p).toEqual(USER);
   });
 });

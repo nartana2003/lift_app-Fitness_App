@@ -1,10 +1,11 @@
 /**
  * Server-only. GET /api/cron/reminders, called HOURLY with the header
- * `Authorization: Bearer <CRON_SECRET>`. There is no vercel.json in the repo:
- * Vercel Hobby (free) only allows daily crons and rejects an hourly one at
- * deploy time. Pick one of:
- * - Vercel Cron on a Pro plan: add lift/vercel.json with
- *     { "crons": [{ "path": "/api/cron/reminders", "schedule": "0 * * * *" }] }
+ * `Authorization: Bearer <CRON_SECRET>`. lift/vercel.json does NOT list it:
+ * the account is on Vercel Hobby (free), which only allows daily crons and
+ * rejects the whole deployment if any cron is hourly. Hourly reminders need
+ * one of:
+ * - Vercel Cron on a Pro plan: add to the "crons" array in lift/vercel.json
+ *     { "path": "/api/cron/reminders", "schedule": "0 * * * *" }
  *   (Vercel sends the Bearer CRON_SECRET header itself);
  * - an external scheduler hitting https://<app>/api/cron/reminders every hour
  *   with that header: Supabase pg_cron + pg_net (net.http_get with the
