@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   title: "Lift",
   description: "Workout tracker",
   appleWebApp: { capable: true, title: "Lift", statusBarStyle: "default" },
-  icons: { apple: "/icons/180" },
+  icons: { icon: "/icons/192", apple: "/icons/180" },
 };
 
 export const viewport: Viewport = {

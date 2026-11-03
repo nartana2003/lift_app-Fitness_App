@@ -24,3 +24,9 @@ test("manifest still points at the 192 and 512 icons", async ({ request }) => {
   const srcs = manifest.icons.map((i: { src: string }) => i.src);
   expect(srcs).toEqual(expect.arrayContaining(["/icons/192", "/icons/512"]));
 });
+
+test("pages link a tab icon and the iOS touch icon", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('link[rel="icon"]').first()).toHaveAttribute("href", /\/icons?\//);
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/icons/180");
+});
