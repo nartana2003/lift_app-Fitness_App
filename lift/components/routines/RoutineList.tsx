@@ -10,6 +10,9 @@ import { useSplit, type Split } from "@/lib/splits";
 import { routinesForDay, splitDayIds, unassignedRoutines } from "@/lib/splitRoutines";
 import { startWorkout } from "@/lib/workout";
 import { db } from "@/lib/offline/db";
+import type { MuscleGroup } from "@/lib/muscles";
+import { MuscleTab, shortName } from "../ExerciseBrowser";
+import { MuscleIcon } from "../MuscleIcon";
 import {
   MiniWorkoutCard,
   NO_FILTER,
@@ -78,6 +81,7 @@ export function RoutineList() {
   const split = useSplit();
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<RoutineFilter>(NO_FILTER);
+  const [query, setQuery] = useState("");
 
   if (!routines) return null;
 
@@ -91,8 +95,9 @@ export function RoutineList() {
     platform: filter.platform !== null && platformChips.includes(filter.platform) ? filter.platform : null,
     muscle: filter.muscle !== null && muscleChips.includes(filter.muscle) ? filter.muscle : null,
   };
-  const filtering = active.platform !== null || active.muscle !== null;
-  const shown = filterRoutines(routines, active, musclesOf);
+  const needle = query.trim().toLowerCase();
+  const filtering = active.platform !== null || active.muscle !== null || needle !== "";
+  const shown = filterRoutines(routines, active, musclesOf).filter((r) => r.name.toLowerCase().includes(needle));
   const pickPlatform = (p: Platform | null) => setFilter((f) => ({ ...f, platform: f.platform === p ? null : p }));
   const pickMuscle = (m: string | null) => setFilter((f) => ({ ...f, muscle: f.muscle === m ? null : m }));
 
@@ -111,12 +116,12 @@ export function RoutineList() {
   const groups = groupRoutinesBySplit(shown, split);
 
   const renderRow = (list: typeof shown) => (
-    <ul className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1">
+    <ul className="space-y-3">
       {list.map((r) => {
         const muscles = musclesOf(r);
         if (r.kind === "mini") {
           return (
-            <li key={r.id} className="w-56 shrink-0">
+            <li key={r.id}>
               <MiniWorkoutCard
                 routine={r}
                 exerciseCount={r.exercises.length}
@@ -128,7 +133,7 @@ export function RoutineList() {
           );
         }
         return (
-          <li key={r.id} className="w-56 shrink-0">
+          <li key={r.id}>
             <div className="card h-full p-3 flex flex-col">
               <div className="flex items-start gap-2">
                 <p className="flex-1 font-semibold leading-tight line-clamp-2">{r.name}</p>
@@ -165,6 +170,20 @@ export function RoutineList() {
 
       {routines.length === 0 ? null : (
         <>
+        <div className="relative mb-2">
+          <input
+            type="search"
+            className="field rounded-full pl-4 pr-10 py-3"
+            placeholder="Search routines"
+            aria-label="Search routines"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <svg viewBox="0 0 24 24" className="size-5 absolute right-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2}>
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3.5-3.5" strokeLinecap="round" />
+          </svg>
+        </div>
         {(platformChips.length > 0 || muscleChips.length > 0) && (
           <div className="mb-2 space-y-1.5">
             {platformChips.length > 0 && (
@@ -191,25 +210,11 @@ export function RoutineList() {
               </div>
             )}
             {muscleChips.length > 0 && (
-              <div role="group" aria-label="Filter by muscle" className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
-                <button
-                  type="button"
-                  className={active.muscle === null ? "chip-on text-xs shrink-0" : "chip text-xs shrink-0"}
-                  aria-pressed={active.muscle === null}
-                  onClick={() => pickMuscle(null)}
-                >
-                  All muscles
-                </button>
+              <div role="group" aria-label="Filter by muscle" className="flex gap-1 overflow-x-auto no-scrollbar -mx-4 pl-4 pr-2 snap-x">
                 {muscleChips.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    className={active.muscle === m ? "chip-on text-xs shrink-0" : "chip text-xs shrink-0"}
-                    aria-pressed={active.muscle === m}
-                    onClick={() => pickMuscle(m)}
-                  >
-                    {m}
-                  </button>
+                  <MuscleTab key={m} label={shortName(m)} active={active.muscle === m} onClick={() => pickMuscle(m)}>
+                    <MuscleIcon muscle={m as MuscleGroup} className="h-16" />
+                  </MuscleTab>
                 ))}
               </div>
             )}
@@ -218,7 +223,14 @@ export function RoutineList() {
         {filtering && shown.length === 0 ? (
           <div className="card p-4 text-sm text-muted flex items-center justify-between gap-2">
             <p>No routines match these filters.</p>
-            <button type="button" className="text-text font-semibold underline shrink-0" onClick={() => setFilter(NO_FILTER)}>
+            <button
+              type="button"
+              className="text-text font-semibold underline shrink-0"
+              onClick={() => {
+                setFilter(NO_FILTER);
+                setQuery("");
+              }}
+            >
               Clear filters
             </button>
           </div>

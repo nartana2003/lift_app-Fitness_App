@@ -93,15 +93,6 @@ export default function ExerciseDetail({ params }: { params: Promise<{ id: strin
 
       <PrHistory exerciseId={ex.id} />
 
-      <section className="card p-4 mt-4">
-        <h2 className="font-semibold mb-2">How to do it</h2>
-        <ol className="list-decimal pl-5 space-y-2 text-sm text-muted">
-          {ex.instructions.map((s, i) => (
-            <li key={i}>{s}</li>
-          ))}
-        </ol>
-      </section>
-
       {isCustomId(ex.id) && (
         <button className="btn-ghost w-full mt-4" onClick={() => setDeleting(true)}>
           Delete exercise

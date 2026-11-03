@@ -10,15 +10,25 @@
 // any failure the panel builds the split with buildSplit() from lib/splitBuilder.ts
 // and the review with reviewSetup() from lib/coachReview.ts, both in the browser.
 // Custom exercises are never sent to the routes.
+//
+// CO-05: the panel lives in Coach > Build a split. Inputs set in Priorities and
+// limits (typed goals, muscle priorities, limits, never-suggest) and the saved
+// favourites are used as they are, so only missing inputs are asked: the goal step
+// is skipped when a goal is typed, and the focus chips give way to the priorities.
+// The review drafts a routine per split day (rotation Day 1, Day 2 ..., never
+// weekdays): POST /api/ai/generate-routines when it answers, the rule-based
+// buildDayRoutines() otherwise, linked to the split day on Save.
 import { useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "@/lib/muscles";
 import { db } from "@/lib/offline/db";
 import { EXPERIENCE_LABELS, GOAL_LABELS, goalsFingerprint, normalizeGoals, saveGoals, type Experience, type Goals, type GoalType } from "@/lib/goals";
 import { ensureSplitDayIds, saveSplit, type Split } from "@/lib/splits";
+import { routinesForDay } from "@/lib/splitRoutines";
+import { allowedFor, type Limitation } from "@/lib/limitations";
 import { createRoutine } from "@/lib/routines";
-import { buildDayRoutines, type DayPlan } from "@/lib/coachBuild";
-import { evidenceFor } from "@/lib/evidence/library";
+import { buildDayRoutines, MAX_PER_DAY as MAX_BUILD_PER_DAY, type DayPlan, type PlanItem } from "@/lib/coachBuild";
+import { evidenceFor, knownEvidenceIds } from "@/lib/evidence/library";
 import { searchExercises, type Exercise } from "@/lib/exercises";
 import { useCatalogue } from "@/lib/catalogue";
 import { toggleFavorite, useFavorites } from "@/lib/favorites";
@@ -31,6 +41,17 @@ import { reviewSetup } from "@/lib/coachReview";
 import { EvidencePicks, MAX_EVIDENCE_MUSCLES } from "./EvidencePicks";
 import { EvidenceList } from "../coach/EvidenceList";
 import { ReplaceSheet } from "../coach/ReplaceSheet";
+import {
+  ROUTE as PLAN_ROUTE,
+  MAX_SPLIT_DAYS,
+  buildRequestBody as planRequestBody,
+  hasTrainingDay,
+  loadHistory,
+  parsePlanIndexed,
+  planDaysFor,
+  type HistoryEntry,
+  type PlanDay,
+} from "../routines/GeneratePlan";
 
 export const SPLIT_ROUTE = "/api/ai/suggest-split";
 export const REVIEW_ROUTE = "/api/ai/review-setup";
@@ -49,6 +70,8 @@ const SEARCH_RESULTS = 8;
 export const MSG_AI_UNAVAILABLE = "AI is unavailable right now, so this uses the built-in rules.";
 export const MSG_OFFLINE = "You are offline, so this uses the built-in rules.";
 export const MSG_ALL_GOOD = "Your split and exercises cover your goals. Nothing needs fixing.";
+export const MSG_ROUTINES_AI = "The coach picked these exercises for your split.";
+export const MSG_ROUTINES_RULES = "These exercises come from the built-in rules.";
 
 export const STEPS = ["What do you want", "Focus and days", "Your split", "Your exercises", "Review"] as const;
 
@@ -129,6 +152,13 @@ export function ruleSplit(
   ).split;
 }
 
+const WEEKDAY = /\b(mon|tues?|wed(nes)?|thu(rs?)?|fri|sat(ur)?|sun)(day)?\b/i;
+
+/** A split is a rotation: a blank name or one that names a weekday becomes "Day N". */
+export function rotationName(name: string, index: number): string {
+  return name && !WEEKDAY.test(name) ? name : `Day ${index + 1}`;
+}
+
 /** Checks the route's split. Null when unusable. Muscles are filtered to MUSCLE_GROUPS. */
 export function parseSplitAnswer(json: unknown): Split | null {
   if (typeof json !== "object" || json === null) return null;
@@ -140,7 +170,7 @@ export function parseSplitAnswer(json: unknown): Split | null {
     const raw = (d as { muscles?: unknown }).muscles;
     const muscles = [...new Set((Array.isArray(raw) ? raw : []).filter(isMuscle))];
     if (muscles.length === 0) continue;
-    days.push({ name: cleanText((d as { name?: unknown }).name, MAX_NAME) || `Day ${days.length + 1}`, muscles });
+    days.push({ name: rotationName(cleanText((d as { name?: unknown }).name, MAX_NAME), days.length), muscles });
   }
   if (days.length === 0) return null;
   return { name: cleanText((s as { name?: unknown }).name, MAX_NAME) || "My split", days };
@@ -262,6 +292,72 @@ export function evidenceMusclesFor(muscles: readonly MuscleGroup[], focus: reado
 }
 
 // ---------------------------------------------------------------------------
+// Routines step (generate-routines)
+// ---------------------------------------------------------------------------
+
+export type AiPlan = { days: PlanDay[]; indices: number[] };
+
+/**
+ * Puts the generate-routines answer over the rule drafts. Plan day i is the
+ * split's training day i (the route's order); repeats past the last training day
+ * are ignored. An exercise is kept only when it is a catalogue exercise that
+ * trains one of the day's muscles, fits the equipment, is not on the never-suggest
+ * list and does not load a limit. A day left with nothing keeps its rule draft.
+ * Null when the answer changed no day.
+ */
+export function mergeAiPlan(
+  base: readonly DayPlan[],
+  split: Split,
+  ai: AiPlan,
+  opts: {
+    get: (id: string) => Exercise | undefined;
+    equipment: readonly Equipment[];
+    limitations: readonly Limitation[];
+    dislikedIds: readonly string[];
+  },
+): DayPlan[] | null {
+  const training = split.days
+    .slice(0, MAX_SPLIT_DAYS)
+    .map((d, i) => ({ d, i }))
+    .filter(({ d }) => d.muscles.some(isMuscle));
+  const gear = opts.equipment.length ? new Set<string>(opts.equipment) : null;
+  const disliked = new Set(opts.dislikedIds);
+  const byDay = new Map<number, PlanDay>();
+  ai.indices.forEach((pi, k) => {
+    const t = training[pi];
+    if (t && !byDay.has(t.i)) byDay.set(t.i, ai.days[k]);
+  });
+
+  let changed = false;
+  const out = base.map((day) => {
+    const answer = byDay.get(day.dayIndex);
+    const muscles = split.days[day.dayIndex]?.muscles ?? [];
+    if (!answer) return day;
+    const items: PlanItem[] = [];
+    for (const x of answer.exercises) {
+      if (items.length >= MAX_BUILD_PER_DAY) break;
+      const e = isCustomId(x.exercise_id) ? undefined : opts.get(x.exercise_id);
+      if (!e || disliked.has(e.id) || (gear && !gear.has(e.equipment)) || !allowedFor(e, opts.limitations)) continue;
+      if (items.some((it) => it.exercise_id === e.id)) continue;
+      const muscle = e.muscle_groups.find((m) => muscles.includes(m));
+      if (!muscle) continue;
+      items.push({
+        exercise_id: e.id,
+        muscle,
+        target_sets: x.target_sets,
+        target_reps: x.target_reps,
+        why: `The coach picked ${e.name} for ${muscle.toLowerCase()} on ${day.name}.`,
+        evidenceIds: knownEvidenceIds(evidenceFor({ exerciseId: e.id }).map((v) => v.id)).slice(0, 2),
+      });
+    }
+    if (items.length === 0) return day;
+    changed = true;
+    return { ...day, items };
+  });
+  return changed ? out : null;
+}
+
+// ---------------------------------------------------------------------------
 // Fetch
 // ---------------------------------------------------------------------------
 
@@ -352,7 +448,8 @@ function CoachPanel({
   const equipment = useEquipment();
   const hasSplit = split.days.length > 0;
 
-  const [step, setStep] = useState(0);
+  // Only missing inputs are asked: a typed goal means the goal step is already answered.
+  const [step, setStep] = useState(goals.rankedGoals.length > 0 ? 1 : 0);
   const [draft, setDraft] = useState<Draft>(() => ({
     goalType: goals.goalType,
     experience: goals.experience,
@@ -389,7 +486,13 @@ function CoachPanel({
   const [makeRoutines, setMakeRoutines] = useState(true);
   const [whyOpen, setWhyOpen] = useState<string | null>(null);
   const [replaceAt, setReplaceAt] = useState<{ day: number; item: number } | null>(null);
+  // The generate-routines answer for the review's stage; ignored once the user has replaced an exercise.
+  const [aiPlan, setAiPlan] = useState<{ stage: Stage; plan: AiPlan } | null>(null);
+  const [planSource, setPlanSource] = useState<"ai" | "rules" | null>(null);
+  const planReq = useRef(0);
+  const replaced = useRef(false);
 
+  const hasPriorities = Object.keys(goals.priorities).length > 0;
   const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
   const usedSplit: Split | null = pendingSplit ?? (hasSplit ? split : null);
   const poolSource = useMemo(() => [...new Set([...favorites, ...added])], [favorites, added]);
@@ -400,9 +503,8 @@ function CoachPanel({
     const used = reviewStage ? (reviewStage.pendingSplit ?? (hasSplit ? split : null)) : null;
     if (!reviewStage || !used) return [];
     // A replaced split starts with no routines; a kept one skips days that already have one.
-    const linked = new Set((routines ?? []).filter((r) => r.kind === "routine" && r.split_day_id).map((r) => r.split_day_id as string));
     const skip = new Set<number>();
-    if (!reviewStage.pendingSplit) used.days.forEach((d, i) => d.id && linked.has(d.id) && skip.add(i));
+    if (!reviewStage.pendingSplit) used.days.forEach((d, i) => routinesForDay(routines ?? [], d.id).length > 0 && skip.add(i));
     const gear = equipmentForAi(equipment);
     return buildDayRoutines({
       split: used,
@@ -416,12 +518,20 @@ function CoachPanel({
     });
   }, [reviewStage, hasSplit, split, routines, favorites, catalogue.exercises, equipment, goals.limitations, goals.dislikedIds]);
 
+  const draftPlan = useMemo((): DayPlan[] => {
+    const used = reviewStage ? (reviewStage.pendingSplit ?? (hasSplit ? split : null)) : null;
+    if (!aiPlan || aiPlan.stage !== reviewStage || !used) return basePlan;
+    const gear = equipmentForAi(equipment);
+    return mergeAiPlan(basePlan, used, aiPlan.plan, { get: catalogue.get, equipment: gear, limitations: goals.limitations, dislikedIds: goals.dislikedIds }) ?? basePlan;
+  }, [aiPlan, reviewStage, hasSplit, split, basePlan, catalogue.get, equipment, goals.limitations, goals.dislikedIds]);
+
   const routinePlan = useMemo(
-    () => basePlan.map((d, di) => ({ ...d, items: d.items.map((it, ii) => ({ ...it, ...replacements[`${di}:${ii}`] })) })),
-    [basePlan, replacements],
+    () => draftPlan.map((d, di) => ({ ...d, items: d.items.map((it, ii) => ({ ...it, ...replacements[`${di}:${ii}`] })) })),
+    [draftPlan, replacements],
   );
 
   const replaceItem = (day: number, item: number, e: Exercise) => {
+    replaced.current = true;
     const old = routinePlan[day]?.items[item];
     setReplacements((r) => ({
       ...r,
@@ -469,6 +579,27 @@ function CoachPanel({
     setReviewing(false);
   };
 
+  // ---- routines ----
+
+  /** Asks generate-routines for the review's split; the rule drafts stay on 503, offline or a bad answer. */
+  const startPlan = async (stage: Stage) => {
+    const id = planReq.current;
+    const used = stage.pendingSplit ?? (hasSplit ? split : null);
+    if (!used || !hasTrainingDay(used)) return;
+    let history: HistoryEntry[] = [];
+    try {
+      history = await loadHistory();
+    } catch {
+      // No history is fine: the plan is built from the split alone.
+    }
+    const days = planDaysFor(used);
+    const res = await postJson(PLAN_ROUTE, planRequestBody(used, equipment, history, { plan_days: days, favorites: [...favorites, ...stage.added] }));
+    if (id !== planReq.current) return;
+    const parsed = res.kind === "ok" && !replaced.current ? parsePlanIndexed(res.json, (x) => !isCustomId(x) && !!catalogue.get(x), days) : null;
+    setAiPlan(parsed ? { stage, plan: parsed } : null);
+    setPlanSource(parsed ? "ai" : "rules");
+  };
+
   // ---- navigation ----
 
   const goTo = (to: number, stage: Stage) => {
@@ -481,7 +612,14 @@ function CoachPanel({
     setReplacements({});
     setWhyOpen(null);
     setReplaceAt(null);
-    if (to === STEPS.length - 1) void startReview(stage);
+    planReq.current++;
+    replaced.current = false;
+    setAiPlan(null);
+    setPlanSource(null);
+    if (to === STEPS.length - 1) {
+      void startReview(stage);
+      void startPlan(stage);
+    }
   };
   const current: Stage = { draft, pendingSplit, added };
   const next = () => goTo(Math.min(step + 1, STEPS.length - 1), current);
@@ -640,25 +778,48 @@ function CoachPanel({
 
       {step === 1 && (
         <div className="space-y-3">
-          <div>
-            <p className="text-xs text-muted mb-1.5">Focus muscles: these get more sets</p>
-            <div className="flex flex-wrap gap-1.5">
-              {MUSCLE_GROUPS.map((m) => {
-                const on = draft.focusMuscles.includes(m);
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    aria-pressed={on}
-                    className={on ? "chip-on text-xs" : "chip text-xs"}
-                    onClick={() => patch({ focusMuscles: on ? draft.focusMuscles.filter((x) => x !== m) : [...draft.focusMuscles, m] })}
-                  >
-                    {m}
-                  </button>
-                );
-              })}
+          {hasPriorities ? (
+            <div className="rounded-lg bg-surface-2 p-2 space-y-1 text-xs" aria-label="From Priorities and limits" role="group">
+              <p>
+                <span className="font-semibold">Muscle priorities: </span>
+                {MUSCLE_GROUPS.filter((m) => goals.priorities[m])
+                  .map((m) => `${m} ${goals.priorities[m]}`)
+                  .join(", ")}
+              </p>
+              {goals.limitations.length > 0 && (
+                <p>
+                  <span className="font-semibold">Working around: </span>
+                  {goals.limitations.join(", ")}
+                </p>
+              )}
+              <p className="text-muted">Change these in Priorities and limits.</p>
             </div>
-          </div>
+          ) : (
+            <div>
+              <p className="text-xs text-muted mb-1.5">Focus muscles: these get more sets</p>
+              <div className="flex flex-wrap gap-1.5">
+                {MUSCLE_GROUPS.map((m) => {
+                  const on = draft.focusMuscles.includes(m);
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      aria-pressed={on}
+                      className={on ? "chip-on text-xs" : "chip text-xs"}
+                      onClick={() => patch({ focusMuscles: on ? draft.focusMuscles.filter((x) => x !== m) : [...draft.focusMuscles, m] })}
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {favorites.length > 0 && (
+            <p className="text-xs text-muted">
+              Your {favorites.length} {favorites.length === 1 ? "favourite is" : "favourites are"} used first.
+            </p>
+          )}
           <label className="block">
             <span className="block text-xs text-muted mb-1.5">
               Days a week · <span data-testid="coach-days">{draft.sessionsPerWeek}</span>
@@ -913,13 +1074,21 @@ function CoachPanel({
           {routinePlan.length > 0 && (
             <section aria-label="Your routines" className="space-y-2">
               <p className="text-xs text-muted">Routines for the days that have none</p>
+              {planSource && (
+                <p role="status" className="text-xs text-muted">
+                  {planSource === "ai" ? MSG_ROUTINES_AI : MSG_ROUTINES_RULES}
+                </p>
+              )}
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={makeRoutines} onChange={(e) => setMakeRoutines(e.target.checked)} />
                 Create these routines when I save
               </label>
               {routinePlan.map((d, di) => (
                 <div key={d.dayIndex} className="rounded-lg bg-surface-2 p-2">
-                  <p className="text-sm font-semibold">{d.name}</p>
+                  <p className="text-sm font-semibold">
+                    {d.name.startsWith("Day ") ? "" : <span className="text-muted font-normal">Day {d.dayIndex + 1} · </span>}
+                    {d.name}
+                  </p>
                   <ul className="space-y-2 mt-1" aria-label={`${d.name} exercises`}>
                     {d.items.map((it, ii) => {
                       const key = `${di}-${ii}`;
@@ -1017,11 +1186,13 @@ function SplitDays({ split, label }: { split: Split; label: string }) {
       <ul className="space-y-1" aria-label={label}>
         {split.days.map((d, i) => (
           <li key={i} className="rounded-lg bg-surface-2 px-2 py-1.5 text-xs">
+            {!d.name.startsWith("Day ") && <span className="text-muted">Day {i + 1} · </span>}
             <span className="font-semibold">{d.name}</span>
             <span className="text-muted"> · {d.muscles.join(", ")}</span>
           </li>
         ))}
       </ul>
+      <p className="text-[11px] text-muted mt-1">A rotation, not weekdays: train the days in order on any dates, then start again at Day 1.</p>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type ActiveExercise } from "@/lib/offline/db";
 import type { Exercise } from "@/lib/exercises";
@@ -159,10 +159,10 @@ export function ExerciseCard({
           const prev = lastWork[i];
           const workIndex = ex.sets.slice(0, i + 1).filter((x) => !x.is_warmup).length;
           return (
+            <SwipeToDelete key={s.id} onDelete={() => removeSet(ex.id, s.id)}>
             <div
-              key={s.id}
               className={`grid grid-cols-[2rem_1fr_4.5rem_4rem_2.75rem] gap-2 items-center rounded-lg px-1 py-1 ${
-                s.done ? "bg-good/10" : ""
+                s.done ? "bg-good/10" : "bg-bg"
               }`}
             >
               <button
@@ -204,6 +204,7 @@ export function ExerciseCard({
                 ✓
               </button>
             </div>
+            </SwipeToDelete>
           );
         })}
       </div>
@@ -228,17 +229,6 @@ export function ExerciseCard({
 
       <div className="flex gap-2 mt-2">
         <button className="btn-ghost flex-1 py-2 text-sm" onClick={() => addSet(ex.id)}>+ Add set</button>
-        {ex.sets.some((s) => !s.done) && ex.sets.length > 1 && (
-          <button
-            className="btn-ghost py-2 px-3 text-sm text-muted"
-            onClick={() => {
-              const undone = ex.sets.findLast((s) => !s.done);
-              if (undone) void removeSet(ex.id, undone.id);
-            }}
-          >
-            − Set
-          </button>
-        )}
       </div>
 
       {swapping && info && (
@@ -252,6 +242,68 @@ export function ExerciseCard({
         />
       )}
     </section>
+  );
+}
+
+const SWIPE_OPEN = 80;
+
+/** Drag a row left to reveal a Delete button behind it; drag back or tap the row to close. */
+function SwipeToDelete({ onDelete, children }: { onDelete: () => void; children: React.ReactNode }) {
+  const [x, setX] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{ px: number; py: number; from: number; horizontal: boolean } | null>(null);
+
+  return (
+    <div className="relative overflow-hidden rounded-lg">
+      <button
+        className="absolute inset-y-0 right-0 w-20 bg-bad text-white text-sm font-semibold"
+        style={{ visibility: x < 0 ? "visible" : "hidden" }}
+        tabIndex={x < 0 ? 0 : -1}
+        onClick={onDelete}
+      >
+        Delete
+      </button>
+      <div
+        className={`relative touch-pan-y ${dragging ? "" : "transition-transform duration-150"}`}
+        style={{ transform: `translateX(${x}px)` }}
+        onPointerDown={(e) => {
+          start.current = { px: e.clientX, py: e.clientY, from: x, horizontal: false };
+        }}
+        onPointerMove={(e) => {
+          const s = start.current;
+          if (!s) return;
+          const dx = e.clientX - s.px;
+          if (!s.horizontal) {
+            if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(e.clientY - s.py)) return;
+            s.horizontal = true;
+            setDragging(true);
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+          }
+          setX(Math.max(-SWIPE_OPEN, Math.min(0, s.from + dx)));
+        }}
+        onPointerUp={() => {
+          const s = start.current;
+          start.current = null;
+          setDragging(false);
+          if (s?.horizontal) setX((v) => (v < -SWIPE_OPEN / 2 ? -SWIPE_OPEN : 0));
+        }}
+        onPointerCancel={() => {
+          start.current = null;
+          setDragging(false);
+          setX((v) => (v < -SWIPE_OPEN / 2 ? -SWIPE_OPEN : 0));
+        }}
+        onClickCapture={(e) => {
+          // A tap on an open row closes it instead of acting on the control under it.
+          if (x < 0) {
+            e.stopPropagation();
+            e.preventDefault();
+            setX(0);
+          }
+        }}
+      >
+        {children}
+      </div>
+    </div>
   );
 }
 

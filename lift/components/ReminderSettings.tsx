@@ -5,22 +5,16 @@ import { useSettings } from "@/lib/settings";
 import {
   DAY_SHORT,
   formatNext,
-  isSkippedToday,
-  isSnoozed,
   isValidTime,
   localDateKey,
   nextReminder,
   orderedDays,
-  SNOOZE_OPTIONS,
   suggestedReminderTime,
   toggleDayIn,
-  toggleSkipToday,
-  toggleSnooze,
   updateReminders,
   useMarkedGymDates,
   useRecentWorkoutStarts,
   useReminders,
-  type SnoozeMin,
 } from "@/lib/reminders";
 import { currentPushState, disablePush, enablePush, pushAvailable, syncReminderSettings, type EnableResult } from "@/lib/push/client";
 import { setRestPushEnabled, useRestPushEnabled } from "@/lib/restTimerPushClient";
@@ -40,9 +34,7 @@ export const REST_PUSH_UNAVAILABLE =
   "Rest timer alerts need push notifications, which are not set up yet. The in-app timer still chimes while Lift is open.";
 export const REST_PUSH_NEEDS_NOTIFICATIONS = "Rest timer alerts are on. Enable notifications below so they reach this phone.";
 
-const snoozeLabel = (m: number) => (m < 60 ? `${m} min` : `${m / 60} h`);
-
-/** Profile → Reminders: gym days, time, nudges and Skip / Snooze. Saves on change. */
+/** Profile → Reminders: gym days, time and nudges. Saves on change. */
 export function ReminderSettings() {
   const r = useReminders();
   const { weekStart } = useSettings();
@@ -50,8 +42,6 @@ export function ReminderSettings() {
   const now = new Date();
   const marked = useMarkedGymDates(localDateKey(now));
   const next = nextReminder(r, now, marked);
-  const skipped = isSkippedToday(r, now);
-  const snoozed = isSnoozed(r, now);
   const suggested = suggestedReminderTime(r, useRecentWorkoutStarts(), now);
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
@@ -163,44 +153,6 @@ export function ReminderSettings() {
         on={r.smart}
         onChange={(v) => void updateReminders((cur) => ({ ...cur, smart: v }))}
       />
-
-      <label className="flex items-center justify-between gap-3">
-        <span className="font-semibold">Snooze length</span>
-        <select
-          className="field w-auto"
-          value={r.snoozeMin}
-          onChange={(e) => {
-            const v = Number(e.target.value) as SnoozeMin;
-            void updateReminders((cur) => ({ ...cur, snoozeMin: v }));
-          }}
-        >
-          {SNOOZE_OPTIONS.map((m) => (
-            <option key={m} value={m}>{snoozeLabel(m)}</option>
-          ))}
-        </select>
-      </label>
-
-      <div>
-        <span className="font-semibold block mb-2">Today</span>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            aria-pressed={skipped}
-            className={skipped ? "chip-on justify-center py-2" : "chip justify-center py-2"}
-            onClick={() => void updateReminders((cur) => toggleSkipToday(cur, new Date()))}
-          >
-            Skip today
-          </button>
-          <button
-            type="button"
-            aria-pressed={snoozed}
-            className={snoozed ? "chip-on justify-center py-2" : "chip justify-center py-2"}
-            onClick={() => void updateReminders((cur) => toggleSnooze(cur, new Date()))}
-          >
-            Snooze {snoozeLabel(r.snoozeMin)}
-          </button>
-        </div>
-      </div>
 
       <p className="text-sm" aria-live="polite">
         {r.days.length === 0 && marked.length === 0 ? (

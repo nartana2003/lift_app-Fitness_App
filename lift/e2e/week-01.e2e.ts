@@ -29,7 +29,7 @@ test("tap a date to mark it a gym day; it stays marked after reload and is round
 
   await circle.click();
   await expect(circle).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Gym day: on" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove gym day" })).toBeVisible();
   // Filled black (the accent).
   const bg = await circle.evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(bg).toBe("rgb(17, 17, 17)");

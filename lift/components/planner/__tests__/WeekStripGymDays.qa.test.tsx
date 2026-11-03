@@ -138,12 +138,11 @@ describe("QA marking rules", () => {
     expect((await db.outbox.toArray()).filter((o) => o.table === "planned_days")).toEqual([]);
   });
 
-  it("the Gym day toggle is disabled for an unmarked past date and clicking it does nothing", async () => {
+  it("an unmarked past date opens the panel with no Remove gym day button and writes nothing", async () => {
     await renderStrip();
     fireEvent.click(dayButton(MON));
-    const toggle = await screen.findByRole("button", { name: "Gym day: off" });
-    expect(toggle).toBeDisabled();
-    fireEvent.click(toggle);
+    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove gym day" })).toBeNull();
     await new Promise((r) => setTimeout(r, 30));
     expect(await db.planned_days.count()).toBe(0);
   });
@@ -153,7 +152,7 @@ describe("QA marking rules", () => {
     await renderStrip();
     await waitFor(() => expect(dayButton(MON)).toHaveAttribute("aria-pressed", "true"));
     fireEvent.click(dayButton(MON));
-    fireEvent.click(await screen.findByRole("button", { name: "Gym day: on" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove gym day" }));
     await waitFor(async () => expect(await getDay(MON)).toBeUndefined());
   });
 
@@ -167,7 +166,7 @@ describe("QA marking rules", () => {
     mid.forEach((l, i) => {
       if (i !== IDX[FRI]) expect(l).toBe(before[i]);
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Gym day: on" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove gym day" }));
     await waitFor(() => expect(dayButton(FRI)).toHaveAttribute("aria-pressed", "false"));
     expect(dayButtons().map((b) => b.getAttribute("aria-label"))).toEqual(before);
   });
@@ -191,7 +190,7 @@ describe("QA marking rules", () => {
     await waitFor(() => expect(dayButton(THU)).toHaveClass("bg-accent"));
     fireEvent.click(dayButton(SAT));
     await waitFor(() => expect(dayButton(SAT)).toHaveClass("bg-accent"));
-    fireEvent.click(await screen.findByRole("button", { name: "Gym day: on" })); // panel is for SAT
+    fireEvent.click(await screen.findByRole("button", { name: "Remove gym day" })); // panel is for SAT
     await waitFor(() => expect(dayButton(SAT)).not.toHaveClass("bg-accent"));
     expect(dayButton(THU)).toHaveClass("bg-accent");
     expect(await getDay(THU)).toBeDefined();
@@ -200,29 +199,18 @@ describe("QA marking rules", () => {
     expect((await db.planned_days.toArray()).map((r) => r.date)).toEqual([THU]);
   });
 
-  it("confirm dialog cancelled keeps the routine and the mark", async () => {
-    await planDay(THU, pushId);
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    await renderStrip();
-    fireEvent.click(dayButton(THU));
-    fireEvent.click(await screen.findByRole("button", { name: "Gym day: on" }));
-    expect(window.confirm).toHaveBeenCalledTimes(1);
-    await new Promise((r) => setTimeout(r, 30));
-    expect(await getDay(THU)).toMatchObject({ routine_id: pushId });
-  });
-
   it("a routine-less unmark never asks to confirm", async () => {
     await markGymDay(THU);
     const c = vi.spyOn(window, "confirm").mockReturnValue(true);
     await renderStrip();
     await waitFor(() => expect(dayButton(THU)).toHaveClass("bg-accent"));
     fireEvent.click(dayButton(THU));
-    fireEvent.click(await screen.findByRole("button", { name: "Gym day: on" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove gym day" }));
     await waitFor(async () => expect(await getDay(THU)).toBeUndefined());
     expect(c).not.toHaveBeenCalled();
   });
 
-  it("done, skipped and moved dates: toggle disabled and clicking it changes nothing", async () => {
+  it("done, skipped and moved dates offer no Remove gym day and keep their status", async () => {
     await planDay(THU, pushId);
     await db.planned_days.update((await getDay(THU))!.id, { status: "done", workout_id: "w1" });
     await planDay(FRI, pushId);
@@ -233,9 +221,8 @@ describe("QA marking rules", () => {
     for (const k of [THU, FRI, SAT]) {
       const label = dayButton(k).getAttribute("aria-label");
       fireEvent.click(dayButton(k));
-      const toggle = await screen.findByRole("button", { name: /Gym day: (on|off)/ });
-      expect(toggle, label ?? "").toBeDisabled();
-      fireEvent.click(toggle);
+      await screen.findByText(/Trained|Skipped|Moved/);
+      expect(screen.queryByRole("button", { name: "Remove gym day" }), label ?? "").toBeNull();
       fireEvent.click(dayButton(k)); // close
     }
     await new Promise((r) => setTimeout(r, 30));

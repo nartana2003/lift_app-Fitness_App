@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // LINK-02: routines on Home grouped under their split day, Unassigned last.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db, type RoutineExerciseRow, type RoutineRow } from "@/lib/offline/db";
 import { saveSplit, type Split } from "@/lib/splits";
 
@@ -159,5 +159,52 @@ describe("RoutineList grouping", () => {
     expect(screen.getAllByRole("link", { name: "Edit routine" })).toHaveLength(3);
     // No heading for a day with no routines.
     expect(screen.queryByRole("group", { name: "Pull" })).not.toBeInTheDocument();
+  });
+});
+
+describe("RoutineList search and layout", () => {
+  it("stacks routines in one vertical list, not a horizontal scroller", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01"), routine("r2", "Leg day", "2026-01-02")]);
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    const list = screen.getByRole("list");
+    expect(list.className).toContain("space-y-3");
+    expect(list.className).not.toContain("overflow-x-auto");
+  });
+
+  it("filters by name, ignoring case and spaces around the query", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01"), routine("r2", "Leg day", "2026-01-02")]);
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search routines" }), { target: { value: "  LEG " } });
+    expect(screen.getByText("Leg day")).toBeInTheDocument();
+    expect(screen.queryByText("Push day")).not.toBeInTheDocument();
+  });
+
+  it("shows a message with Clear filters when nothing matches, and clearing restores the list", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01")]);
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    const box = screen.getByRole("searchbox", { name: "Search routines" });
+    fireEvent.change(box, { target: { value: "zzz" } });
+    expect(screen.getByText("No routines match these filters.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByText("Push day")).toBeInTheDocument();
+    expect(box).toHaveValue("");
+  });
+
+  it("muscle filter uses muscle visuals and combines with search", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01"), routine("r2", "Push extra", "2026-01-02")]);
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    const chest = await screen.findByRole("button", { name: /Chest/ });
+    expect(chest.querySelector("svg, img")).not.toBeNull();
+    fireEvent.click(chest);
+    expect(chest).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search routines" }), { target: { value: "extra" } });
+    expect(screen.getByText("Push extra")).toBeInTheDocument();
+    expect(screen.queryByText("Push day")).not.toBeInTheDocument();
+    fireEvent.click(chest);
+    expect(chest).toHaveAttribute("aria-pressed", "false");
   });
 });

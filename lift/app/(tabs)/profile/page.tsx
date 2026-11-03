@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { PageHeader } from "@/components/PageHeader";
 import { Collapsible } from "@/components/Collapsible";
 import { ReminderSettings } from "@/components/ReminderSettings";
-import { reminderSummary, useReminders } from "@/lib/reminders";
+import { localDateKey, reminderSummary, useMarkedGymDates, useReminders } from "@/lib/reminders";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { supabaseConfigured } from "@/lib/supabase/configured";
 import { getRestSec, setRestSec } from "@/lib/workout";
@@ -24,7 +23,6 @@ const ICONS = {
   sliders: "M4 7h10M18 7h2M4 17h4M12 17h8",
   dumbbell: "M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11",
   split: "M4 6h7M4 12h7M4 18h7M15 6h5M15 12h5M15 18h5",
-  target: "M12 21a9 9 0 110-18 9 9 0 010 18zM12 16.5a4.5 4.5 0 110-9 4.5 4.5 0 010 9zM12 13a1 1 0 110-2 1 1 0 010 2z",
   bell: "M6 16V11a6 6 0 1112 0v5l1.5 2h-15L6 16zM10 20.5a2 2 0 004 0",
 } as const;
 
@@ -46,6 +44,7 @@ export default function ProfilePage() {
   const { unit, weekStart } = useSettings();
   const theme = useThemePref();
   const reminders = useReminders();
+  const plannedDates = useMarkedGymDates(localDateKey(new Date()));
   const [profile, setProfile] = useState<Profile>(emptyProfile());
   const [height, setHeight] = useState("");
   const [weight, setWeight] = useState("");
@@ -218,7 +217,7 @@ export default function ProfilePage() {
           </div>
         </Field>
         <Field label={`Date of birth${age !== null ? ` · ${age} years old` : ""}`}>
-          <input className="field" type="date" max={new Date().toISOString().slice(0, 10)} value={profile.birth_date} onChange={(e) => set("birth_date", e.target.value)} />
+          <input className="field min-w-0 max-w-full appearance-none text-left" type="date" max={new Date().toISOString().slice(0, 10)} value={profile.birth_date} onChange={(e) => set("birth_date", e.target.value)} />
         </Field>
       </Collapsible>
 
@@ -239,20 +238,7 @@ export default function ProfilePage() {
         <p className="text-xs text-muted">Changing your weight adds an entry to Progress → Measurements, so you can track it over time.</p>
       </Collapsible>
 
-      <Link href="/coach" className="flex items-center gap-3 px-4 py-3.5 text-left border-t border-border">
-        <span className="shrink-0 size-9 rounded-xl bg-surface-2 grid place-items-center text-muted">
-          <Icon d={ICONS.target} />
-        </span>
-        <span className="flex-1 min-w-0">
-          <span className="block font-semibold text-[15px]">Goals and split are in Coach</span>
-          <span className="block text-xs text-muted truncate mt-0.5">Set goals, edit your split and ask the coach</span>
-        </span>
-        <svg viewBox="0 0 24 24" className="size-5 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-      </Link>
-
-      <Collapsible grouped title="Reminders" icon={<Icon d={ICONS.bell} />} subtitle={reminderSummary(reminders, weekStart)}>
+      <Collapsible grouped title="Reminders" icon={<Icon d={ICONS.bell} />} subtitle={reminderSummary(reminders, weekStart, plannedDates.length)}>
         <ReminderSettings />
       </Collapsible>
 

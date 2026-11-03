@@ -14,7 +14,6 @@ export default function NewExercisePage() {
   const [muscles, setMuscles] = useState<MuscleGroup[]>([]);
   const [equipment, setEquipment] = useState<Equipment>("Machine/Cable");
   const [video, setVideo] = useState("");
-  const [steps, setSteps] = useState("");
   const [busy, setBusy] = useState(false);
 
   const toggle = (m: MuscleGroup) => setMuscles((cur) => (cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]));
@@ -29,10 +28,7 @@ export default function NewExercisePage() {
         equipment,
         video_url: link || undefined,
         thumbnail_url: link ? await fetchLinkThumbnail(link) : null,
-        instructions: steps
-          .split("\n")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        instructions: [],
       });
       router.replace(`/exercises/${ex.id}`);
     } finally {
@@ -86,11 +82,6 @@ export default function NewExercisePage() {
             if (title) setName((n) => (n.trim() ? n : title.slice(0, 60)));
           }}
         />
-      </label>
-
-      <label className="block mb-4">
-        <span className="block text-xs text-muted mb-1">How to do it (optional, one step per line)</span>
-        <textarea className="field min-h-24" value={steps} onChange={(e) => setSteps(e.target.value)} />
       </label>
 
       <button className="btn-primary w-full" disabled={busy || !name.trim() || muscles.length === 0} onClick={create}>

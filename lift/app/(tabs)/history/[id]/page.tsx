@@ -7,13 +7,14 @@ import { PageHeader } from "@/components/PageHeader";
 import { useCatalogue } from "@/lib/catalogue";
 import { db, type SetRow } from "@/lib/offline/db";
 import { deleteWorkout, enqueue } from "@/lib/offline/sync";
-import { workoutDetail } from "@/lib/history";
+import { allWorkouts, workoutDetail } from "@/lib/history";
 import { formatDuration } from "@/lib/stats";
 import { WeightInput } from "@/components/WeightInput";
 import { useSettings } from "@/lib/settings";
 import { dispNum, fmtVolume } from "@/lib/units";
 import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
 import { repRangeFrom } from "@/lib/routines";
+import { exerciseThumb, recordsByWorkout } from "@/lib/homeFeed";
 
 export default function WorkoutDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -27,6 +28,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     const row = await db.workouts.get(id);
     return row ? workoutDetail(row) : undefined;
   }, [id], null);
+  // Records compare against every earlier workout, like the Home list.
+  const records = useLiveQuery(async () => recordsByWorkout(await allWorkouts()), []);
 
   if (w === null) return null;
   if (!w) return <PageHeader title="Workout not found" back="/" />;
@@ -51,7 +54,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   return (
     <>
       <PageHeader
-        title={w.notes || start.toLocaleDateString(undefined, { weekday: "long" })}
+        title={w.notes || "Workout"}
         back="/"
         right={
           <div className="flex items-center gap-2">
@@ -79,14 +82,14 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       )}
 
       <p className="text-sm text-muted -mt-2 mb-4">
-        {start.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" })} ·{" "}
+        {start.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} ·{" "}
         {start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
       </p>
 
       <div className="grid grid-cols-3 gap-2 text-center mb-4">
         <Stat label="Duration" value={formatDuration(dur)} />
-        <Stat label="Sets" value={String(w.setCount)} />
         <Stat label="Volume" value={fmtVolume(w.volume, unit)} />
+        <Stat label="Records" value={String(records?.get(w.id) ?? 0)} />
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-4">
@@ -96,9 +99,31 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       </div>
 
       <div className="space-y-3">
-        {w.exercises.map((e) => (
+        {w.exercises.map((e) => {
+          const info = get(e.exercise_id);
+          const name = info?.name ?? e.exercise_id;
+          const thumb = exerciseThumb(info?.image_urls, name);
+          return (
           <section key={e.id} className="card p-3">
-            <h3 className="font-semibold mb-2">{get(e.exercise_id)?.name ?? e.exercise_id}</h3>
+            <div className="flex items-center gap-3 mb-2">
+              {thumb.kind === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={thumb.src}
+                  alt={name}
+                  loading="lazy"
+                  className="size-10 rounded-full object-cover bg-white border border-border"
+                />
+              ) : (
+                <span
+                  aria-hidden
+                  className="size-10 rounded-full bg-surface-2 text-muted flex items-center justify-center font-semibold"
+                >
+                  {thumb.letter}
+                </span>
+              )}
+              <h3 className="font-semibold">{name}</h3>
+            </div>
             <ul className="space-y-1">
               {e.sets.map((s, i) => (
                 <li key={s.id} className="flex items-center gap-3 text-sm">
@@ -123,7 +148,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
               ))}
             </ul>
           </section>
-        ))}
+          );
+        })}
       </div>
 
       <button

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
 import { HistoryList } from "@/components/HistoryList";
 
@@ -88,5 +88,37 @@ describe("HistoryList cards", () => {
     const card = within((await screen.findByText("New day")).closest("a")!);
     expect(card.getByText("Records").nextElementSibling).toHaveTextContent("0");
     expect(screen.queryByText("Old day")).toBeNull();
+  });
+});
+
+describe("HistoryList delete menu", () => {
+  it("the three-dot menu deletes a workout after confirming, and cancel keeps it", async () => {
+    await seed("w1", 2, "Push A", [{ exercise_id: "bench", weight: 50, n: 2 }]);
+    await seed("w2", 1, "Push B", [{ exercise_id: "bench", weight: 60, n: 2 }]);
+    render(<HistoryList />);
+    await screen.findByText("Push B");
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    fireEvent.click(screen.getAllByRole("button", { name: "Workout options" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete workout" }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(await db.workouts.count()).toBe(2);
+
+    confirmSpy.mockReturnValueOnce(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Workout options" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete workout" }));
+    await waitFor(() => expect(screen.queryByText("Push B")).toBeNull());
+    expect(await db.workouts.count()).toBe(1);
+    expect(screen.getByText("Push A")).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("opening the menu does not navigate to the workout", async () => {
+    await seed("w1", 1, "Push A", [{ exercise_id: "bench", weight: 50, n: 1 }]);
+    render(<HistoryList />);
+    await screen.findByText("Push A");
+    fireEvent.click(screen.getByRole("button", { name: "Workout options" }));
+    expect(screen.getByRole("button", { name: "Delete workout" })).toBeInTheDocument();
+    expect(screen.getByText("Push A").closest("a")).toHaveAttribute("href", "/history/w1");
   });
 });

@@ -517,3 +517,56 @@ describe("parseOverloadResponse", () => {
     expect(parseOverloadResponse(json, EX_ID)).toBeNull();
   });
 });
+
+describe("ExerciseCard: swipe a set to delete it", () => {
+  beforeEach(() => {
+    // jsdom has no PointerEvent, so clientX would be dropped.
+    vi.stubGlobal("PointerEvent", class extends MouseEvent {});
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const swipeLeft = (row: HTMLElement, dx = -90) => {
+    fireEvent.pointerDown(row, { clientX: 200, clientY: 10 });
+    fireEvent.pointerMove(row, { clientX: 200 + dx, clientY: 10 });
+    fireEvent.pointerUp(row, { clientX: 200 + dx, clientY: 10 });
+  };
+
+  it("has no - Set button any more", async () => {
+    await seedActive([set("a"), set("b")]);
+    renderCard();
+    await screen.findAllByRole("button", { name: "Complete set" });
+    expect(screen.queryByRole("button", { name: /− Set/ })).toBeNull();
+  });
+
+  it("swiping a row left and pressing Delete removes that set only", async () => {
+    await seedActive([set("a"), set("b", { done: true }), set("c")]);
+    renderCard();
+    await screen.findAllByRole("button", { name: /set$/ });
+    swipeLeft(rows()[1].parentElement as HTMLElement);
+    const del = screen.getByRole("button", { name: "Delete" });
+    fireEvent.click(del);
+    await waitFor(async () => expect((await liveSets()).map((s) => s.id)).toEqual(["a", "c"]));
+  });
+
+  it("a short drag snaps back and deletes nothing", async () => {
+    await seedActive([set("a"), set("b")]);
+    renderCard();
+    await screen.findAllByRole("button", { name: "Complete set" });
+    const wrap = rows()[0].parentElement as HTMLElement;
+    swipeLeft(wrap, -20);
+    expect(wrap.style.transform).toBe("translateX(0px)");
+    expect((await liveSets()).length).toBe(2);
+  });
+
+  it("tapping an open row closes it without ticking the set", async () => {
+    await seedActive([set("a"), set("b")]);
+    renderCard();
+    await screen.findAllByRole("button", { name: "Complete set" });
+    const wrap = rows()[0].parentElement as HTMLElement;
+    swipeLeft(wrap);
+    expect(wrap.style.transform).toBe("translateX(-80px)");
+    fireEvent.click(screen.getAllByRole("button", { name: "Complete set" })[0]);
+    expect(wrap.style.transform).toBe("translateX(0px)");
+    expect((await liveSets())[0].done).toBe(false);
+  });
+});

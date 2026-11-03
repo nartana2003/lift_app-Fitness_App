@@ -465,8 +465,6 @@ function DayPanel({
         <button className="text-muted text-sm" onClick={onClose}>Close</button>
       </div>
 
-      <GymDayToggle date={date} row={row} routineName={routine?.name} isPast={isPast} />
-
       {row?.status === "done" && <p className="text-sm text-muted mb-2">Trained ✓</p>}
       {row?.status === "skipped" && (
         <p className="text-sm text-muted mb-2">
@@ -558,44 +556,31 @@ function DayPanel({
             <p className="text-sm text-muted">Create a routine first, then plan it on a day.</p>
           ) : (
             <>
-              <p className="text-sm text-muted mb-2">Plan a routine</p>
+              <p className="text-sm font-medium mb-2">Plan a routine</p>
               {choices.groups.length === 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {routines.map((r) => (
-                    <button key={r.id} className="chip text-xs" onClick={() => planDay(date, r.id)}>
-                      {r.name}
-                    </button>
-                  ))}
-                </div>
+                <RoutineChoices routines={routines} onPick={(id) => planDay(date, id)} />
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {choices.groups.map((g) => (
                     <div key={g.dayId} role="group" aria-label={`${g.name} routines`}>
                       <p className="text-[11px] text-muted mb-1">{g.name}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {g.routines.map((r) => (
-                          <button key={r.id} className="chip text-xs" onClick={() => planDay(date, r.id)}>
-                            {r.name}
-                          </button>
-                        ))}
-                      </div>
+                      <RoutineChoices routines={g.routines} onPick={(id) => planDay(date, id)} />
                     </div>
                   ))}
                   {choices.others.length > 0 && (
                     <div role="group" aria-label="Other routines">
                       <p className="text-[11px] text-muted mb-1">Other routines</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {choices.others.map((r) => (
-                          <button key={r.id} className="chip text-xs" onClick={() => planDay(date, r.id)}>
-                            {r.name}
-                          </button>
-                        ))}
-                      </div>
+                      <RoutineChoices routines={choices.others} onPick={(id) => planDay(date, id)} />
                     </div>
                   )}
                 </div>
               )}
             </>
+          )}
+          {!routine && row?.status === "planned" && (
+            <button className="mt-3 text-xs text-muted py-1" onClick={() => void unmarkGymDay(date)}>
+              Remove gym day
+            </button>
           )}
         </>
       )}
@@ -603,57 +588,19 @@ function DayPanel({
   );
 }
 
-/**
- * "Gym day: on/off" at the top of the day panel. Turning it off removes a
- * planned date (asking first when a routine is planned on it); done, skipped
- * and moved dates cannot be unmarked, and past dates cannot be marked.
- */
-function GymDayToggle({
-  date,
-  row,
-  routineName,
-  isPast,
-}: {
-  date: string;
-  row: PlannedDayRow | null;
-  routineName: string | undefined;
-  isPast: boolean;
-}) {
-  const on = isGymDay(row ?? undefined);
-  const locked = !!row && row.status !== "planned";
-  const disabled = locked || (!row && isPast);
-  const hint = locked
-    ? row?.status === "done"
-      ? "Trained days stay marked."
-      : "Undo the skip or move to change this day."
-    : !row && isPast
-      ? "Past days cannot be marked."
-      : "";
-
-  async function toggle() {
-    if (disabled) return;
-    if (!row) {
-      await markGymDay(date);
-      return;
-    }
-    if (row.routine_id) {
-      const name = routineName ?? "the planned routine";
-      if (!confirm(`Unmark this gym day? This also removes ${name} from it.`)) return;
-    }
-    await unmarkGymDay(date);
-  }
-
+/** Routines as a simple vertical list; tapping one plans it on the day. */
+function RoutineChoices({ routines, onPick }: { routines: { id: string; name: string }[]; onPick: (id: string) => void }) {
   return (
-    <div className="mb-2">
-      <button
-        className={`${on ? "chip-on" : "chip"} text-xs disabled:opacity-40`}
-        aria-pressed={on}
-        disabled={disabled}
-        onClick={() => void toggle()}
-      >
-        {on ? "Gym day: on" : "Gym day: off"}
-      </button>
-      {hint && <p className="mt-1 text-[11px] text-muted">{hint}</p>}
+    <div className="space-y-1.5">
+      {routines.map((r) => (
+        <button
+          key={r.id}
+          className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
+          onClick={() => onPick(r.id)}
+        >
+          {r.name}
+        </button>
+      ))}
     </div>
   );
 }

@@ -110,8 +110,8 @@ describe("marking gym days", () => {
     fireEvent.click(dayButton(THU));
     await waitFor(async () => expect(await getDay(THU)).toMatchObject({ routine_id: null, status: "planned" }));
     expect(await outboxFor(THU)).toHaveLength(1);
-    expect(await screen.findByRole("button", { name: "Gym day: on" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Plan a routine")).toBeInTheDocument();
+    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Gym day:/ })).toBeNull();
     await waitFor(() => expect(dayButton(THU)).toHaveClass("bg-accent"));
     // A marked date with no routine shows no planned-routine dot.
     expect(dayButton(THU).textContent).toBe("T15");
@@ -124,7 +124,7 @@ describe("marking gym days", () => {
     const before = await getDay(FRI);
     await renderStrip();
     fireEvent.click(dayButton(FRI));
-    expect(await screen.findByRole("button", { name: "Gym day: on" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Remove gym day" })).toBeInTheDocument();
     expect(await getDay(FRI)).toEqual(before);
     expect(await outboxFor(FRI)).toHaveLength(1);
   });
@@ -132,47 +132,39 @@ describe("marking gym days", () => {
   it("tapping a past date opens the panel without marking", async () => {
     await renderStrip();
     fireEvent.click(dayButton(TUE));
-    const toggle = await screen.findByRole("button", { name: "Gym day: off" });
-    expect(toggle).toBeDisabled();
-    expect(screen.getByText("Past days cannot be marked.")).toBeInTheDocument();
+    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove gym day" })).toBeNull();
     await new Promise((r) => setTimeout(r, 20));
     expect(await getDay(TUE)).toBeUndefined();
   });
 
-  it("the panel toggle unmarks a routine-less date", async () => {
+  it("Remove gym day unmarks a routine-less date", async () => {
     await renderStrip();
     fireEvent.click(dayButton(SAT));
-    fireEvent.click(await screen.findByRole("button", { name: "Gym day: on" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove gym day" }));
     await waitFor(async () => expect(await getDay(SAT)).toBeUndefined());
-    expect(await screen.findByRole("button", { name: "Gym day: off" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove gym day" })).toBeNull();
     await waitFor(() => expect(dayButton(SAT)).not.toHaveClass("bg-accent"));
     const ops = (await db.outbox.toArray()).filter((o) => o.table === "planned_days").map((o) => o.op);
     expect(ops).toEqual(["upsert", "delete"]);
   });
 
-  it("toggling back on re-marks the date", async () => {
+  it("tapping the date again after removing it re-marks the date", async () => {
     await renderStrip();
     fireEvent.click(dayButton(SAT));
-    fireEvent.click(await screen.findByRole("button", { name: "Gym day: on" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Gym day: off" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove gym day" }));
+    await waitFor(async () => expect(await getDay(SAT)).toBeUndefined());
+    fireEvent.click(dayButton(SAT)); // closes the panel
+    fireEvent.click(dayButton(SAT)); // reopens and marks
     await waitFor(async () => expect(await getDay(SAT)).toMatchObject({ routine_id: null, status: "planned" }));
   });
 
-  it("unmarking a date with a routine asks first and removes both", async () => {
+  it("a day with a routine offers Clear this day, not Remove gym day", async () => {
     await planDay(THU, pushId);
-    const ask = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     await renderStrip();
     fireEvent.click(dayButton(THU));
-    const toggle = await screen.findByRole("button", { name: "Gym day: on" });
-
-    fireEvent.click(toggle);
-    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
-    expect(ask.mock.calls[0][0]).toContain("Push");
-    expect(await getDay(THU)).toMatchObject({ routine_id: pushId });
-
-    fireEvent.click(toggle);
-    await waitFor(async () => expect(await getDay(THU)).toBeUndefined());
-    expect(ask).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole("button", { name: "Clear this day" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove gym day" })).toBeNull();
   });
 
   it("done, skipped and moved dates cannot be unmarked", async () => {
@@ -183,11 +175,12 @@ describe("marking gym days", () => {
     await renderStrip();
 
     fireEvent.click(dayButton(WED));
-    expect(await screen.findByRole("button", { name: "Gym day: on" })).toBeDisabled();
-    expect(screen.getByText("Trained days stay marked.")).toBeInTheDocument();
+    expect(await screen.findByText(/Trained/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove gym day" })).toBeNull();
 
     fireEvent.click(dayButton(THU));
-    expect(await screen.findByRole("button", { name: "Gym day: off" })).toBeDisabled();
+    expect(await screen.findByText(/Skipped/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove gym day" })).toBeNull();
     expect(dayButton(THU)).toHaveAccessibleName(`${long(THU)}, skipped, tap to change`);
     expect(await unmarkGymDay(THU)).toBe(false);
     expect(await getDay(THU)).toMatchObject({ status: "skipped" });

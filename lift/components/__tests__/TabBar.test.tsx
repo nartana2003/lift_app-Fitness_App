@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
 
 let path = "/";
@@ -43,18 +43,15 @@ describe("TabBar", () => {
     expect(screen.getByRole("link", { name: "Coach" })).not.toHaveClass("font-semibold");
   });
 
-  it("puts Resume in front of Coach while a workout is running", async () => {
+  it("shows no Resume item while a workout is running (Home has the Resume button)", async () => {
     await db.active.put({ key: "active", id: "w1", started_at: new Date().toISOString(), routine_id: null, name: null, exercises: [] });
     render(<TabBar />);
-    await waitFor(() => expect(labels()).toContain("Resume"));
-    expect(labels()).toEqual(["Home", "Exercises", "Resume", "Coach", "Progress", "Profile"]);
-    expect(screen.getByRole("link", { name: "Resume" })).toHaveAttribute("href", "/workout");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(labels()).toEqual(["Home", "Exercises", "Coach", "Progress", "Profile"]);
   });
 
-  it("gives every item an equal share so six items fit at 390px", async () => {
-    await db.active.put({ key: "active", id: "w1", started_at: new Date().toISOString(), routine_id: null, name: null, exercises: [] });
+  it("gives every item an equal share", () => {
     render(<TabBar />);
-    await waitFor(() => expect(labels()).toContain("Resume"));
     for (const li of screen.getAllByRole("listitem")) expect(li).toHaveClass("flex-1", "min-w-0");
   });
 });

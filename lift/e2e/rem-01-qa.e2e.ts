@@ -44,8 +44,8 @@ test("mark, reload, unmark: next reminder appears, persists, then disappears", a
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await page.locator(`button[data-day="${day}"]`).click();
-  const toggle = page.getByRole("button", { name: "Gym day: on" });
-  if (await toggle.isVisible().catch(() => false)) await toggle.click();
+  const remove = page.getByRole("button", { name: "Remove gym day" });
+  if (await remove.isVisible().catch(() => false)) await remove.click();
   await expect(page.locator(`button[data-day="${day}"]`)).toHaveAttribute("aria-pressed", "false");
 
   await openReminders(page);
@@ -70,7 +70,7 @@ test("usual weekday alone gives a next reminder; the optional-days line is shown
   expect(errs).toEqual([]);
 });
 
-test("marking two dates shows the earlier one; Skip today moves on; works offline at 390px without overflow", async ({ page, context }) => {
+test("marking two dates shows the earlier one; works offline at 390px without overflow", async ({ page, context }) => {
   const errs = errors(page);
   await setTime(page, "23:59");
   await page.goto("/");
@@ -88,11 +88,8 @@ test("marking two dates shows the earlier one; Skip today moves on; works offlin
   await page.getByRole("link", { name: /profile/i }).first().click();
   await page.getByRole("button", { name: /^Reminders/ }).click();
   await expect(page.getByText("Today 23:59")).toBeVisible();
-  await page.getByRole("button", { name: "Skip today" }).click();
-  await expect(page.getByRole("button", { name: "Skip today" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("Tomorrow 23:59")).toBeVisible();
-  await page.getByRole("button", { name: "Skip today" }).click();
-  await expect(page.getByText("Today 23:59")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Skip today" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Snooze/ })).toHaveCount(0);
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(overflow).toBe(false);

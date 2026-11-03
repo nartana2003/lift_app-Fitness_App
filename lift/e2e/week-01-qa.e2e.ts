@@ -157,7 +157,7 @@ test("tap marks a future date, opens the panel, others stay; survives reload; on
   await open(page);
   await day(page, THU).click();
   await expect(day(page, THU)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Gym day: on" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove gym day" })).toBeVisible();
   await expect(page.getByText("Plan a routine")).toHaveCount(0); // no routines exist yet
   for (const k of WEEK.filter((x) => x !== THU)) await expect(day(page, k)).toHaveAttribute("aria-pressed", "false");
   await page.reload();
@@ -172,11 +172,11 @@ test("tapping a marked date opens the panel without changing it, tapping again c
   void errors;
   await open(page, { days: [{ date: FRI }] });
   await day(page, FRI).click();
-  await expect(page.getByRole("button", { name: "Gym day: on" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove gym day" })).toBeVisible();
   expect(await rows(page)).toHaveLength(1);
   await expect(day(page, FRI)).toHaveAttribute("aria-pressed", "true");
   await day(page, FRI).click();
-  await expect(page.getByRole("button", { name: "Gym day: on" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Remove gym day" })).toHaveCount(0);
   await expect(day(page, FRI)).toHaveAttribute("aria-pressed", "true");
   expect(await rows(page)).toHaveLength(1);
 });
@@ -186,7 +186,7 @@ test("tapping a past date opens the panel but never marks, even across reload", 
   await open(page);
   for (const k of [MON, TUE]) {
     await day(page, k).click();
-    await expect(page.getByRole("button", { name: "Gym day: off" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Remove gym day" })).toHaveCount(0);
     await expect(day(page, k)).toHaveAttribute("aria-pressed", "false");
     await expect(day(page, k)).toHaveAccessibleName(/not a gym day$/);
   }
@@ -195,11 +195,11 @@ test("tapping a past date opens the panel but never marks, even across reload", 
   expect(await rows(page)).toEqual([]);
 });
 
-test("Gym day toggle unmarks a routine-less date and the mark does not return after reload", async ({ page, errors }) => {
+test("Remove gym day unmarks a routine-less date and the mark does not return after reload", async ({ page, errors }) => {
   void errors;
   await open(page, { days: [{ date: THU }, { date: SAT }] });
   await day(page, THU).click();
-  await page.getByRole("button", { name: "Gym day: on" }).click();
+  await page.getByRole("button", { name: "Remove gym day" }).click();
   await expect(day(page, THU)).toHaveAttribute("aria-pressed", "false");
   await expect(day(page, SAT)).toHaveAttribute("aria-pressed", "true");
   await page.reload();
@@ -207,29 +207,15 @@ test("Gym day toggle unmarks a routine-less date and the mark does not return af
   expect((await rows(page)).map((r) => r.date)).toEqual([SAT]);
 });
 
-test("unmarking a date with a routine asks first: dismiss keeps it, accept removes it", async ({ page, errors }) => {
+test("a day with a routine offers Clear this day and no Remove gym day", async ({ page, errors }) => {
   void errors;
   await open(page, { routines: [PUSH], days: [{ date: THU, routine_id: PUSH.id }] });
-  const messages: string[] = [];
-  let accept = false;
-  page.on("dialog", async (d) => {
-    messages.push(d.message());
-    if (accept) await d.accept();
-    else await d.dismiss();
-  });
   await day(page, THU).click();
-  await page.getByRole("button", { name: "Gym day: on" }).click();
-  await expect.poll(() => messages.length).toBe(1);
-  expect(messages[0]).toContain("Push");
-  expect(await rows(page)).toHaveLength(1);
-  await expect(day(page, THU)).toHaveAttribute("aria-pressed", "true");
-  accept = true;
-  await page.getByRole("button", { name: "Gym day: on" }).click();
-  await expect(day(page, THU)).toHaveAttribute("aria-pressed", "false");
-  expect(await rows(page)).toEqual([]);
+  await expect(page.getByRole("button", { name: "Clear this day" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove gym day" })).toHaveCount(0);
 });
 
-test("done, skipped and moved dates have a locked toggle", async ({ page, errors }) => {
+test("done, skipped and moved dates offer no Remove gym day", async ({ page, errors }) => {
   void errors;
   await open(page, {
     routines: [PUSH],
@@ -241,7 +227,7 @@ test("done, skipped and moved dates have a locked toggle", async ({ page, errors
   });
   for (const k of [WED, THU, FRI]) {
     await day(page, k).click();
-    await expect(page.getByRole("button", { name: /Gym day: (on|off)/ })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Remove gym day" })).toHaveCount(0);
     await day(page, k).click();
   }
   expect((await rows(page)).map((r) => r.status)).toEqual(["done", "skipped", "moved"]);
@@ -289,7 +275,7 @@ test("keyboard: Tab reaches the day buttons, Enter and Space mark and open", asy
   expect(outline).not.toBe("none");
   await page.keyboard.press("Enter");
   await expect(day(page, THU)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Gym day: on" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove gym day" })).toBeVisible();
   await day(page, FRI).focus();
   await page.keyboard.press("Space");
   await expect(day(page, FRI)).toHaveAttribute("aria-pressed", "true");
@@ -382,10 +368,22 @@ test.describe("real clock", () => {
     await page.waitForLoadState("networkidle");
     const first = page.getByRole("button", { name: /not a gym day, tap to mark$/ }).first();
     await first.click();
-    await expect(page.getByRole("button", { name: "Gym day: on" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Remove gym day" })).toBeVisible();
     await page.reload();
     await page.waitForLoadState("networkidle");
     await expect(page.getByRole("button", { name: /gym day, tap to change$/ })).toHaveCount(1);
     expect(errs).toEqual([]);
   });
+});
+
+test("tapping a date marks it and lists routines to plan; picking one plans it", async ({ page, errors }) => {
+  void errors;
+  await open(page, { routines: [PUSH] });
+  await day(page, THU).click();
+  await expect(day(page, THU)).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /^Gym day:/ })).toHaveCount(0);
+  await expect(page.getByText("Plan a routine")).toBeVisible();
+  await page.getByRole("button", { name: "Push", exact: true }).click();
+  await expect(page.getByText("Planned:")).toBeVisible();
+  expect(await rows(page)).toEqual([{ date: THU, routine_id: PUSH.id, status: "planned" }]);
 });

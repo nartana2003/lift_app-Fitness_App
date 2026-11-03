@@ -97,11 +97,16 @@ export function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-/** Pure: short summary for the Profile row, e.g. "Mon, Wed, Fri at 18:00" or "Off". */
-export function reminderSummary(r: ReminderSettings, weekStart: 0 | 1 = 1): string {
-  if (r.days.length === 0) return "Off";
+/**
+ * Pure: short summary for the Profile row, e.g. "Mon, Wed, Fri at 18:00" or "Off".
+ * `planned` is the number of upcoming days marked on the This Week strip; they
+ * are reminded too, so they count as on even with no usual weekdays picked.
+ */
+export function reminderSummary(r: ReminderSettings, weekStart: 0 | 1 = 1, planned = 0): string {
+  if (r.days.length === 0) return planned > 0 ? `${planned} planned ${planned === 1 ? "day" : "days"} at ${r.time}` : "Off";
   const names = orderedDays(weekStart).filter((d) => r.days.includes(d)).map((d) => DAY_SHORT[d]);
-  return `${r.days.length === 7 ? "Every day" : names.join(", ")} at ${r.time}`;
+  const usual = `${r.days.length === 7 ? "Every day" : names.join(", ")} at ${r.time}`;
+  return planned > 0 ? `${usual} + ${planned} planned` : usual;
 }
 
 /** Pure: true for a real local calendar date "YYYY-MM-DD" (rejects 2026-02-30). */

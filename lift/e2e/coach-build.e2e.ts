@@ -45,21 +45,31 @@ test("set priorities and limits, build a split with routines, replace one exerci
   await page.getByRole("button", { name: "Set up with coach" }).click();
   const panel = page.getByRole("region", { name: "Coach setup" });
   const nav = panel.getByRole("group", { name: "Step navigation" });
-  await nav.getByRole("button", { name: "Next" }).click();
+  // Only missing inputs are asked: the goal is typed, so the panel opens on Focus and days,
+  // and the priorities and limits are used instead of the focus chips.
   await expect(panel.getByRole("heading", { name: "Focus and days" })).toBeVisible();
+  const from = panel.getByRole("group", { name: "From Priorities and limits" });
+  await expect(from).toContainText("Muscle priorities: Biceps high");
+  await expect(from).toContainText("Working around: Knee");
+  await expect(panel.getByText("Focus muscles: these get more sets")).toHaveCount(0);
   await panel.getByLabel("Days a week").fill("3");
   await nav.getByRole("button", { name: "Next" }).click();
   await expect(panel.getByRole("heading", { name: "Your split" })).toBeVisible();
   await panel.getByRole("button", { name: "Build split" }).click();
-  await expect(panel.getByRole("list", { name: "Proposed split" })).toBeVisible();
+  const proposed = panel.getByRole("list", { name: "Proposed split" });
+  await expect(proposed).toBeVisible();
+  // A rotation, never weekdays.
+  await expect(proposed.getByRole("listitem").first()).toContainText("Day 1");
+  await expect(panel.getByText(/A rotation, not weekdays/)).toBeVisible();
   await panel.getByRole("button", { name: "Use this split" }).click();
   await nav.getByRole("button", { name: "Next" }).click();
   await nav.getByRole("button", { name: "Next" }).click();
   await expect(panel.getByRole("heading", { name: "Review" })).toBeVisible();
 
-  // 3) A draft routine for every day.
+  // 3) A draft routine for every day. generate-routines answers 503, so the rules pick them.
   const routines = panel.getByRole("region", { name: "Your routines" });
   await expect(routines).toBeVisible();
+  await expect(routines.getByText("These exercises come from the built-in rules.")).toBeVisible();
   const dayLists = routines.getByRole("list");
   const days = await dayLists.count();
   expect(days).toBe(3);
@@ -115,7 +125,9 @@ test("set priorities and limits, build a split with routines, replace one exerci
   await page.getByRole("button", { name: "Set up with coach" }).click();
   const again = page.getByRole("region", { name: "Coach setup" });
   const againNav = again.getByRole("group", { name: "Step navigation" });
-  for (let i = 0; i < 4; i++) await againNav.getByRole("button", { name: "Next" }).click();
+  // The goal is typed, so the panel opens on step 2: three Nexts reach Review.
+  await expect(again.getByRole("heading", { name: "Focus and days" })).toBeVisible();
+  for (let i = 0; i < 3; i++) await againNav.getByRole("button", { name: "Next" }).click();
   await expect(again.getByRole("heading", { name: "Review" })).toBeVisible();
   await expect(again.getByRole("region", { name: "Your routines" })).toHaveCount(0);
   await againNav.getByRole("button", { name: "Save" }).click();

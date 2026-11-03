@@ -15,7 +15,6 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/routines/RoutineList", () => ({ RoutineList: () => <section>My Routines stub</section> }));
 vi.mock("@/components/ExerciseBrowser", () => ({ ExerciseBrowser: () => <div>Exercise browser stub</div> }));
 vi.mock("@/components/planner/WeekStrip", () => ({ WeekStrip: () => <div>Week strip stub</div> }));
-vi.mock("@/components/planner/TodayPicks", () => ({ TodayPicks: () => <div>Today picks stub</div> }));
 vi.mock("@/components/HistoryList", () => ({ HistoryList: () => <div>History stub</div> }));
 vi.mock("@/lib/catalogue", () => ({ useCatalogue: () => ({ exercises: [], loading: false, get: () => undefined }) }));
 
@@ -91,7 +90,6 @@ describe("Home", () => {
     expect(await screen.findByRole("button", { name: "Start Workout" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "My Week" })).toBeInTheDocument();
     expect(screen.getByText("Week strip stub")).toBeInTheDocument();
-    expect(screen.getByText("Today picks stub")).toBeInTheDocument();
     expect(screen.getByText("History stub")).toBeInTheDocument();
     expect(screen.queryByText("My Routines stub")).not.toBeInTheDocument();
   });

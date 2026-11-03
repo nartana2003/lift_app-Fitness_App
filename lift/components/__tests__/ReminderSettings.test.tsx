@@ -39,7 +39,7 @@ describe("ReminderSettings", () => {
     expect(screen.getByText(/Next reminder/)).toBeInTheDocument();
   });
 
-  it("saves the time, switches and snooze length", async () => {
+  it("saves the time and switches", async () => {
     render(<ReminderSettings />);
     fireEvent.change(screen.getByLabelText("Reminder time"), { target: { value: "07:30" } });
     await waitFor(async () => expect((await stored())?.time).toBe("07:30"));
@@ -47,23 +47,13 @@ describe("ReminderSettings", () => {
     await waitFor(async () => expect((await stored())?.smart).toBe(true));
     fireEvent.click(screen.getByRole("switch", { name: "You're behind nudge" }));
     await waitFor(async () => expect((await stored())?.behindNudge).toBe(false));
-    fireEvent.change(screen.getByLabelText("Snooze length"), { target: { value: "30" } });
-    await waitFor(async () => expect((await stored())?.snoozeMin).toBe(30));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Snooze 30 min" })).toBeInTheDocument());
   });
 
-  it("skip today and snooze toggle and are saved", async () => {
-    await saveReminders({ ...DEFAULT_REMINDERS, days: [0, 1, 2, 3, 4, 5, 6] });
+  it("has no Skip today, Snooze or Snooze length controls", () => {
     render(<ReminderSettings />);
-    const skip = screen.getByRole("button", { name: "Skip today" });
-    fireEvent.click(skip);
-    await waitFor(() => expect(skip).toHaveAttribute("aria-pressed", "true"));
-    expect((await stored())?.skipDate).not.toBeNull();
-    const snooze = screen.getByRole("button", { name: "Snooze 1 h" });
-    fireEvent.click(snooze);
-    await waitFor(() => expect(snooze).toHaveAttribute("aria-pressed", "true"));
-    expect(skip).toHaveAttribute("aria-pressed", "false");
-    expect((await stored())?.snoozedUntil).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip today" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Snooze/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Snooze length")).not.toBeInTheDocument();
   });
 
   it("Enable notifications explains push is not available yet", () => {
@@ -129,7 +119,7 @@ describe("Profile reminders section", () => {
       expect(screen.getByRole("button", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
     expect(screen.queryByRole("button", { name: /^(Goals|My split|Ask the coach|Backup|Sync|Account|Import data)/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Goals and split are in Coach/ })).toHaveAttribute("href", "/coach");
+    expect(screen.queryByRole("link", { name: /Goals and split are in Coach/ })).not.toBeInTheDocument();
   });
 });
 

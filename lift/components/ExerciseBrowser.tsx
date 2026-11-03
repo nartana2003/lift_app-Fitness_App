@@ -123,11 +123,11 @@ export function ExerciseBrowser({
   );
 }
 
-function shortName(m: string) {
+export function shortName(m: string) {
   return m === "Hips/Adductors/Abductors" ? "Hips" : m === "Abs/Core" ? "Abs" : m;
 }
 
-function MuscleTab({
+export function MuscleTab({
   label,
   active,
   onClick,
@@ -139,7 +139,7 @@ function MuscleTab({
   children: React.ReactNode;
 }) {
   return (
-    <button onClick={onClick} className="snap-start shrink-0 w-[72px] flex flex-col items-center gap-1 py-1">
+    <button type="button" aria-pressed={active} onClick={onClick} className="snap-start shrink-0 w-[72px] flex flex-col items-center gap-1 py-1">
       <span
         className={`grid place-items-center h-[76px] w-16 rounded-2xl border transition ${
           active ? "border-accent bg-accent/10 text-accent" : "border-border bg-surface text-text"

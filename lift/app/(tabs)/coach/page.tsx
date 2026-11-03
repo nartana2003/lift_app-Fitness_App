@@ -7,6 +7,7 @@ import { PrioritiesSection } from "@/components/goals/PrioritiesSection";
 import { CoachSetup } from "@/components/goals/CoachSetup";
 import { SplitEditor } from "@/components/goals/SplitEditor";
 import { AskCoach } from "@/components/goals/AskCoach";
+import { OptimiseSplit } from "@/components/coach/OptimiseSplit";
 import { useSplit } from "@/lib/splits";
 import { allTargets, GOAL_LABELS, useGoals } from "@/lib/goals";
 
@@ -15,6 +16,7 @@ const ICONS = {
   target: "M12 21a9 9 0 110-18 9 9 0 010 18zM12 16.5a4.5 4.5 0 110-9 4.5 4.5 0 010 9zM12 13a1 1 0 110-2 1 1 0 010 2z",
   sliders: "M4 7h10M18 7h2M4 17h4M12 17h8",
   wand: "M5 19L19 5M14 5l2-2M19 10l2-2M17 3v2M21 7h-2",
+  check: "M4 12l5 5L20 6",
 } as const;
 
 const Icon = ({ d }: { d: string }) => (
@@ -23,7 +25,7 @@ const Icon = ({ d }: { d: string }) => (
   </svg>
 );
 
-/** Coach tab: goals, priorities, build a split, the split itself and the coach. Optimise joins here in a later step. */
+/** Coach tab: goals, priorities, build a split, optimise it, the split itself and the coach. */
 export default function CoachPage() {
   const goals = useGoals();
   const split = useSplit();
@@ -55,6 +57,14 @@ export default function CoachPage() {
         subtitle={split.days.length ? "Rebuild your split and routines from your goals" : "Make a split and routines from your goals"}
       >
         <CoachSetup goals={goals} split={split} />
+      </Collapsible>
+
+      <Collapsible
+        title="Optimise"
+        icon={<Icon d={ICONS.check} />}
+        subtitle={split.days.length ? "Check your split against your goals and apply changes" : "Set up a split first"}
+      >
+        <OptimiseSplit />
       </Collapsible>
 
       <Collapsible

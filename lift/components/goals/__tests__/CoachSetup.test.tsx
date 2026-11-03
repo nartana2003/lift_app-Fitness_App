@@ -348,6 +348,8 @@ describe("CoachSetup panel", () => {
     await within(panel).findByText(MSG_AI_UNAVAILABLE);
     click(panel, "Save");
     await waitFor(async () => expect((await storedSplit())?.days).toHaveLength(3));
+    // Let the save finish (it also writes the draft routines) so it cannot write into the next test.
+    await screen.findByText("Coach setup saved.", {}, { timeout: 5000 });
   });
 
   it("replacing an existing split needs a confirm and keeps the old split until Save", async () => {
@@ -378,6 +380,8 @@ describe("CoachSetup panel", () => {
     expect((await storedSplit())?.name).toBe("Push Pull Legs");
     click(panel, "Save");
     await waitFor(async () => expect((await storedSplit())?.name).toBe("Upper Lower"));
+    // Let the save finish (it also writes the draft routines) so it cannot write into the next test.
+    await screen.findByText("Coach setup saved.", {}, { timeout: 5000 });
   });
 
   it("Use my current split after a replace keeps the old split", async () => {
@@ -396,7 +400,8 @@ describe("CoachSetup panel", () => {
     click(panel, "Next");
     await within(panel).findByText(MSG_AI_UNAVAILABLE);
     click(panel, "Save");
-    await screen.findByText("Coach setup saved.");
+    // Save also writes a draft routine for each of the three days, which can take over a second.
+    await screen.findByText("Coach setup saved.", {}, { timeout: 5000 });
     expect((await storedSplit())?.name).toBe("Push Pull Legs");
   });
 

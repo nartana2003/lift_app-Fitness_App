@@ -2,8 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/offline/db";
 
 type IconProps = { active: boolean };
 
@@ -85,39 +83,21 @@ const TABS = [
 
 export function TabBar() {
   const path = usePathname();
-  const running = useLiveQuery(async () => !!(await db.active.get("active")), [], false);
-
-  const items: React.ReactNode[] = TABS.map(({ href, label, Icon }) => {
-    const active = href === "/" ? path === "/" || path.startsWith("/history") : path.startsWith(href);
-    return (
-      <li key={href} className="flex-1 min-w-0">
-        <Link href={href} className={`flex flex-col items-center gap-0.5 px-1 pt-2 text-[11px] ${active ? "text-accent font-semibold" : "text-muted"}`}>
-          <Icon active={active} />
-          {label}
-        </Link>
-      </li>
-    );
-  });
-
-  // A workout in progress gets a centre "Resume" button.
-  if (running) {
-    items.splice(
-      2,
-      0,
-      <li key="resume" className="flex-1 min-w-0">
-        <Link href="/workout" className="flex flex-col items-center gap-0.5 px-1 text-[11px] text-accent font-semibold">
-          <span className="-mt-5 mb-0.5 grid place-items-center size-12 rounded-full bg-accent text-accent-ink shadow-md">
-            <DumbbellIcon active={false} />
-          </span>
-          Resume
-        </Link>
-      </li>,
-    );
-  }
-
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 bg-bg/90 backdrop-blur border-t border-border pb-safe">
-      <ul className="flex max-w-lg mx-auto">{items}</ul>
+      <ul className="flex max-w-lg mx-auto">
+        {TABS.map(({ href, label, Icon }) => {
+          const active = href === "/" ? path === "/" || path.startsWith("/history") : path.startsWith(href);
+          return (
+            <li key={href} className="flex-1 min-w-0">
+              <Link href={href} className={`flex flex-col items-center gap-0.5 px-1 pt-2 text-[11px] ${active ? "text-accent font-semibold" : "text-muted"}`}>
+                <Icon active={active} />
+                {label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </nav>
   );
 }

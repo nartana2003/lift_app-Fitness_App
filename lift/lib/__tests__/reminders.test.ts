@@ -81,6 +81,9 @@ describe("helpers", () => {
 
   it("summarises the schedule", () => {
     expect(reminderSummary(r())).toBe("Off");
+    expect(reminderSummary(r(), 1, 1)).toBe("1 planned day at 18:00");
+    expect(reminderSummary(r(), 1, 3)).toBe("3 planned days at 18:00");
+    expect(reminderSummary(r({ days: [1] }), 1, 2)).toBe("Mon at 18:00 + 2 planned");
     expect(reminderSummary(r({ days: [0, 1, 3] }), 1)).toBe("Mon, Wed, Sun at 18:00");
     expect(reminderSummary(r({ days: [0, 1, 3] }), 0)).toBe("Sun, Mon, Wed at 18:00");
     expect(reminderSummary(r({ days: [0, 1, 2, 3, 4, 5, 6], time: "07:15" }))).toBe("Every day at 07:15");

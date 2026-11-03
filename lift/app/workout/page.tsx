@@ -138,9 +138,9 @@ export default function WorkoutPage() {
       />
 
       <button
-        className="w-full mt-6 text-sm text-bad py-3"
+        className="w-full mt-6 flex items-center justify-center gap-2 rounded-xl border border-border text-sm font-semibold text-bad py-3.5"
         onClick={async () => {
-          if (confirm("Discard this workout? Nothing will be saved.")) {
+          if (confirm("Delete this workout? Nothing will be saved.")) {
             restTimer.stop();
             leaving.current = true;
             await discardWorkout();
@@ -148,7 +148,10 @@ export default function WorkoutPage() {
           }
         }}
       >
-        Discard workout
+        <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5L18 7M9 7V4.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V7" />
+        </svg>
+        Delete workout
       </button>
 
       <RestTimer />

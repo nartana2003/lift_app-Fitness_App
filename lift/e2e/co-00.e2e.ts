@@ -27,11 +27,10 @@ test("the Coach tab opens Goals, My split and Ask the coach, and Profile links t
   for (const name of ["Goals", "My split", "Ask the coach"]) {
     await expect(page.getByRole("button", { name: new RegExp(`^${name}`) })).toHaveCount(0);
   }
-  await page.getByRole("link", { name: /Goals and split are in Coach/ }).click();
-  await expect(page).toHaveURL(/\/coach$/);
+  await expect(page.getByRole("link", { name: /Goals and split are in Coach/ })).toHaveCount(0);
 });
 
-test("with a workout running, six tab items fit at 390px with Resume in front of Coach", async ({ page }) => {
+test("with a workout running, the tab bar stays at five items and Home shows Resume workout", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await page.evaluate(
@@ -51,11 +50,14 @@ test("with a workout running, six tab items fit at 390px with Resume in front of
   await page.waitForLoadState("networkidle");
 
   const links = nav(page).getByRole("link");
-  await expect(links).toHaveText(["Home", "Exercises", "Resume", "Coach", "Progress", "Profile"]);
+  await expect(links).toHaveText(["Home", "Exercises", "Coach", "Progress", "Profile"]);
   for (const box of await Promise.all((await links.all()).map((l) => l.boundingBox()))) {
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(390);
   }
   const scrolls = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   expect(scrolls).toBe(false);
+
+  await nav(page).getByRole("link", { name: "Home" }).click();
+  await expect(page.getByRole("link", { name: "Resume workout" })).toBeVisible();
 });
