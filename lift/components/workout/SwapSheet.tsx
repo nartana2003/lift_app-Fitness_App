@@ -5,7 +5,8 @@ import { ExerciseDemo } from "../ExerciseDemo";
 import { useCatalogue } from "@/lib/catalogue";
 import { equipmentForAi, getEquipment } from "@/lib/equipment";
 import { searchExercises, type Exercise } from "@/lib/exercises";
-import { swapOptions, SWAP_REASONS, type SwapReason } from "@/lib/swap";
+import { ALL_SWAP_REASONS, swapOptions, SWAP_REASONS, type SwapReason } from "@/lib/swap";
+import { dislikeExercise } from "@/lib/goals";
 
 /** "Machine busy?" — pick a replacement that trains the same muscle. */
 export function SwapSheet({
@@ -20,6 +21,7 @@ export function SwapSheet({
   const { exercises, get } = useCatalogue();
   const [reason, setReason] = useState<SwapReason>("busy");
   const [q, setQ] = useState("");
+  const [never, setNever] = useState(false);
   const ai = useAiSwap(current.id, reason);
 
   const options = q.trim()
@@ -90,6 +92,17 @@ export function SwapSheet({
           {options.length === 0 && <li className="text-sm text-muted">No alternatives found.</li>}
         </ul>
 
+        <button
+          className="w-full mt-3 text-xs text-muted underline py-1"
+          disabled={never}
+          onClick={async () => {
+            await dislikeExercise(current.id);
+            setNever(true);
+          }}
+        >
+          {never ? "Noted. It will not be suggested again." : "Don't suggest this again"}
+        </button>
+
         <button className="btn-ghost w-full mt-3" onClick={onClose}>Cancel</button>
       </div>
     </div>
@@ -128,7 +141,7 @@ export function cleanSwapReason(v: unknown): string | null {
 /** The request body the swap-exercise route accepts. Null when the id cannot be sent. */
 export function buildSwapRequest(exerciseId: string, reason: SwapReason, equipment: string[]) {
   if (!exerciseId || exerciseId.length > SWAP_AI.maxId) return null;
-  if (!SWAP_REASONS.some((r) => r.v === reason)) return null;
+  if (!ALL_SWAP_REASONS.includes(reason)) return null;
   return { exercise_id: exerciseId, reason, equipment };
 }
 
@@ -167,7 +180,7 @@ export function resetSwapAi() {
 }
 
 /** Fetches ranked picks for the exercise and reason. Picks stay null until (and unless) an answer arrives. */
-function useAiSwap(exerciseId: string, reason: SwapReason): { picks: SwapPick[] | null; loading: boolean } {
+export function useAiSwap(exerciseId: string, reason: SwapReason): { picks: SwapPick[] | null; loading: boolean } {
   const [state, setState] = useState<{ key: string; picks: SwapPick[] | null; loading: boolean } | null>(null);
   const key = `${exerciseId}\u0000${reason}`;
 
