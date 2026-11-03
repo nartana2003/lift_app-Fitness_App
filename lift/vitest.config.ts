@@ -9,6 +9,8 @@ export default defineConfig({
     // Default stays node. Component tests opt in per file with a
     // `// @vitest-environment jsdom` docblock.
     environment: "node",
+    // The suite has ~170 files; on a loaded machine the 5 s default times out tests that pass alone.
+    testTimeout: 20000,
     setupFiles: ["./vitest.setup.ts"],
   },
 });
