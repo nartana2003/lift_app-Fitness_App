@@ -48,6 +48,8 @@ export function ExerciseCard({
   const { unit } = useSettings();
   const [menu, setMenu] = useState(false);
   const [swapping, setSwapping] = useState(false);
+  // Tap the title to fold the card down to the picture and name.
+  const [collapsed, setCollapsed] = useState(false);
   const name = info?.name ?? ex.exercise_id;
 
   const lastWork = last?.sets.filter((s) => !s.is_warmup) ?? [];
@@ -82,16 +84,29 @@ export function ExerciseCard({
         <Link href={`/exercises/${ex.exercise_id}`}>
           <ExerciseDemo urls={info?.image_urls.slice(0, 1) ?? []} alt={name} small />
         </Link>
-        <div className="flex-1 min-w-0">
+        <button
+          type="button"
+          className="flex-1 min-w-0 text-left self-stretch"
+          aria-expanded={!collapsed}
+          aria-label={`${collapsed ? "Expand" : "Collapse"} ${name}`}
+          onClick={() => setCollapsed(!collapsed)}
+        >
           <h3 className="font-semibold leading-tight">{name}</h3>
-          <p className="text-xs text-muted mt-0.5">
-            {lastWork.length ? `Last time: ${formatSets(lastWork, unit)}` : "First time — set a baseline"}
-          </p>
-        </div>
-        <button className="p-1 text-muted text-xl leading-none" onClick={() => setMenu(!menu)} aria-label="Options">
-          ⋯
+          {!collapsed && (
+            <p className="text-xs text-muted mt-0.5">
+              {lastWork.length ? `Last time: ${formatSets(lastWork, unit)}` : "First time — set a baseline"}
+            </p>
+          )}
         </button>
+        {!collapsed && (
+          <button className="p-1 text-muted text-xl leading-none" onClick={() => setMenu(!menu)} aria-label="Options">
+            ⋯
+          </button>
+        )}
       </div>
+
+      {!collapsed && (
+        <>
 
       {menu && (
         <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
@@ -227,6 +242,8 @@ export function ExerciseCard({
       <div className="flex gap-2 mt-2">
         <button className="btn-ghost flex-1 py-2 text-sm" onClick={() => addSet(ex.id)}>+ Add set</button>
       </div>
+        </>
+      )}
 
       {swapping && info && (
         <SwapSheet

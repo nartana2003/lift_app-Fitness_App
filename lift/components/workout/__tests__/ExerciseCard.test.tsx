@@ -140,6 +140,30 @@ describe("ExerciseCard: previous-set column", () => {
   });
 });
 
+describe("ExerciseCard: collapse", () => {
+  it("tapping the title folds the card to the picture and name, and again unfolds it", async () => {
+    await seedActive([set("a"), set("b")]);
+    renderCard();
+    await screen.findByRole("heading", { name: "Bench Press" });
+    expect(rows()).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Bench Press" }));
+    expect(screen.queryByRole("button", { name: /^(Complete|Undo) set$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ Add set" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Bench Press" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Expand Bench Press" }));
+    expect(rows()).toHaveLength(2);
+  });
+
+  it("keeps the entered values while folded", async () => {
+    await seedActive([set("a", { reps: 8, weight: 50 })]);
+    renderCard();
+    await screen.findByRole("heading", { name: "Bench Press" });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Bench Press" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand Bench Press" }));
+    expect(screen.getByDisplayValue("8")).toBeInTheDocument();
+  });
+});
+
 describe("ExerciseCard: logging a set", () => {
   it("entering weight and reps then ticking marks the set done and starts the rest timer", async () => {
     await seedActive([set("a"), set("b")]);

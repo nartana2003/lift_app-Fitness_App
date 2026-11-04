@@ -19,17 +19,15 @@ function ExercisesInner() {
   return (
     <>
       <PageHeader
-        title="Exercises"
+        title={view === "routines" ? "Routines" : "Exercises"}
         right={
-          view === "exercises" ? (
-            <Link
-              href="/exercises/new"
-              className="size-8 rounded-full bg-surface-2 grid place-items-center text-xl leading-none"
-              aria-label="New exercise"
-            >
-              +
-            </Link>
-          ) : null
+          <Link
+            href={view === "routines" ? "/routines/new" : "/exercises/new"}
+            className="size-8 rounded-full bg-surface-2 grid place-items-center text-xl leading-none"
+            aria-label={view === "routines" ? "New routine" : "New exercise"}
+          >
+            +
+          </Link>
         }
       />
       <LibrarySwitch

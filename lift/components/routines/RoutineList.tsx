@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -10,14 +9,14 @@ import { useSplit, type Split } from "@/lib/splits";
 import { routinesForDay, splitDayIds, unassignedRoutines } from "@/lib/splitRoutines";
 import { startWorkout } from "@/lib/workout";
 import { db } from "@/lib/offline/db";
-import type { MuscleGroup } from "@/lib/muscles";
+import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
 import { MuscleTab, shortName } from "../ExerciseBrowser";
 import { MuscleIcon } from "../MuscleIcon";
+import { RoutineMenu } from "./RoutineMenu";
 import {
   MiniWorkoutCard,
   NO_FILTER,
   filterRoutines,
-  musclesIn,
   platformLabel,
   platformsIn,
   type Platform,
@@ -89,7 +88,8 @@ export function RoutineList() {
     ...new Set(r.exercises.flatMap((e) => get(e.exercise_id)?.muscle_groups ?? [])),
   ];
   const platformChips = platformsIn(routines);
-  const muscleChips = musclesIn(routines, musclesOf);
+  // Same muscle row as the Exercises view, so every group is there to filter by.
+  const muscleChips: string[] = [...MUSCLE_GROUPS];
   // A chosen chip that no longer exists (its routines were deleted) stops filtering.
   const active: RoutineFilter = {
     platform: filter.platform !== null && platformChips.includes(filter.platform) ? filter.platform : null,
@@ -137,9 +137,7 @@ export function RoutineList() {
             <div className="card h-full p-3 flex flex-col">
               <div className="flex items-start gap-2">
                 <p className="flex-1 font-semibold leading-tight line-clamp-2">{r.name}</p>
-                <Link href={`/routines/${r.id}`} className="text-muted text-lg leading-none px-1" aria-label="Edit routine">
-                  ⋯
-                </Link>
+                <RoutineMenu id={r.id} name={r.name} />
               </div>
               <p className="text-xs text-muted mt-1">
                 {r.exercises.length} exercise{r.exercises.length === 1 ? "" : "s"}
@@ -156,18 +154,7 @@ export function RoutineList() {
   );
 
   return (
-    <section className="mt-5">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-lg font-bold">My Routines</h2>
-        <Link
-          href="/routines/new"
-          className="size-8 rounded-full bg-surface-2 grid place-items-center text-xl leading-none"
-          aria-label="New routine"
-        >
-          +
-        </Link>
-      </div>
-
+    <section>
       {routines.length === 0 ? null : (
         <>
         <div className="relative mb-2">

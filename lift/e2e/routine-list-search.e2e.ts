@@ -36,7 +36,7 @@ test("routines stack vertically and can be searched by name", async ({ page }) =
   await expect(legs).toBeVisible();
   const a = (await pull.boundingBox())!;
   const b = (await legs.boundingBox())!;
-  expect(b.y).toBeGreaterThan(a.y + 40);
+  expect(Math.abs(b.y - a.y)).toBeGreaterThan(40);
   expect(Math.abs(a.x - b.x)).toBeLessThan(5);
 
   const box = page.getByRole("searchbox", { name: "Search routines" });

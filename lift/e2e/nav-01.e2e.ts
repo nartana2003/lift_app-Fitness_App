@@ -25,7 +25,7 @@ test("routines live on Exercises > Routines: create, start, delete", async ({ pa
   await page.getByRole("radio", { name: "Routines" }).click();
   await expect(page).toHaveURL(/view=routines/);
   await expect(page.getByRole("radio", { name: "Routines" })).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("heading", { name: "My Routines" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Routines", exact: true })).toBeVisible();
 
   // Create.
   await page.getByRole("link", { name: "New routine" }).click();
@@ -50,11 +50,13 @@ test("routines live on Exercises > Routines: create, start, delete", async ({ pa
   // Delete.
   await page.goto("/exercises?view=routines");
   await page.waitForLoadState("networkidle");
-  await page.getByRole("listitem").filter({ hasText: NAME }).getByRole("link", { name: "Edit routine" }).click();
+  await page.getByRole("button", { name: `Options for ${NAME}` }).click();
+  await page.getByRole("link", { name: "Edit routine" }).click();
   await expect(page.getByRole("heading", { name: "Edit routine" })).toBeVisible();
+  await page.goBack();
   await page.waitForLoadState("networkidle");
+  await page.getByRole("button", { name: `Options for ${NAME}` }).click();
   await page.getByRole("button", { name: "Delete routine" }).click();
-  await expect(page).toHaveURL(/\/exercises\?view=routines/);
   await expect(page.getByText(NAME)).toHaveCount(0);
 
   // Home still lists no routines.

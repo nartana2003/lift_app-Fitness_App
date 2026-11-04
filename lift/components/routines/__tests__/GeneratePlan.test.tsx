@@ -422,8 +422,9 @@ describe("RoutineList", () => {
   it("keeps the existing list and no longer shows the Generate 3-day plan control", async () => {
     mockFetch(() => json({ unavailable: true }, 503));
     render(<RoutineList />);
-    expect(await screen.findByRole("link", { name: "New routine" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "New routine" })).toHaveAttribute("href", "/routines/new");
+    await waitFor(() => expect(document.querySelector("section")).not.toBeNull());
+    // The + for a new routine is in the page header now, not in this list.
+    expect(screen.queryByRole("link", { name: "New routine" })).not.toBeInTheDocument();
     expect(screen.queryByText("Generate 3-day plan")).not.toBeInTheDocument();
   });
 });

@@ -14,7 +14,6 @@ import { ExerciseCard, prText } from "@/components/workout/ExerciseCard";
 import { ExercisePicker } from "@/components/workout/ExercisePicker";
 import { PrToast } from "@/components/workout/PrToast";
 import { QuickLog } from "@/components/workout/QuickLog";
-import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
 import { routineExercisesFromActive, type RoutineExerciseInput } from "@/lib/routines";
 import { RestTimer } from "@/components/RestTimer";
 import { FinishPhotos } from "@/components/progress/PhotosTab";
@@ -37,10 +36,9 @@ export default function WorkoutPage() {
   const { get } = useCatalogue();
   const [picker, setPicker] = useState(false);
   const [pr, setPr] = useState<{ title: string; detail: string } | null>(null);
-  const [finishedId, setFinishedId] = useState<string | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [saveRoutine, setSaveRoutine] = useState<{ exercises: RoutineExerciseInput[]; name: string } | null>(null);
-  // Finish screen: progress photo prompt for the saved workout, shown before "save as routine?".
+  // Finish sheet: progress photos and "save as routine" for the saved workout.
   const [photosFor, setPhotosFor] = useState<string | null>(null);
   const clearPr = useCallback(() => setPr(null), []);
 
@@ -51,26 +49,17 @@ export default function WorkoutPage() {
   }, [active, router]);
 
   if (!active) {
-    // The workout is saved; the progress photo prompt comes first.
+    // The workout is saved; one sheet offers progress photos and, when there is one, "save as routine".
     if (photosFor) {
       return (
         <FinishPhotos
           workoutId={photosFor}
-          onDone={() => {
-            setPhotosFor(null);
-            if (!saveRoutine) router.push(`/history/${photosFor}`);
-          }}
+          routine={saveRoutine ? { exercises: saveRoutine.exercises, defaultName: saveRoutine.name || undefined } : undefined}
+          onDone={() => router.push(`/history/${photosFor}`)}
         />
       );
     }
-    // Then the "save as routine?" sheet, when there is one.
-    return saveRoutine ? (
-      <SaveRoutineSheet
-        exercises={saveRoutine.exercises}
-        defaultName={saveRoutine.name || undefined}
-        onClose={() => router.push(finishedId ? `/history/${finishedId}` : "/")}
-      />
-    ) : null;
+    return null;
   }
 
   const doneSets = active.exercises.flatMap((e) => e.sets).filter((s) => s.done).length;
@@ -89,7 +78,6 @@ export default function WorkoutPage() {
     if (id) {
       // Offer progress photos (front / side / back) linked to this workout.
       setConfirmFinish(false);
-      setFinishedId(id);
       if (asRoutine.length > 0) setSaveRoutine({ exercises: asRoutine, name: active.name ?? "" });
       setPhotosFor(id);
       return;

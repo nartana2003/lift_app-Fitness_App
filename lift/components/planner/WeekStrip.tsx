@@ -462,7 +462,15 @@ function DayPanel({
     <div className="card p-3 mt-2">
       <div className="flex items-center justify-between gap-2 mb-2">
         <p className="font-semibold">{label}</p>
-        <button className="text-muted text-sm" onClick={onClose}>Close</button>
+        <button
+          className="size-8 shrink-0 rounded-full bg-surface-2 grid place-items-center text-muted"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" aria-hidden>
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
       </div>
 
       {row?.status === "done" && <p className="text-sm text-muted mb-2">Trained ✓</p>}
@@ -578,7 +586,13 @@ function DayPanel({
             </>
           )}
           {!routine && row?.status === "planned" && (
-            <button className="mt-3 text-xs text-muted py-1" onClick={() => void unmarkGymDay(date)}>
+            <button
+              className="btn-ghost w-full mt-3 py-2.5 text-sm gap-2 text-bad"
+              onClick={() => void unmarkGymDay(date)}
+            >
+              <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5L18 7M9 7V4.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V7" />
+              </svg>
               Remove gym day
             </button>
           )}

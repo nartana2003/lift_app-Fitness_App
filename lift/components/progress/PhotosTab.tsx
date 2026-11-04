@@ -7,6 +7,7 @@ import { db, uuid, type MeasurementRow, type PhotoRow } from "@/lib/offline/db";
 import { queuePhotoDelete } from "@/lib/offline/photoSync";
 import { loadCatalogue } from "@/lib/catalogue";
 import { allWorkouts } from "@/lib/history";
+import { createRoutine, type RoutineExerciseInput } from "@/lib/routines";
 import type { MuscleGroup } from "@/lib/muscles";
 import { dayKey, periodStats, type WorkoutLite } from "@/lib/progress";
 import { applySet, emptyBests, setPrs, type Bests } from "@/lib/prs";
@@ -410,6 +411,12 @@ export type ProgressPhotoRow = PhotoRow & { workout_id?: string };
 
 export const FINISH_POSES: readonly { v: Pose; label: string }[] = POSES;
 export const MSG_FINISH_PHOTO_FAILED = "Could not read that photo. Try another one.";
+export const MSG_ROUTINE_SAVE_FAILED = "Could not save the routine. Try again.";
+
+function defaultRoutineName(d = new Date()) {
+  const h = d.getHours();
+  return `${h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening"} routine`;
+}
 
 /** The row saved for a Finish-screen photo. */
 export function finishPhotoRow(p: { id: string; workoutId: string; pose: Pose; blob: Blob; takenAt: string }): ProgressPhotoRow {
@@ -480,9 +487,12 @@ export function FinishPhotos({
   workoutId,
   onDone,
   prepare = shrink,
+  routine,
 }: {
   workoutId: string;
   onDone: () => void;
+  /** When set, the same sheet also offers to save the workout as a routine. */
+  routine?: { exercises: RoutineExerciseInput[]; defaultName?: string };
   /** Turns the picked file into the stored blob (downscaled JPEG by default). */
   prepare?: (file: File) => Promise<Blob>;
 }) {
@@ -490,6 +500,25 @@ export function FinishPhotos({
   const [busy, setBusy] = useState<Pose | null>(null);
   const [error, setError] = useState<string | null>(null);
   const count = Object.keys(taken).length;
+  const [saveOn, setSaveOn] = useState(false);
+  const [routineName, setRoutineName] = useState(routine?.defaultName || defaultRoutineName());
+  const [saving, setSaving] = useState(false);
+  const saveReady = !saveOn || routineName.trim() !== "";
+
+  async function done() {
+    if (routine && saveOn) {
+      setSaving(true);
+      try {
+        await createRoutine({ name: routineName, exercises: routine.exercises });
+      } catch {
+        setError(MSG_ROUTINE_SAVE_FAILED);
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    }
+    onDone();
+  }
 
   async function onFile(pose: Pose, file: File) {
     setBusy(pose);
@@ -509,12 +538,13 @@ export function FinishPhotos({
   return (
     <div className="fixed inset-0 z-[70] bg-black/40 flex items-end">
       <section
-        className="w-full max-w-lg mx-auto card rounded-b-none p-5 pb-safe space-y-3"
+        className="w-full max-w-lg mx-auto card rounded-b-none p-5 pb-safe space-y-3 max-h-[92vh] overflow-y-auto"
         role="dialog"
         aria-modal="true"
         aria-labelledby="finish-photos-title"
       >
-        <h2 id="finish-photos-title" className="text-lg font-semibold">Progress photos</h2>
+        <h2 id="finish-photos-title" className="text-lg font-semibold">{routine ? "Workout saved" : "Progress photos"}</h2>
+        {routine && <h3 className="text-sm font-semibold">Progress photos</h3>}
         <p className="text-sm text-muted">Take a front, side and back photo to track your progress. They stay on this device and are linked to this workout.</p>
         <div className="grid grid-cols-3 gap-2">
           {FINISH_POSES.map((p) => (
@@ -526,10 +556,42 @@ export function FinishPhotos({
             {error}
           </p>
         )}
-        <button type="button" className="btn-primary w-full" disabled={busy !== null || count === 0} onClick={onDone}>
-          {count === 0 ? "Done" : `Done (${count}/${FINISH_POSES.length})`}
+        {routine && (
+          <div className="border-t border-border pt-3 space-y-2">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={saveOn}
+              className={saveOn ? "chip-on" : "chip"}
+              onClick={() => setSaveOn(!saveOn)}
+            >
+              Save as routine
+            </button>
+            {saveOn && (
+              <>
+                <input
+                  className="field"
+                  placeholder="Routine name"
+                  aria-label="Routine name"
+                  value={routineName}
+                  onChange={(e) => setRoutineName(e.target.value)}
+                />
+                <p className="text-xs text-muted">
+                  {routine.exercises.length} exercise{routine.exercises.length === 1 ? "" : "s"}, with your last weights filled in when you start it.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+        <button
+          type="button"
+          className="btn-primary w-full"
+          disabled={busy !== null || saving || !saveReady || (count === 0 && !saveOn)}
+          onClick={done}
+        >
+          {saveOn ? "Save and finish" : count === 0 ? "Done" : `Done (${count}/${FINISH_POSES.length})`}
         </button>
-        {count === 0 && (
+        {count === 0 && !saveOn && (
           <button type="button" className="btn-ghost w-full" disabled={busy !== null} onClick={onDone}>
             Skip
           </button>

@@ -59,16 +59,19 @@ test("finish offers front, side and back photos and Skip opens the workout", asy
   await expect(page).toHaveURL(/\/history\/e2e-feat04$/);
 });
 
-test("a workout without a routine shows photos, then Save as routine, then the workout", async ({ page }) => {
+test("a workout without a routine shows photos and Save as routine on one sheet", async ({ page }) => {
   await seedActive(page, "e2e-feat04-free", null);
 
   await page.getByRole("button", { name: "Finish" }).click();
   await page.getByRole("button", { name: "Save workout" }).click();
 
   await expect(page.getByRole("heading", { name: "Progress photos" })).toBeVisible();
-  await page.getByRole("button", { name: "Skip" }).click();
-
-  await expect(page.getByRole("heading", { name: "Save as routine" })).toBeVisible();
-  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByRole("switch", { name: "Save as routine" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take front photo" })).toBeVisible();
+  await page.getByRole("switch", { name: "Save as routine" }).click();
+  await page.getByLabel("Routine name").fill("Fresh routine");
+  await page.getByRole("button", { name: "Save and finish" }).click();
   await expect(page).toHaveURL(/\/history\/e2e-feat04-free$/);
+  await page.goto("/exercises?view=routines");
+  await expect(page.getByText("Fresh routine")).toBeVisible();
 });

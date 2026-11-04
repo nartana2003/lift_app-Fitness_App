@@ -161,6 +161,49 @@ describe("FinishPhotos", () => {
   });
 });
 
+describe("FinishPhotos with save as routine", () => {
+  const routine = { exercises: [{ exercise_id: "bench", target_sets: 3, target_reps: "8-12" }], defaultName: "Push day" };
+
+  beforeEach(async () => {
+    await db.routines.clear();
+    await db.routine_exercises.clear();
+  });
+
+  it("shows photos and the routine option on one sheet", () => {
+    render(<FinishPhotos workoutId="w1" onDone={() => {}} routine={routine} />);
+    expect(screen.getByRole("heading", { name: "Workout saved" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Take front photo" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Save as routine" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
+  });
+
+  it("saves the routine under the chosen name, then finishes", async () => {
+    const onDone = vi.fn();
+    render(<FinishPhotos workoutId="w1" onDone={onDone} routine={routine} />);
+    fireEvent.click(screen.getByRole("switch", { name: "Save as routine" }));
+    fireEvent.change(screen.getByLabelText("Routine name"), { target: { value: "Heavy push" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and finish" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    const rows = await db.routines.toArray();
+    expect(rows.map((r) => r.name)).toEqual(["Heavy push"]);
+  });
+
+  it("does not save a routine when the option is off", async () => {
+    const onDone = vi.fn();
+    render(<FinishPhotos workoutId="w1" onDone={onDone} routine={routine} />);
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(await db.routines.count()).toBe(0);
+  });
+
+  it("blocks saving with an empty routine name", () => {
+    render(<FinishPhotos workoutId="w1" onDone={() => {}} routine={routine} />);
+    fireEvent.click(screen.getByRole("switch", { name: "Save as routine" }));
+    fireEvent.change(screen.getByLabelText("Routine name"), { target: { value: "  " } });
+    expect(screen.getByRole("button", { name: "Save and finish" })).toBeDisabled();
+  });
+});
+
 // ---------- gallery viewer ----------
 
 describe("PhotosTab viewer", () => {

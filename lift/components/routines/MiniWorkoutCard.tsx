@@ -4,11 +4,11 @@
 // video thumbnail (or a plain placeholder), a text platform label (no brand
 // artwork), the creator and a link to the original video. Also the pure
 // filter helpers the routine list uses for its platform and muscle chips.
-import Link from "next/link";
 import { useState } from "react";
 import type { RoutineRow } from "@/lib/offline/db";
 import { dayKey, getDay, planDay, routineUsedOnOtherDay } from "@/lib/planner";
 import { createRoutine, getRoutine, updateRoutine } from "@/lib/routines";
+import { RoutineMenu } from "./RoutineMenu";
 import { addExercises, getActive } from "@/lib/workout";
 
 export type Platform = NonNullable<RoutineRow["platform"]>;
@@ -205,9 +205,7 @@ export function MiniWorkoutCard({ routine, exerciseCount, muscles, busy = false,
       </div>
       <div className="flex items-start gap-2">
         <p className="flex-1 font-semibold leading-tight line-clamp-2">{routine.name}</p>
-        <Link href={`/routines/${routine.id}`} className="text-muted text-lg leading-none px-1" aria-label="Edit routine">
-          ⋯
-        </Link>
+        <RoutineMenu id={routine.id} name={routine.name} />
       </div>
       <p className="text-xs text-muted mt-1">
         {[platform ?? "Mini", creator].filter(Boolean).join(" · ")}

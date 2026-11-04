@@ -198,7 +198,8 @@ describe("MiniWorkoutCard", () => {
     expect(link).toHaveAttribute("href", LINK);
     expect(link).toHaveAttribute("target", "_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
-    expect(within(card).getByRole("link", { name: "Edit routine" })).toHaveAttribute("href", "/routines/m1");
+    fireEvent.click(within(card).getByRole("button", { name: "Options for Core 10" }));
+    expect(screen.getByRole("link", { name: "Edit routine" })).toHaveAttribute("href", "/routines/m1");
   });
 
   it("shows a plain placeholder with no thumbnail and no link for an unsafe url", () => {
@@ -254,7 +255,7 @@ describe("RoutineList with mini workouts and filters", () => {
     expect(screen.getByRole("article", { name: "Mini workout: YouTube legs" })).toBeInTheDocument();
     expect(screen.getByText("Push day")).toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "Mini workout: Push day" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "New routine" })).toHaveAttribute("href", "/routines/new");
+    expect(screen.queryByRole("link", { name: "New routine" })).not.toBeInTheDocument();
     expect(screen.queryByText("Generate 3-day plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Save from link")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Start" })).toHaveLength(3);
@@ -316,7 +317,7 @@ describe("RoutineList with mini workouts and filters", () => {
 
   it("shows no filters with no routines", async () => {
     render(<RoutineList />);
-    expect(await screen.findByRole("link", { name: "New routine" })).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector("section")).not.toBeNull());
     expect(screen.queryByText("No routines yet.")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Filter by platform" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Filter by muscle" })).not.toBeInTheDocument();

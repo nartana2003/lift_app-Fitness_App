@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db, type RoutineExerciseRow, type RoutineRow } from "@/lib/offline/db";
+import { MUSCLE_GROUPS } from "@/lib/muscles";
 import { saveSplit, type Split } from "@/lib/splits";
 
 vi.mock("next/navigation", () => ({
@@ -116,6 +117,39 @@ describe("groupRoutinesBySplit", () => {
   });
 });
 
+describe("RoutineList menu and filters", () => {
+  it("shows every muscle group chip, like the Exercises tab", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01")]);
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    const chips = within(screen.getByRole("group", { name: "Filter by muscle" })).getAllByRole("button");
+    expect(chips).toHaveLength(MUSCLE_GROUPS.length);
+  });
+
+  it("deletes a routine from the three dots menu after confirming", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01"), routine("r2", "Leg day", "2026-01-02")]);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    fireEvent.click(screen.getByRole("button", { name: "Options for Push day" }));
+    expect(screen.getByRole("link", { name: "Edit routine" })).toHaveAttribute("href", "/routines/r1");
+    fireEvent.click(screen.getByRole("button", { name: "Delete routine" }));
+    await waitFor(() => expect(screen.queryByText("Push day")).not.toBeInTheDocument(), { timeout: 8000 });
+    expect(screen.getByText("Leg day")).toBeInTheDocument();
+    expect((await db.routines.toArray()).map((r) => r.id)).toEqual(["r2"]);
+  });
+
+  it("keeps the routine when delete is declined", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01")]);
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    fireEvent.click(screen.getByRole("button", { name: "Options for Push day" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete routine" }));
+    expect(await db.routines.count()).toBe(1);
+  });
+});
+
 describe("RoutineList grouping", () => {
   it("with no split looks exactly as before: one list, no day headings", async () => {
     await seed([routine("r1", "Push day", "2026-01-01"), routine("r2", "Leg day", "2026-01-02")]);
@@ -125,7 +159,7 @@ describe("RoutineList grouping", () => {
     expect(screen.queryByRole("heading", { level: 3 })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Unassigned" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("list")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "New routine" })).toHaveAttribute("href", "/routines/new");
+    expect(screen.queryByRole("link", { name: "New routine" })).not.toBeInTheDocument();
     expect(screen.queryByText("Generate 3-day plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Save from link")).not.toBeInTheDocument();
   });
@@ -156,7 +190,7 @@ describe("RoutineList grouping", () => {
     expect(within(rest).getByText("Loose")).toBeInTheDocument();
     // Each card keeps its Start and Edit controls.
     expect(screen.getAllByRole("button", { name: "Start" })).toHaveLength(3);
-    expect(screen.getAllByRole("link", { name: "Edit routine" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /^Options for / })).toHaveLength(3);
     // No heading for a day with no routines.
     expect(screen.queryByRole("group", { name: "Pull" })).not.toBeInTheDocument();
   });

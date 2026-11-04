@@ -36,10 +36,6 @@ export function HistoryList() {
       <h2 className="text-lg font-bold mb-3">My History</h2>
       {[...weeks.entries()].map(([wk, ws]) => (
         <div key={wk} className="mb-5">
-          <h3 className="text-xs uppercase tracking-wide text-muted mb-2">
-            Week of {new Date(wk).toLocaleDateString(undefined, { day: "numeric", month: "short" })} · {ws.length}{" "}
-            workout{ws.length > 1 ? "s" : ""}
-          </h3>
           <ul className="space-y-2">
             {ws.map((w) => {
               const start = new Date(w.started_at);
