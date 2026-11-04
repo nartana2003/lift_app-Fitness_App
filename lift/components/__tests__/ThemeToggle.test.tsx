@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
 import { THEME_STORAGE_KEY } from "@/lib/theme";
 
@@ -28,7 +28,7 @@ async function openPreferences() {
 describe("Profile theme toggle", () => {
   it("offers Light, Dark and System with Light selected by default", async () => {
     await openPreferences();
-    const radios = screen.getAllByRole("radio");
+    const radios = within(screen.getByRole("radiogroup", { name: "Theme" })).getAllByRole("radio");
     expect(radios.map((r) => r.textContent)).toEqual(["Light", "Dark", "System"]);
     expect(screen.getByRole("radio", { name: "Light" })).toHaveAttribute("aria-checked", "true");
   });

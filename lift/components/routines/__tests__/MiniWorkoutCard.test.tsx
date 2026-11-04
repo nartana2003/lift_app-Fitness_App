@@ -221,7 +221,9 @@ describe("MiniWorkoutCard", () => {
       <MiniWorkoutCard routine={mini("m3", "Core", { creator: "@coach" })} exerciseCount={1} muscles={["Abs/Core"]} onStart={() => {}} />,
     );
     expect(container.textContent ?? "").not.toMatch(/\p{Extended_Pictographic}/u);
-    expect(container.querySelector("svg")).toBeNull();
+    // The only graphic is the bookmark icon on the favorites button.
+    expect(container.querySelectorAll("svg")).toHaveLength(1);
+    expect(container.querySelector("button[aria-pressed] svg")).not.toBeNull();
   });
 
   it("calls onStart and shows a busy state", () => {

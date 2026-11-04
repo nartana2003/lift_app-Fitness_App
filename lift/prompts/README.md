@@ -8,7 +8,6 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 
 | Prompt | Feature | Screen |
 | --- | --- | --- |
-| `ask-coach.md` | Ask the coach | Goals: `components/goals/AskCoach.tsx` |
 | `goal-gaps.md` | Catch-up picks for weekly goals | Goals: `components/goals/WeeklyGoalsCard.tsx` |
 | `overload-suggestion.md` | Progressive overload suggestion | Workout: `components/workout/ExerciseCard.tsx` |
 | `parse-log.md` | Quick log from typed or dictated text | Workout: `components/workout/QuickLog.tsx` |
@@ -21,12 +20,6 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 | `evidence-picks.md` | Evidence-backed exercise picks | Goals: `components/goals/EvidencePicks.tsx` |
 | `optimise-split.md` | Order and word the Coach's proposed split changes | Coach: Optimise |
 | `target-recheck.md` | Monthly re-check of weekly set targets | None yet: `GET /api/cron/target-recheck` stores suggestions in `target_suggestions` |
-
-## ask-coach
-
-- Interaction: the user types a question about their training and reads a short answer, with links to the exercises it mentions.
-- How the prompt helps: it answers from the user's own numbers (weekly sets, best estimated 1RM, stalls, next targets) and refuses to drift into general advice or injuries.
-- Why a prompt: questions are free text. Rules cannot match "why is my squat stuck" to the right data; the model can, and the guardrails keep it from inventing numbers or giving medical advice.
 
 ## goal-gaps
 

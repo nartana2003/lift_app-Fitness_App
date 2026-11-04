@@ -73,8 +73,7 @@ test("a running lighter week shows a lighter Today suggestion that fills the set
   await page.goto("/workout");
   await page.waitForLoadState("networkidle");
 
-  await expect(page.getByText("Lighter week: about 60% of your usual weight. Keep every set easy.")).toBeVisible();
-  const today = page.getByRole("button", { name: /Today: 3×8 @ 60kg/ });
+  const today = page.getByRole("button", { name: /Use suggestion: 3×8 @ 60kg/ });
   await expect(today).toBeVisible();
   await today.click();
   // The first set's weight box now holds the lighter weight.

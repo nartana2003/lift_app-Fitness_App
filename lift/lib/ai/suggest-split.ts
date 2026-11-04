@@ -13,8 +13,8 @@
  *   parseResponse() uses its muscle set to repair a usable answer that left a
  *   required muscle out.
  * - The request text is the only free text. It is normalised first and then
- *   tag-checked (textField from ask-coach, which uses normaliseText and
- *   isTagLike from parse-log), capped at MAX_REQUEST characters, and only ever
+ *   tag-checked (textField from parse-log, which uses normaliseText and
+ *   isTagLike), capped at MAX_REQUEST characters, and only ever
  *   reaches the prompt JSON-encoded and escaped inside one <user_data> block.
  * - Model output is clamped: unknown muscles are dropped, empty days dropped,
  *   too many days trimmed, too few days (or an unparsable answer) fall back
@@ -39,10 +39,9 @@ import {
   type SuggestSplitInput,
   type SuggestSplitResult,
 } from "../splitBuilder";
-import { textField } from "./ask-coach";
 import { cleanNote } from "./generate-routines";
 import { EXPERIENCES, GOAL_TYPES } from "./goal-targets";
-import { isTagLike } from "./parse-log";
+import { isTagLike, textField } from "./parse-log";
 import { equipmentList, escapeForTag, isInt, isMuscle, isObj, onlyKeys, parseJsonText } from "./validate";
 
 // The rule-based builder, re-exported so the route and existing imports keep working.

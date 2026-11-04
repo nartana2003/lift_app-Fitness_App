@@ -10,7 +10,8 @@ import { routinesForDay, splitDayIds, unassignedRoutines } from "@/lib/splitRout
 import { startWorkout } from "@/lib/workout";
 import { db } from "@/lib/offline/db";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
-import { MuscleTab, shortName } from "../ExerciseBrowser";
+import { FAVORITES, MuscleTab, shortName } from "../ExerciseBrowser";
+import { useFavorites } from "@/lib/favorites";
 import { MuscleIcon } from "../MuscleIcon";
 import { RoutineMenu } from "./RoutineMenu";
 import {
@@ -81,6 +82,8 @@ export function RoutineList() {
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<RoutineFilter>(NO_FILTER);
   const [query, setQuery] = useState("");
+  const [favOnly, setFavOnly] = useState(false);
+  const favorites = useFavorites();
 
   if (!routines) return null;
 
@@ -96,8 +99,9 @@ export function RoutineList() {
     muscle: filter.muscle !== null && muscleChips.includes(filter.muscle) ? filter.muscle : null,
   };
   const needle = query.trim().toLowerCase();
-  const filtering = active.platform !== null || active.muscle !== null || needle !== "";
-  const shown = filterRoutines(routines, active, musclesOf).filter((r) => r.name.toLowerCase().includes(needle));
+  const filtering = active.platform !== null || active.muscle !== null || needle !== "" || favOnly;
+  const shown = filterRoutines(routines, active, musclesOf).filter((r) => r.name.toLowerCase().includes(needle))
+    .filter((r) => !favOnly || favorites.includes(r.id));
   const pickPlatform = (p: Platform | null) => setFilter((f) => ({ ...f, platform: f.platform === p ? null : p }));
   const pickMuscle = (m: string | null) => setFilter((f) => ({ ...f, muscle: f.muscle === m ? null : m }));
 
@@ -198,6 +202,11 @@ export function RoutineList() {
             )}
             {muscleChips.length > 0 && (
               <div role="group" aria-label="Filter by muscle" className="flex gap-1 overflow-x-auto no-scrollbar -mx-4 pl-4 pr-2 snap-x">
+                <MuscleTab label={FAVORITES} active={favOnly} onClick={() => setFavOnly((v) => !v)}>
+                  <svg viewBox="0 0 24 24" className="size-7" fill={favOnly ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.8}>
+                    <path d="M6 3h12v18l-6-4-6 4z" strokeLinejoin="round" />
+                  </svg>
+                </MuscleTab>
                 {muscleChips.map((m) => (
                   <MuscleTab key={m} label={shortName(m)} active={active.muscle === m} onClick={() => pickMuscle(m)}>
                     <MuscleIcon muscle={m as MuscleGroup} className="h-16" />
@@ -216,6 +225,7 @@ export function RoutineList() {
               onClick={() => {
                 setFilter(NO_FILTER);
                 setQuery("");
+                setFavOnly(false);
               }}
             >
               Clear filters

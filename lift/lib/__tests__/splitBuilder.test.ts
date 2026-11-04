@@ -17,7 +17,6 @@ import {
   type SuggestSplitInput,
 } from "../splitBuilder";
 import * as viaAi from "../ai/suggest-split";
-import { mentionedMuscles as coachMentioned } from "../ai/ask-coach";
 import { textKey as socialTextKey } from "../ai/social-import";
 import type { Exercise } from "../exercises";
 
@@ -64,11 +63,6 @@ describe("re-exports", () => {
       const i = input({ favorites: favs, request: "more glutes", days_per_week: n });
       expect(viaAi.buildSplit(i, BY_ID)).toEqual(buildSplit(i, BY_ID));
     }
-  });
-
-  it("lib/ai/ask-coach still exports mentionedMuscles: the negation-blind namedMuscles", () => {
-    expect(coachMentioned).toBe(namedMuscles);
-    expect(coachMentioned("why are my arms and legs not growing?")).toEqual(["Biceps", "Triceps", "Quads", "Hamstrings", "Glutes"]);
   });
 
   it("textKey matches the lib/ai/social-import copy", () => {

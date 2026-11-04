@@ -94,6 +94,15 @@ export function suggest(last: LoggedSet[], range: RepRange, equipment: Equipment
   };
 }
 
+/** True when the suggestion is just last session's top sets again (same weight, reps and set count). */
+export function repeatsLast(s: Suggestion, last: LoggedSet[]): boolean {
+  const work = last.filter((x) => !x.is_warmup && x.reps > 0);
+  if (work.length === 0) return false;
+  const top = Math.max(...work.map((x) => x.weight));
+  const atTop = work.filter((x) => x.weight === top);
+  return s.weight === top && s.sets === atTop.length && atTop.every((x) => x.reps === s.reps);
+}
+
 export function formatSets(sets: LoggedSet[], unit: Unit = "kg"): string {
   const work = sets.filter((s) => !s.is_warmup && s.reps > 0);
   if (work.length === 0) return "";

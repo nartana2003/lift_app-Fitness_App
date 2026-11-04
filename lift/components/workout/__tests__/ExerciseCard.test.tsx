@@ -110,7 +110,7 @@ describe("ExerciseCard: previous-set column", () => {
     renderCard();
     expect(await screen.findByText("First time — set a baseline")).toBeInTheDocument();
     for (const r of rows()) expect(within(r).getByText("—")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Today:/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Use suggestion/ })).toBeNull();
   });
 
   it("shows last time's working sets per row, skipping last time's warm-up", async () => {
@@ -152,6 +152,20 @@ describe("ExerciseCard: collapse", () => {
     expect(screen.getByRole("heading", { name: "Bench Press" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Expand Bench Press" }));
     expect(rows()).toHaveLength(2);
+  });
+
+  it("shows how many sets are done while folded, and updates as sets are ticked", async () => {
+    await seedActive([set("a", { weight: 50, reps: 8, done: true }), set("b"), set("c")]);
+    renderCard();
+    await screen.findByRole("heading", { name: "Bench Press" });
+    expect(screen.queryByLabelText(/sets done/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Bench Press" }));
+    expect(screen.getByLabelText("1 of 3 sets done")).toHaveTextContent("1/3");
+    fireEvent.click(screen.getByRole("button", { name: "Expand Bench Press" }));
+    fireEvent.click(rows()[1].querySelector("button[aria-label='Complete set']") ?? screen.getAllByRole("button", { name: "Complete set" })[0]);
+    await waitFor(async () => expect((await liveSets()).filter((s) => s.done)).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Bench Press" }));
+    expect(screen.getByLabelText("2 of 3 sets done")).toHaveTextContent("2/3");
   });
 
   it("keeps the entered values while folded", async () => {
@@ -250,9 +264,10 @@ describe("ExerciseCard: suggestion tap-to-apply", () => {
     await seedActive([set("a"), set("b"), set("c")]);
     renderCard();
     // 3x12 at the top of 8-12 on a barbell: add 2.5kg and drop to 8 reps.
-    const sug = await screen.findByRole("button", { name: /Today: 3×8 @ 62.5kg/ });
-    expect(sug).toHaveTextContent("tap to use");
-    expect(sug).toHaveTextContent("Hit 12 on every set — go up to 62.5.");
+    expect(await screen.findByRole("button", { name: "Use suggestion: 3×8 @ 62.5kg" })).toHaveTextContent("Use");
+    expect(screen.getByText("Suggestion")).toBeInTheDocument();
+    // No explanation text under it.
+    expect(screen.queryByText(/Hit 12 on every set/)).toBeNull();
   });
 
   it("tapping fills only undone working sets", async () => {
@@ -264,7 +279,7 @@ describe("ExerciseCard: suggestion tap-to-apply", () => {
       set("todo2", { weight: 55, reps: 6 }),
     ]);
     renderCard();
-    fireEvent.click(await screen.findByRole("button", { name: /Today: 3×8 @ 62.5kg/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 62.5kg/ }));
     await waitFor(async () => {
       const s = await liveSets();
       expect(s[2]).toMatchObject({ weight: 62.5, reps: 8 });
@@ -286,7 +301,28 @@ describe("ExerciseCard: suggestion tap-to-apply", () => {
     await seedActive([set("a", { weight: 60, reps: 12, done: true, rir: 2 })]);
     renderCard();
     await screen.findByText("Last time: 3×12 @ 60kg");
-    expect(screen.queryByRole("button", { name: /Today:/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Use suggestion/ })).toBeNull();
+  });
+
+  it("shows nothing when the Suggestions preference is off, but keeps the Last time line", async () => {
+    await saveSettings({ suggestions: false });
+    await seedHistory();
+    await seedActive([set("a"), set("b"), set("c")]);
+    renderCard();
+    await screen.findByText("Last time: 3×12 @ 60kg");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole("button", { name: /Use suggestion/ })).toBeNull();
+    expect(screen.queryByText("Suggestion")).toBeNull();
+  });
+
+  it("shows the suggestion again when the preference is turned back on", async () => {
+    await saveSettings({ suggestions: false });
+    await seedHistory();
+    await seedActive([set("a"), set("b"), set("c")]);
+    renderCard();
+    await screen.findByText("Last time: 3×12 @ 60kg");
+    await saveSettings({ suggestions: true });
+    expect(await screen.findByRole("button", { name: "Use suggestion: 3×8 @ 62.5kg" })).toBeInTheDocument();
   });
 });
 
@@ -334,17 +370,31 @@ describe("ExerciseCard: AI refinement", () => {
 
   const settle = () => new Promise((r) => setTimeout(r, 20));
 
-  it("adds an AI line with a one-line reason under the unchanged rule suggestion", async () => {
+  it("hides the suggestion when the AI answer just repeats last session", async () => {
+    fetchMock.mockResolvedValue(
+      jsonRes(200, { ...AI_BODY, suggestion: { sets: 3, reps: 12, weight: 60, reason: "Repeat.", source: "ai" } }),
+    );
+    await seedHistory();
+    await seedActive([set("a"), set("b"), set("c")]);
+    renderCard();
+    await screen.findByText("Last time: 3×12 @ 60kg");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await settle();
+    expect(screen.queryByRole("button", { name: /Use suggestion/ })).toBeNull();
+    expect(screen.queryByText("Suggestion")).toBeNull();
+  });
+
+  it("shows the AI numbers as the single suggestion", async () => {
     fetchMock.mockResolvedValue(jsonRes(200, AI_BODY));
     await seedHistory();
     await seedActive([set("a"), set("b"), set("c")]);
     renderCard();
 
-    const ai = await screen.findByRole("button", { name: /AI refined: 3×8 @ 65kg/ });
-    expect(ai).toHaveTextContent("Steady progress over three sessions allows a bigger jump.");
-    // Rule-based suggestion is still there, unchanged.
-    const rule = screen.getByRole("button", { name: /Today: 3×8 @ 62.5kg/ });
-    expect(rule).toHaveTextContent("Hit 12 on every set — go up to 62.5.");
+    // One suggestion card, with the AI numbers and no explanation text.
+    await screen.findByRole("button", { name: "Use suggestion: 3×8 @ 65kg" });
+    expect(screen.getAllByText("Suggestion")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /62.5kg/ })).toBeNull();
+    expect(screen.queryByText(/Steady progress over three sessions/)).toBeNull();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -369,12 +419,12 @@ describe("ExerciseCard: AI refinement", () => {
     });
   });
 
-  it("tapping the AI line fills undone working sets with the AI numbers", async () => {
+  it("tapping Use on the AI suggestion fills undone working sets with the AI numbers", async () => {
     fetchMock.mockResolvedValue(jsonRes(200, AI_BODY));
     await seedHistory();
     await seedActive([set("done", { weight: 60, reps: 12, done: true, rir: 2 }), set("todo")]);
     renderCard();
-    fireEvent.click(await screen.findByRole("button", { name: /AI refined:/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 65kg/ }));
     await waitFor(async () => expect((await liveSets())[1]).toMatchObject({ weight: 65, reps: 8 }));
     expect((await liveSets())[0]).toMatchObject({ weight: 60, reps: 12, done: true });
   });
@@ -398,14 +448,14 @@ describe("ExerciseCard: AI refinement", () => {
     await seedHistory();
     await seedActive([set("a"), set("b")]);
     const first = render(<Harness onPr={vi.fn()} />);
-    expect(await screen.findByRole("button", { name: /Today: 3×8 @ 62.5kg/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 62.5kg/ })).toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await settle();
-    expect(screen.queryByRole("button", { name: /AI refined/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /65kg/ })).toBeNull();
 
     first.unmount();
     render(<Harness onPr={vi.fn()} />);
-    await screen.findByRole("button", { name: /Today: 3×8 @ 62.5kg/ });
+    await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 62.5kg/ });
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -419,16 +469,15 @@ describe("ExerciseCard: AI refinement", () => {
     ["another exercise", () => jsonRes(200, { ...AI_BODY, exercise_id: "squat" })],
     ["out-of-range numbers", () => jsonRes(200, { ...AI_BODY, suggestion: { ...AI_BODY.suggestion, sets: 99 } })],
     ["invalid JSON", () => new Response("not json", { status: 200 })],
-  ])("on %s the rule suggestion is unchanged and no AI line shows", async (_label, make) => {
+  ])("on %s the rule suggestion is the one shown", async (_label, make) => {
     fetchMock.mockImplementation(make);
     await seedHistory();
     await seedActive([set("a"), set("b")]);
     renderCard();
-    const rule = await screen.findByRole("button", { name: /Today: 3×8 @ 62.5kg/ });
+    await screen.findByRole("button", { name: "Use suggestion: 3×8 @ 62.5kg" });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await settle();
-    expect(screen.queryByRole("button", { name: /AI refined/ })).toBeNull();
-    expect(rule).toHaveTextContent("Hit 12 on every set — go up to 62.5.");
+    expect(screen.queryByRole("button", { name: /65kg/ })).toBeNull();
   });
 
   it("does not ask while offline", async () => {
@@ -437,10 +486,10 @@ describe("ExerciseCard: AI refinement", () => {
       await seedHistory();
       await seedActive([set("a")]);
       renderCard();
-      await screen.findByRole("button", { name: /Today: 3×8 @ 62.5kg/ });
+      await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 62.5kg/ });
       await settle();
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(screen.queryByRole("button", { name: /AI refined/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /65kg/ })).toBeNull();
     } finally {
       spy.mockRestore();
     }

@@ -58,10 +58,10 @@ describe("confirm questions", () => {
 });
 
 describe("SplitEditor: routines under each day", () => {
-  it("still offers presets with no split, and saves one with day ids", async () => {
+  it("Build my own with no split saves one with day ids", async () => {
     render(<SplitEditor />);
-    fireEvent.click(await screen.findByRole("button", { name: /Push \/ Pull \/ Legs/ }));
-    await screen.findByDisplayValue("Push");
+    fireEvent.click(await screen.findByRole("button", { name: "Build my own" }));
+    await screen.findByDisplayValue("Day 1");
     const stored = (await db.meta.get("split"))!.value as Split;
     expect(stored.days.every((d) => typeof d.id === "string" && d.id.length > 0)).toBe(true);
   });
@@ -171,6 +171,13 @@ describe("SplitEditor: routines under each day", () => {
     await screen.findByRole("button", { name: "Build my own" });
     await waitFor(async () => expect((await getRoutine(pushA))!.split_day_id).toBeNull());
     expect(await listRoutines()).toHaveLength(2);
+  });
+
+  it("with no split it shows only Build my own, no suggested presets", async () => {
+    render(<SplitEditor />);
+    await screen.findByRole("button", { name: "Build my own" });
+    expect(screen.queryByText("Push / Pull / Legs")).toBeNull();
+    expect(screen.queryByText("Upper / Lower")).toBeNull();
   });
 
   it("keeps the existing day controls: rename, pick muscles, add day", async () => {

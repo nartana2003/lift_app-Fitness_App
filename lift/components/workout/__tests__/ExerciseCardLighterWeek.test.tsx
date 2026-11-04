@@ -80,22 +80,21 @@ beforeEach(async () => {
 });
 
 describe("ExerciseCard: plateau lighter week", () => {
-  it("without a lighter week, Today's suggestion is the normal one", async () => {
+  it("without a lighter week, the suggestion is the normal one", async () => {
     await seed();
     render(<Harness />);
-    expect(await screen.findByText(/Today: 3×8 @ 102\.5kg/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 102\.5kg/ })).toBeInTheDocument();
     expect(screen.queryByText(/Lighter week/)).toBeNull();
   });
 
-  it("a running lighter week makes Today's suggestion lighter, applied on tap", async () => {
+  it("a running lighter week makes the suggestion lighter, applied on tap", async () => {
     await seed();
     await db.meta.put({ key: PLATEAU_APPLIED_KEY, value: { [EX_ID]: lighter() } });
     render(<Harness />);
-    expect(await screen.findByText(/Today: 3×8 @ 60kg/)).toBeInTheDocument();
-    expect(screen.getByText("Lighter week: about 60% of your usual weight. Keep every set easy.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 60kg/ })).toBeInTheDocument();
     // Opt-in: nothing changes until the user taps it.
     expect((await liveSets()).every((s) => s.weight === "")).toBe(true);
-    fireEvent.click(screen.getByText(/Today: 3×8 @ 60kg/));
+    fireEvent.click(screen.getByRole("button", { name: /Use suggestion: 3×8 @ 60kg/ }));
     await waitFor(async () => expect((await liveSets()).every((s) => s.weight === 60 && s.reps === 8)).toBe(true));
     // No AI refinement is asked for during a lighter week.
     expect(fetch).not.toHaveBeenCalled();
@@ -108,13 +107,13 @@ describe("ExerciseCard: plateau lighter week", () => {
       value: { [EX_ID]: lighter({ until: new Date(Date.now() - 864e5).toISOString() }), squat: lighter() },
     });
     render(<Harness />);
-    expect(await screen.findByText(/Today: 3×8 @ 102\.5kg/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 102\.5kg/ })).toBeInTheDocument();
   });
 
   it("other plateau fixes do not make the suggestion lighter", async () => {
     await seed();
     await db.meta.put({ key: PLATEAU_APPLIED_KEY, value: { [EX_ID]: lighter({ kind: "extra_set" }) } });
     render(<Harness />);
-    expect(await screen.findByText(/Today: 3×8 @ 102\.5kg/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Use suggestion: 3×8 @ 102\.5kg/ })).toBeInTheDocument();
   });
 });

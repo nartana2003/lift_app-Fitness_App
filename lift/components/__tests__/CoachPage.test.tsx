@@ -23,12 +23,13 @@ afterEach(() => {
 });
 
 describe("Coach page", () => {
-  it("has the Coach heading and the Goals, Priorities and limits, Build a split, My split and Ask the coach cards, all collapsed", () => {
+  it("has the Coach heading and the Goals, Priorities and limits, Build a split, My split cards, all collapsed, and no Ask the coach card", () => {
     render(<CoachPage />);
     expect(screen.getByRole("heading", { name: "Coach" })).toBeInTheDocument();
-    for (const name of ["Goals", "Priorities and limits", "Build a split", "My split", "Ask the coach"]) {
+    for (const name of ["Goals", "Priorities and limits", "Build a split", "My split"]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${name}`) })).toHaveAttribute("aria-expanded", "false");
     }
+    expect(screen.queryByRole("button", { name: /^Ask the coach/ })).not.toBeInTheDocument();
   });
 
   it("summarises the saved goals and split while collapsed", async () => {

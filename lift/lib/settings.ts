@@ -9,11 +9,13 @@ export type Settings = {
   unit: Unit;
   /** 1 = Monday (default), 0 = Sunday */
   weekStart: 0 | 1;
+  /** Show the progressive overload suggestion on workout cards (default on). */
+  suggestions: boolean;
   /** Light (default when unset), dark, or follow the OS. Read via normalizeTheme(). */
   theme?: ThemePref;
 };
 
-export const DEFAULT_SETTINGS: Settings = { unit: "kg", weekStart: 1 };
+export const DEFAULT_SETTINGS: Settings = { unit: "kg", weekStart: 1, suggestions: true };
 
 const KEY = "settings";
 

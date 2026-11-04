@@ -23,13 +23,19 @@ test("Routines view: title, + in the header, all muscle chips, delete from the t
   await expect(page.getByText(NAME)).toBeVisible();
 
   // Same muscle row as the Exercises view.
-  const routineChips = await page.getByRole("group", { name: "Filter by muscle" }).getByRole("button").count();
+  const routineChips = (await page.getByRole("group", { name: "Filter by muscle" }).getByRole("button").count()) - 1; // minus Favorites
   await page.getByRole("radio", { name: "Exercises" }).click();
   await expect(page.getByPlaceholder("Search for exercises")).toBeVisible();
-  const exerciseChips = (await page.locator("button[aria-pressed]").count()) - 1; // minus Favorites
+  const exerciseChips = (await page.locator("button[aria-pressed]").count()) - 1;
   expect(routineChips).toBe(exerciseChips);
   await expect(page.getByRole("heading", { name: "Exercises", exact: true })).toBeVisible();
   await page.getByRole("radio", { name: "Routines" }).click();
+
+  // Favorites works on routines too.
+  await page.getByRole("button", { name: `Add ${NAME} to favorites` }).click();
+  await page.getByRole("group", { name: "Filter by muscle" }).getByRole("button", { name: "Favorites" }).click();
+  await expect(page.getByText(NAME)).toBeVisible();
+  await page.getByRole("group", { name: "Filter by muscle" }).getByRole("button", { name: "Favorites" }).click();
 
   await page.getByRole("button", { name: `Options for ${NAME}` }).click();
   await page.getByRole("button", { name: "Delete routine" }).click();
@@ -76,6 +82,7 @@ test("Live workout: create a missing exercise, collapse its card, finish on one 
   await page.getByRole("button", { name: "Collapse Zzz Custom Curl" }).click();
   await expect(page.getByRole("button", { name: "+ Add set" })).toHaveCount(0);
   await expect(card).toBeVisible();
+  await expect(page.getByLabel("0 of 3 sets done")).toHaveText("0/3");
   await page.getByRole("button", { name: "Expand Zzz Custom Curl" }).click();
   await expect(page.getByRole("button", { name: "+ Add set" })).toBeVisible();
 

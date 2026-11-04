@@ -26,10 +26,9 @@ import { MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "../muscles";
 import type { Split } from "../splits";
 import { suggestForMuscle } from "../suggest";
 import { reviewSetup, type ReviewFinding, type ReviewGoals, type SetupReview } from "../coachReview";
-import { textField } from "./ask-coach";
 import { cleanNote, validateInput as validateRoutinesInput } from "./generate-routines";
 import { EXPERIENCES, GOAL_TYPES, MAX_USER_TARGET } from "./goal-targets";
-import { isTagLike, normaliseText } from "./parse-log";
+import { isTagLike, normaliseText, textField } from "./parse-log";
 import { equipmentList, escapeForTag, isInt, isMuscle, isObj, onlyKeys, parseJsonText } from "./validate";
 
 // ---------------------------------------------------------------------------

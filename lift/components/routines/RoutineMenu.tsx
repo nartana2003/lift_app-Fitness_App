@@ -3,13 +3,26 @@
 import Link from "next/link";
 import { useState } from "react";
 import { deleteRoutine } from "@/lib/routines";
+import { toggleFavorite, useFavorites } from "@/lib/favorites";
 
-/** The three dots on a routine card: opens a sheet to edit or delete the routine. */
+/** Bookmark and three dots on a routine card: save it to Favorites, or open a sheet to edit or delete it. */
 export function RoutineMenu({ id, name }: { id: string; name: string }) {
   const [open, setOpen] = useState(false);
+  const fav = useFavorites().includes(id);
 
   return (
     <>
+      <button
+        type="button"
+        className="text-muted px-1 leading-none"
+        aria-label={fav ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
+        aria-pressed={fav}
+        onClick={() => toggleFavorite(id)}
+      >
+        <svg viewBox="0 0 24 24" className="size-5" fill={fav ? "var(--accent)" : "none"} stroke={fav ? "var(--accent)" : "currentColor"} strokeWidth={2}>
+          <path d="M6 3h12v18l-6-4-6 4z" strokeLinejoin="round" />
+        </svg>
+      </button>
       <button
         type="button"
         className="text-muted text-lg leading-none px-1"

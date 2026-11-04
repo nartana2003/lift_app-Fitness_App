@@ -8,7 +8,6 @@ import { GoalsSection } from "@/components/goals/GoalsSection";
 import { PrioritiesSection } from "@/components/goals/PrioritiesSection";
 import { CoachSetup } from "@/components/goals/CoachSetup";
 import { SplitEditor } from "@/components/goals/SplitEditor";
-import { AskCoach } from "@/components/goals/AskCoach";
 import { OptimiseSplit } from "@/components/coach/OptimiseSplit";
 import { OPEN_OPTIMISE } from "@/components/coach/CoachCard";
 import { useSplit } from "@/lib/splits";
@@ -87,8 +86,6 @@ function CoachInner() {
       >
         <SplitEditor />
       </Collapsible>
-
-      <AskCoach />
     </div>
   );
 }

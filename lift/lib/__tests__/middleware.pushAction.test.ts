@@ -27,7 +27,7 @@ describe("middleware and the notification action route", () => {
   });
 
   it("still answers 401 JSON on AI routes", async () => {
-    expect((await post("/api/ai/ask-coach")).status).toBe(401);
+    expect((await post("/api/ai/parse-log")).status).toBe(401);
   });
 
   it("exempts only the exact /api/push/action path, not paths that start with it", async () => {

@@ -219,8 +219,7 @@ function readMuscles(text: string): { named: Set<MuscleGroup>; negated: Set<Musc
 
 /**
  * Muscle groups the text names, negations ignored ("Should I skip legs?" names
- * the legs). This is the original ask-coach matcher: lib/ai/ask-coach
- * re-exports it as its mentionedMuscles so coaching answers are unchanged.
+ * the legs).
  */
 export function namedMuscles(question: string): MuscleGroup[] {
   const q = textKey(question);
@@ -231,7 +230,7 @@ export function namedMuscles(question: string): MuscleGroup[] {
 /**
  * Muscle groups a split request names. A negated mention ("no legs", "skip
  * chest", "without arms", "don't want abs") does not count. Used by the split
- * builder only; ask-coach uses namedMuscles.
+ * builder only; namedMuscles is the negation-blind version.
  */
 export function mentionedMuscles(question: string): MuscleGroup[] {
   const { named } = readMuscles(question);

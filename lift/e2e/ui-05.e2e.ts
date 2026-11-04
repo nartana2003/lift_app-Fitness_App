@@ -57,10 +57,10 @@ test("live workout shows the rule-based suggestion and no AI line when AI is una
   const answered = page.waitForResponse((r) => r.url().includes("/api/ai/overload-suggestion"));
   await page.goto("/workout");
 
-  const today = page.getByRole("button", { name: /Today: 3×8 @ 62\.5kg/ });
+  const today = page.getByRole("button", { name: /Use suggestion: 3×8 @ 62\.5kg/ });
   await expect(today).toBeVisible();
   expect((await answered).status()).toBe(503);
-  await expect(page.getByRole("button", { name: /AI refined/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Use suggestion: .*65kg/ })).toHaveCount(0);
 
   // Rule-based tap-to-use still fills the sets.
   await today.click();

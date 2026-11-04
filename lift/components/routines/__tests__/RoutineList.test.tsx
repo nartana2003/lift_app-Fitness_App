@@ -123,7 +123,30 @@ describe("RoutineList menu and filters", () => {
     render(<RoutineList />);
     await screen.findByText("Push day");
     const chips = within(screen.getByRole("group", { name: "Filter by muscle" })).getAllByRole("button");
-    expect(chips).toHaveLength(MUSCLE_GROUPS.length);
+    expect(chips).toHaveLength(MUSCLE_GROUPS.length + 1); // plus Favorites
+  });
+
+  it("bookmarks a routine and the Favorites chip shows only bookmarked routines", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01"), routine("r2", "Leg day", "2026-01-02")]);
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    fireEvent.click(screen.getByRole("button", { name: "Add Push day to favorites" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove Push day from favorites" })).toHaveAttribute("aria-pressed", "true"));
+    const muscles = screen.getByRole("group", { name: "Filter by muscle" });
+    fireEvent.click(within(muscles).getByRole("button", { name: "Favorites" }));
+    await waitFor(() => expect(screen.queryByText("Leg day")).not.toBeInTheDocument());
+    expect(screen.getByText("Push day")).toBeInTheDocument();
+    fireEvent.click(within(muscles).getByRole("button", { name: "Favorites" }));
+    expect(await screen.findByText("Leg day")).toBeInTheDocument();
+  });
+
+  it("Favorites with nothing bookmarked offers Clear filters", async () => {
+    await seed([routine("r1", "Push day", "2026-01-01")]);
+    render(<RoutineList />);
+    await screen.findByText("Push day");
+    fireEvent.click(within(screen.getByRole("group", { name: "Filter by muscle" })).getByRole("button", { name: "Favorites" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear filters" }));
+    expect(await screen.findByText("Push day")).toBeInTheDocument();
   });
 
   it("deletes a routine from the three dots menu after confirming", async () => {

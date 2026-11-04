@@ -6,7 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db, type ActiveExercise } from "@/lib/offline/db";
 import type { Exercise } from "@/lib/exercises";
 import { exerciseSessions, lastSession, type ExerciseSession } from "@/lib/history";
-import { formatSets, parseRepRange, suggest, type RepRange, type Suggestion } from "@/lib/overload";
+import { formatSets, parseRepRange, repeatsLast, suggest, type RepRange, type Suggestion } from "@/lib/overload";
 import type { Goals } from "@/lib/goals";
 import { EQUIPMENT, MUSCLE_GROUPS } from "@/lib/muscles";
 import { dayKey } from "@/lib/planner";
@@ -45,7 +45,7 @@ export function ExerciseCard({
 }) {
   const last = useLiveQuery(() => lastSession(ex.exercise_id), [ex.exercise_id]);
   const rest = useLiveQuery(() => getRestSec(ex.exercise_id), [ex.exercise_id], 90);
-  const { unit } = useSettings();
+  const { unit, suggestions } = useSettings();
   const [menu, setMenu] = useState(false);
   const [swapping, setSwapping] = useState(false);
   // Tap the title to fold the card down to the picture and name.
@@ -58,9 +58,15 @@ export function ExerciseCard({
   const applied = useLiveQuery(() => db.meta.get(PLATEAU_APPLIED_KEY), []);
   const lw = activeLighterWeek(applied?.value, ex.exercise_id, new Date());
   const lighter = last && lw ? lighterWeekSuggestion(last.sets, range, info?.equipment ?? "Other", lw) : null;
-  const sug = lighter ?? (last ? suggest(last.sets, range, info?.equipment ?? "Other") : null);
+  // The Suggestions preference hides the regular suggestion; a lighter week the user started still shows.
+  const sug = lighter ?? (last && suggestions ? suggest(last.sets, range, info?.equipment ?? "Other") : null);
   const allDone = ex.sets.every((s) => s.done);
+  const setsDone = ex.sets.filter((s) => s.done).length;
   const ai = useAiRefinement(ex.exercise_id, range, info?.equipment ?? null, !!sug && !allDone && !lighter);
+  // One suggestion: the AI's refinement when it answered, else the rule-based one.
+  const pick = sug && !allDone ? (ai ?? sug) : null;
+  // Say nothing when the advice is "repeat last time": the Last time line already shows it.
+  const shown = pick && last && repeatsLast(pick, last.sets) ? null : pick;
   // Ask for effort on the most recently ticked working set, until it's rated.
   const lastDone = ex.sets.findLast((s) => s.done && !s.is_warmup);
   const rateSet = lastDone?.rir === null ? lastDone : undefined;
@@ -86,16 +92,23 @@ export function ExerciseCard({
         </Link>
         <button
           type="button"
-          className="flex-1 min-w-0 text-left self-stretch"
+          className="flex-1 min-w-0 text-left self-stretch flex items-center justify-between gap-2 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? "Expand" : "Collapse"} ${name}`}
           onClick={() => setCollapsed(!collapsed)}
         >
-          <h3 className="font-semibold leading-tight">{name}</h3>
-          {!collapsed && (
-            <p className="text-xs text-muted mt-0.5">
-              {lastWork.length ? `Last time: ${formatSets(lastWork, unit)}` : "First time — set a baseline"}
-            </p>
+          <span className="min-w-0">
+            <h3 className="font-semibold leading-tight">{name}</h3>
+            {!collapsed && (
+              <p className="text-xs text-muted mt-0.5">
+                {lastWork.length ? `Last time: ${formatSets(lastWork, unit)}` : "First time — set a baseline"}
+              </p>
+            )}
+          </span>
+          {collapsed && (
+            <span className="shrink-0 text-sm font-semibold tabular-nums text-muted" aria-label={`${setsDone} of ${ex.sets.length} sets done`}>
+              {setsDone}/{ex.sets.length}
+            </span>
           )}
         </button>
         {!collapsed && (
@@ -137,26 +150,22 @@ export function ExerciseCard({
         </div>
       )}
 
-      {sug && !allDone && (
-        <button onClick={() => applySuggestion()} className="mt-3 w-full text-left rounded-xl bg-accent/10 border border-accent/30 px-3 py-2">
-          <p className="text-xs text-accent font-semibold">
-            Today: {sug.sets}×{sug.reps} @ {fmtWeight(sug.weight, unit)} <span className="text-muted font-normal">· tap to use</span>
-          </p>
-          <p className="text-[11px] text-muted">{sug.reason}</p>
-        </button>
-      )}
-
-      {sug && !allDone && ai && (
-        <button
-          onClick={() => applySuggestion(ai)}
-          className="mt-2 w-full text-left rounded-xl border border-border px-3 py-2"
-        >
-          <p className="text-xs font-semibold">
-            AI refined: {ai.sets}×{ai.reps} @ {fmtWeight(ai.weight, unit)}{" "}
-            <span className="text-muted font-normal">· tap to use</span>
-          </p>
-          <p className="text-[11px] text-muted">{ai.reason}</p>
-        </button>
+      {shown && !allDone && (
+        <div className="mt-3 flex items-center gap-3 rounded-xl border border-border px-3 py-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] uppercase tracking-wide text-muted">Suggestion</p>
+            <p className="font-semibold tabular-nums">
+              {shown.sets}×{shown.reps} @ {fmtWeight(shown.weight, unit)}
+            </p>
+          </div>
+          <button
+            className="btn-primary px-5 py-2 text-sm"
+            aria-label={`Use suggestion: ${shown.sets}×${shown.reps} @ ${fmtWeight(shown.weight, unit)}`}
+            onClick={() => applySuggestion(shown)}
+          >
+            Use
+          </button>
+        </div>
       )}
 
       <div className="mt-3">

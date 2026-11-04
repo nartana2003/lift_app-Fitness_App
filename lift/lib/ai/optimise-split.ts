@@ -38,10 +38,9 @@ import {
   type Proposals,
 } from "../coachOptimise";
 import { evidenceById } from "../evidence/library";
-import { textField } from "./ask-coach";
 import { cleanNote, MAX_NOTE } from "./generate-routines";
 import { EXPERIENCES, GOAL_TYPES, MAX_USER_TARGET } from "./goal-targets";
-import { isTagLike, normaliseText } from "./parse-log";
+import { isTagLike, normaliseText, textField } from "./parse-log";
 import { equipmentList, escapeForTag, isInt, isMuscle, isObj, onlyKeys, parseJsonText } from "./validate";
 import { loadPrompt } from "../../prompts/load";
 

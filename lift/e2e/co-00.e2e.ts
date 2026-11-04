@@ -1,11 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
 
 // CO-00: Coach is its own tab (Home, Exercises, Coach, Progress, Profile). Goals,
-// My split and Ask the coach live there; Profile keeps a link to them.
+// and My split live there; Profile keeps a link to them.
 
 const nav = (page: Page) => page.getByRole("navigation");
 
-test("the Coach tab opens Goals, My split and Ask the coach, and Profile links to it", async ({ page }) => {
+test("the Coach tab opens Goals and My split, and Profile links to it", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await expect(nav(page).getByRole("link")).toHaveText(["Home", "Exercises", "Coach", "Progress", "Profile"]);
@@ -13,9 +13,10 @@ test("the Coach tab opens Goals, My split and Ask the coach, and Profile links t
   await nav(page).getByRole("link", { name: "Coach" }).click();
   await expect(page).toHaveURL(/\/coach$/);
   await expect(page.getByRole("heading", { name: "Coach" })).toBeVisible();
-  for (const name of ["Goals", "My split", "Ask the coach"]) {
+  for (const name of ["Goals", "My split"]) {
     await expect(page.getByRole("button", { name: new RegExp(`^${name}`) })).toBeVisible();
   }
+  await expect(page.getByRole("button", { name: /^Ask the coach/ })).toHaveCount(0);
   await expect(nav(page).getByRole("link", { name: "Coach" })).toHaveClass(/font-semibold/);
 
   // Goals open and work from here.
@@ -24,7 +25,7 @@ test("the Coach tab opens Goals, My split and Ask the coach, and Profile links t
 
   await nav(page).getByRole("link", { name: "Profile" }).click();
   await expect(page).toHaveURL(/\/profile$/);
-  for (const name of ["Goals", "My split", "Ask the coach"]) {
+  for (const name of ["Goals", "My split"]) {
     await expect(page.getByRole("button", { name: new RegExp(`^${name}`) })).toHaveCount(0);
   }
   await expect(page.getByRole("link", { name: /Goals and split are in Coach/ })).toHaveCount(0);

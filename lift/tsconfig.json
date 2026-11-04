@@ -31,6 +31,7 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-e2e-3100/types/**/*.ts",
     ".next-e2e-3200/types/**/*.ts",
     ".next-e2e-3211/types/**/*.ts",
     ".next-e2e-3212/types/**/*.ts",
@@ -44,7 +45,7 @@
     ".next-e2e-4100/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-e2e-3100/types/**/*.ts"
+    ".next-e2e-3150/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

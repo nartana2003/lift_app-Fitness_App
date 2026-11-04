@@ -375,10 +375,10 @@ describe("every app/api/ai route is guarded before the body is read", () => {
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
 
-  it("finds all 14 known routes", () => {
+  it("finds all 13 known routes", () => {
     expect([...routes].sort()).toEqual(
       [
-        "ask-coach", "evidence-picks", "generate-routines", "goal-gaps",
+        "evidence-picks", "generate-routines", "goal-gaps",
         "optimise-split", "overload-suggestion", "parse-log", "photo-analysis", "plateau-fix", "review-setup",
         "social-import", "suggest-split", "summary", "swap-exercise",
       ].sort(),

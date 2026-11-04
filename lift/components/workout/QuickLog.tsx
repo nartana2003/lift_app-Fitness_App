@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db, uuid, type ActiveExercise, type ActiveSet, type ActiveWorkout } from "@/lib/offline/db";
 import { exerciseBests } from "@/lib/history";
 import { applySet, prsForNewSets, type Bests, type PrType } from "@/lib/prs";
 import { dispNum, type Unit } from "@/lib/units";
+import { appendSpoken, finalText, getRecognition, speechError, type Recognition } from "@/lib/speech";
 
 /** The parse-log route (app/api/ai/parse-log). */
 export const ROUTE = "/api/ai/parse-log";
@@ -220,8 +221,46 @@ export function QuickLog({
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
+  // Voice: the mic shows only where the browser has speech recognition.
+  const [canSpeak, setCanSpeak] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [micMsg, setMicMsg] = useState<string | null>(null);
+  const rec = useRef<Recognition | null>(null);
+  useEffect(() => {
+    setCanSpeak(getRecognition() !== null);
+    return () => rec.current?.stop();
+  }, []);
+
+  const toggleMic = () => {
+    if (listening) {
+      rec.current?.stop();
+      return;
+    }
+    const Ctor = getRecognition();
+    if (!Ctor) return;
+    const r = new Ctor();
+    r.lang = navigator.language || "en-US";
+    r.continuous = true;
+    r.interimResults = false;
+    r.onresult = (e) => {
+      const spoken = finalText(e);
+      if (spoken) setText((t) => appendSpoken(t, spoken, MAX_TEXT));
+      setState((s) => (s.kind === "error" ? { kind: "idle" } : s));
+    };
+    r.onerror = (e) => setMicMsg(speechError(e.error));
+    r.onend = () => setListening(false);
+    rec.current = r;
+    setMicMsg(null);
+    try {
+      r.start();
+      setListening(true);
+    } catch {
+      setMicMsg(speechError("failed"));
+    }
+  };
 
   const close = () => {
+    rec.current?.stop();
     setOpen(false);
     setText("");
     setState({ kind: "idle" });
@@ -303,7 +342,9 @@ export function QuickLog({
     <section className="card p-3 mt-3 space-y-2" aria-label="Quick log">
       <label className="block">
         <span className="block text-sm font-semibold">Quick log</span>
-        <span className="block text-xs text-muted">Type or dictate what you did, for example bench 3x8 at 60.</span>
+        <span className="block text-xs text-muted">
+          {canSpeak ? "Type or tap the mic and say what you did" : "Type what you did"}, for example bench 3x8 at 60.
+        </span>
         <textarea
           className="field mt-2 text-sm"
           rows={2}
@@ -317,6 +358,26 @@ export function QuickLog({
           placeholder="bench 3x8 at 60, then curls 3x12 at 12"
         />
       </label>
+
+      {canSpeak && (
+        <button
+          type="button"
+          className={`${listening ? "btn-primary" : "btn-ghost border border-border"} w-full py-2 gap-2`}
+          aria-pressed={listening}
+          onClick={toggleMic}
+        >
+          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+          </svg>
+          {listening ? "Listening... tap to stop" : "Speak"}
+        </button>
+      )}
+      {micMsg && (
+        <p className="text-sm text-muted" role="status">
+          {micMsg}
+        </p>
+      )}
 
       {state.kind === "error" && (
         <p className="text-sm text-muted" role="status">

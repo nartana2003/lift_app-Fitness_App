@@ -33,7 +33,7 @@ test("history detail shows date, Duration, Volume, Records and exercise pictures
       reps: 5,
       weight: 10,
       is_warmup: false,
-      rir: null,
+      rir: 2,
       completed_at: start.toISOString(),
     });
     await new Promise<void>((resolve, reject) => {
@@ -52,4 +52,15 @@ test("history detail shows date, Duration, Volume, Records and exercise pictures
   await expect(page.getByText("Records")).toBeVisible();
   await expect(page.getByText("Sets", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("img", { name: "3/4 Sit-Up" })).toBeVisible();
+  // The options button is three dots stacked vertically.
+  const dots = page.getByRole("button", { name: "More options" }).locator("circle");
+  await expect(dots).toHaveCount(3);
+  const ys = await dots.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().y));
+  expect(ys[0]).toBeLessThan(ys[1]);
+  expect(ys[1]).toBeLessThan(ys[2]);
+  // A logged RIR is not shown on the detail page.
+  await expect(page.getByText(/RIR/)).toHaveCount(0);
+  // Lyfta-style summary: a picture grid with "N x name" captions.
+  const grid = page.getByRole("list", { name: "Exercises done" });
+  await expect(grid.getByText("1 x 3/4 Sit-Up")).toBeVisible();
 });

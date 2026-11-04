@@ -14,7 +14,8 @@ import { useSettings } from "@/lib/settings";
 import { dispNum, fmtVolume } from "@/lib/units";
 import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
 import { repRangeFrom } from "@/lib/routines";
-import { exerciseThumb, recordsByWorkout } from "@/lib/homeFeed";
+import { exerciseCaption, exerciseThumb, recordsByWorkout } from "@/lib/homeFeed";
+import { TrophyIcon } from "@/components/HistoryList";
 
 export default function WorkoutDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -61,8 +62,12 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
             <button className="text-sm text-accent" onClick={() => setEditing(!editing)}>
               {editing ? "Done" : "Edit"}
             </button>
-            <button className="p-1 text-muted text-xl leading-none" onClick={() => setMenu(!menu)} aria-label="More options">
-              ⋯
+            <button className="p-1 text-muted" onClick={() => setMenu(!menu)} aria-label="More options">
+              <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden>
+                <circle cx="12" cy="5" r="1.8" />
+                <circle cx="12" cy="12" r="1.8" />
+                <circle cx="12" cy="19" r="1.8" />
+              </svg>
             </button>
           </div>
         }
@@ -86,11 +91,40 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         {start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
       </p>
 
-      <div className="grid grid-cols-3 gap-2 text-center mb-4">
+      <div className="flex gap-6 mb-5">
         <Stat label="Duration" value={formatDuration(dur)} />
         <Stat label="Volume" value={fmtVolume(w.volume, unit)} />
-        <Stat label="Records" value={String(records?.get(w.id) ?? 0)} />
+        <div className="ml-auto text-right">
+          <p className="text-[11px] text-muted">Records</p>
+          <p className="text-lg font-semibold inline-flex items-center gap-1">
+            <TrophyIcon />
+            {records?.get(w.id) ?? 0}
+          </p>
+        </div>
       </div>
+
+      {w.exercises.length > 0 && (
+        <ul className="grid grid-cols-3 gap-x-2 gap-y-4 mb-5" aria-label="Exercises done">
+          {w.exercises.map((e) => {
+            const info = get(e.exercise_id);
+            const name = info?.name ?? e.exercise_id;
+            const thumb = exerciseThumb(info?.image_urls, name);
+            return (
+              <li key={e.id} className="flex flex-col items-center text-center">
+                {thumb.kind === "image" ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={thumb.src} alt="" loading="lazy" className="size-24 rounded-2xl object-cover bg-white border border-border" />
+                ) : (
+                  <span aria-hidden className="size-24 rounded-2xl bg-surface-2 text-muted flex items-center justify-center text-3xl font-semibold">
+                    {thumb.letter}
+                  </span>
+                )}
+                <p className="text-xs text-muted mt-1.5 line-clamp-2">{exerciseCaption(e.sets, name)}</p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <div className="flex flex-wrap gap-1.5 mb-4">
         {[...muscles.entries()].map(([m, n]) => (
@@ -143,7 +177,6 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   ) : (
                     <span className="flex-1">{dispNum(s.weight, unit)}{unit} × {s.reps}</span>
                   )}
-                  {s.rir != null && <span className="text-xs text-muted" title="Reps in reserve">RIR {s.rir}</span>}
                 </li>
               ))}
             </ul>
@@ -184,9 +217,9 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card p-2.5">
-      <p className="text-[11px] uppercase tracking-wide text-muted">{label}</p>
-      <p className="font-semibold">{value}</p>
+    <div>
+      <p className="text-[11px] text-muted">{label}</p>
+      <p className="text-lg font-semibold">{value}</p>
     </div>
   );
 }

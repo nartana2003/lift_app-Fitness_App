@@ -166,6 +166,19 @@ export function normaliseText(s: string): string {
 }
 
 /**
+ * A free-text field. Order matters: the raw length gets a loose cap first (so
+ * normalising never runs on a huge string), then the text is normalised, and
+ * only then are the real cap and the tag check applied, so characters that
+ * normalising removes or rewrites cannot hide a tag. Null when unusable.
+ */
+export function textField(v: unknown, max: number): string | null {
+  if (typeof v !== "string" || v.length > max * 2) return null;
+  const s = normaliseText(v);
+  if (s.length === 0 || s.length > max || isTagLike(s)) return null;
+  return s;
+}
+
+/**
  * Strict shape check of the request body (already JSON-parsed). Unknown keys,
  * empty or over-long text, tag-like text and unknown units are rejected.
  */

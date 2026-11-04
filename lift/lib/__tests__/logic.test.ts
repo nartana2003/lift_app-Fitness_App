@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compare, daysLeftInWeek, delta, goalProgress, startOfWeek } from "../stats";
 import { applySet, bestsFromHistory, e1rm, emptyBests, isVolumePr, setPrs } from "../prs";
-import { formatSets, parseRepRange, suggest } from "../overload";
+import { formatSets, parseRepRange, repeatsLast, suggest } from "../overload";
 import { mapEquipment, mapMuscles, tiktokAppSearchUrl, tiktokUrl } from "../muscles";
 
 describe("stats", () => {
@@ -105,6 +105,17 @@ describe("overload suggestions", () => {
 
   it("ignores warmups and handles empty", () => {
     expect(suggest([{ reps: 10, weight: 20, is_warmup: true }], range, "Barbell")).toBeNull();
+  });
+
+  it("repeatsLast is true only for the same weight, reps and set count", () => {
+    const last = [{ reps: 40, weight: 20, is_warmup: true }, { reps: 10, weight: 60 }, { reps: 10, weight: 60 }];
+    const base = { sets: 2, reps: 10, weight: 60, reason: "" };
+    expect(repeatsLast(base, last)).toBe(true);
+    expect(repeatsLast({ ...base, weight: 62.5 }, last)).toBe(false);
+    expect(repeatsLast({ ...base, reps: 11 }, last)).toBe(false);
+    expect(repeatsLast({ ...base, sets: 3 }, last)).toBe(false);
+    expect(repeatsLast(base, [{ reps: 10, weight: 60 }, { reps: 8, weight: 60 }])).toBe(false);
+    expect(repeatsLast(base, [])).toBe(false);
   });
 
   it("parses rep ranges and formats sets", () => {

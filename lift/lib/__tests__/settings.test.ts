@@ -11,7 +11,7 @@ const stored = async () => (await db.meta.get("settings"))?.value as Partial<Set
 
 describe("settings", () => {
   it("defaults to kg and a Monday week start", () => {
-    expect(DEFAULT_SETTINGS).toEqual({ unit: "kg", weekStart: 1 });
+    expect(DEFAULT_SETTINGS).toEqual({ unit: "kg", weekStart: 1, suggestions: true });
   });
 
   it("stores only what was changed", async () => {
@@ -35,6 +35,6 @@ describe("settings", () => {
 
   it("leaves the defaults object untouched", async () => {
     await saveSettings({ unit: "lb", weekStart: 0 });
-    expect(DEFAULT_SETTINGS).toEqual({ unit: "kg", weekStart: 1 });
+    expect(DEFAULT_SETTINGS).toEqual({ unit: "kg", weekStart: 1, suggestions: true });
   });
 });

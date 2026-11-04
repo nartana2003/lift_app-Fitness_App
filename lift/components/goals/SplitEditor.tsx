@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
-import { clearSplit, PRESETS, saveSplit, splitGaps, useSplit, type Split, type SplitDay } from "@/lib/splits";
+import { clearSplit, saveSplit, splitGaps, useSplit, type Split, type SplitDay } from "@/lib/splits";
 import { linkRoutineToDay, listRoutines, type Routine } from "@/lib/routines";
 import { routinesForDay, unassignedRoutines } from "@/lib/splitRoutines";
 import { startRoutine } from "@/components/routines/RoutineList";
@@ -146,15 +146,7 @@ export function SplitEditor() {
   if (!has) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-muted">Pick a split to start from, or build your own.</p>
-        <div className="space-y-2">
-          {PRESETS.map((p) => (
-            <button key={p.name} className="w-full text-left rounded-xl bg-surface-2 p-3" onClick={() => update(p)}>
-              <span className="block font-semibold text-sm">{p.name}</span>
-              <span className="block text-xs text-muted">{p.days.map((d) => d.name).join(" · ")}</span>
-            </button>
-          ))}
-        </div>
+        <p className="text-sm text-muted">No split yet. Build your own.</p>
         <button
           className="btn-ghost w-full"
           onClick={() => update({ name: "My split", days: [{ name: "Day 1", muscles: [] }] })}

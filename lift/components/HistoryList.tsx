@@ -43,12 +43,16 @@ export function HistoryList() {
               return (
                 <li key={w.id} className="relative">
                   <button
-                    className="absolute top-2 right-2 z-10 size-9 grid place-items-center text-muted text-xl leading-none"
+                    className="absolute top-2 right-2 z-10 size-9 grid place-items-center text-muted"
                     aria-label="Workout options"
                     aria-expanded={menuId === w.id}
                     onClick={() => setMenuId(menuId === w.id ? null : w.id)}
                   >
-                    ⋯
+                    <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden>
+                      <circle cx="12" cy="5" r="1.8" />
+                      <circle cx="12" cy="12" r="1.8" />
+                      <circle cx="12" cy="19" r="1.8" />
+                    </svg>
                   </button>
                   {menuId === w.id && (
                     <div className="absolute top-11 right-2 z-10 card shadow-md p-1">
@@ -130,7 +134,7 @@ export function HistoryList() {
   );
 }
 
-function TrophyIcon() {
+export function TrophyIcon() {
   return (
     <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z" />
