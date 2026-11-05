@@ -176,6 +176,16 @@ export async function setTarget(muscle: MuscleGroup, sets: number | null) {
   });
 }
 
+/** Change one muscle's weekly target by delta. Reads the latest goals, so quick repeated taps all count. */
+export async function bumpTarget(muscle: MuscleGroup, delta: number) {
+  await db.transaction("rw", db.meta, async () => {
+    const cur = normalizeGoals((await db.meta.get(KEY))?.value as Partial<Goals> | undefined);
+    const sets = (cur.targets[muscle] ?? defaultTarget(muscle, cur)) + delta;
+    const targets = { ...cur.targets, [muscle]: Math.max(0, Math.min(40, Math.round(sets))) };
+    await db.meta.put({ key: KEY, value: { ...cur, targets } });
+  });
+}
+
 /** Never suggest this exercise again (Coach and swaps). Capped at MAX_DISLIKED. */
 export async function dislikeExercise(id: string) {
   await db.transaction("rw", db.meta, async () => {

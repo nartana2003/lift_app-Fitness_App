@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../offline/db";
 import {
   allTargets,
+  bumpTarget,
   defaultTarget,
   DEFAULT_GOALS,
   goalsChanged,
@@ -182,5 +183,28 @@ describe("setPriority and toggleLimitation", () => {
     expect(s?.priorities).toEqual({});
     expect(s?.focusMuscles).toEqual([]);
     expect(s?.limitations).toEqual([]);
+  });
+});
+
+describe("bumpTarget (Dexie)", () => {
+  it("starts from the suggested number and keeps every quick change", async () => {
+    const base = defaultTarget("Chest", g());
+    await Promise.all([bumpTarget("Chest", 1), bumpTarget("Chest", 1), bumpTarget("Chest", 1)]);
+    expect((await stored())?.targets.Chest).toBe(base + 3);
+  });
+
+  it("starts from the user's own number and stays within 0 to 40", async () => {
+    await setTarget("Biceps", 39);
+    await bumpTarget("Biceps", 5);
+    expect((await stored())?.targets.Biceps).toBe(40);
+    await setTarget("Biceps", 1);
+    await bumpTarget("Biceps", -5);
+    expect((await stored())?.targets.Biceps).toBe(0);
+  });
+
+  it("keeps the other goal fields", async () => {
+    await saveGoals({ priorities: { Chest: "medium" } });
+    await bumpTarget("Glutes", 1);
+    expect((await stored())?.priorities).toEqual({ Chest: "medium" });
   });
 });

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
 import {
   allTargets,
+  bumpTarget,
   defaultTarget,
   EXPERIENCE_LABELS,
   GOAL_LABELS,
@@ -90,11 +91,11 @@ export function GoalsSection() {
                     {m}
                     {goals.focusMuscles.includes(m) && <span className="text-xs text-muted"> · focus</span>}
                   </span>
-                  <button className="size-8 rounded-lg bg-surface-2 text-lg leading-none" onClick={() => setTarget(m, targets[m] - 1)} aria-label={`Fewer ${m} sets`}>
+                  <button className="size-8 rounded-lg bg-surface-2 text-lg leading-none" onClick={() => bumpTarget(m, -1)} aria-label={`Fewer ${m} sets`}>
                     −
                   </button>
                   <span className={`w-10 text-center text-sm font-semibold ${isCustom ? "" : "text-muted"}`}>{targets[m]}</span>
-                  <button className="size-8 rounded-lg bg-surface-2 text-lg leading-none" onClick={() => setTarget(m, targets[m] + 1)} aria-label={`More ${m} sets`}>
+                  <button className="size-8 rounded-lg bg-surface-2 text-lg leading-none" onClick={() => bumpTarget(m, 1)} aria-label={`More ${m} sets`}>
                     +
                   </button>
                   <button
