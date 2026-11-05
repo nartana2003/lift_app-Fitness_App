@@ -1,17 +1,12 @@
 import { test, expect } from "@playwright/test";
 
-// FEAT-03: "Auto-fill from my split" on the Home week strip. Fresh browser
-// context with no Supabase and no AI key: there are no routines yet, so the
-// panel asks for one and Cancel closes it. The strip itself still renders.
+// Issue #2: the "Auto-fill from my split" option was removed from the Home week
+// strip. The strip itself still renders and days can still be tapped and planned.
 
-test("auto-fill panel opens on Home and asks for a routine first", async ({ page }) => {
+test("Home week strip has no auto-fill option", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
   await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
-  await page.getByRole("button", { name: "Auto-fill from my split" }).click();
-  await expect(page.getByText("Create a routine first to auto-fill your week.")).toBeVisible();
-
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await expect(page.getByText("Create a routine first to auto-fill your week.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /auto-fill/i })).toHaveCount(0);
 });

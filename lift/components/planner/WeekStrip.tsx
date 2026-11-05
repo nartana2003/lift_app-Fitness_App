@@ -39,16 +39,7 @@ import { useSettings } from "@/lib/settings";
 import { useSplit, type Split } from "@/lib/splits";
 import { lastDoneByRoutine, nextRoutineForDay, routinesForDay, splitDayIds, type LastDone } from "@/lib/splitRoutines";
 import { startWorkout } from "@/lib/workout";
-import {
-  autoFillPlan,
-  canDrag,
-  defaultPickedDays,
-  dropAction,
-  isGymDay,
-  markedOpenDates,
-  splitRoutineOrder,
-  weekdayOf,
-} from "@/lib/autofill";
+import { canDrag, dropAction, isGymDay } from "@/lib/autofill";
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -206,7 +197,6 @@ export function WeekStrip() {
   const workoutRows = useLiveQuery(() => db.workouts.toArray(), [], []);
   const lastDone = lastDoneByRoutine(workoutRows);
   const [open, setOpen] = useState<string | null>(null);
-  const [filling, setFilling] = useState(false);
   const [notice, setNotice] = useState("");
   const [drag, setDrag] = useState<{ from: string; over: string | null } | null>(null);
   // DND-01: drag runs on @dnd-kit. A press becomes a drag after DRAG_START px;
@@ -242,20 +232,7 @@ export function WeekStrip() {
 
   return (
     <section className="mt-5">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <h2 className="text-lg font-bold">This Week</h2>
-        <button
-          className="text-xs font-medium text-muted underline underline-offset-2"
-          aria-expanded={filling}
-          onClick={() => {
-            setFilling(!filling);
-            setOpen(null);
-            setNotice("");
-          }}
-        >
-          Auto-fill from my split
-        </button>
-      </div>
+      <h2 className="text-lg font-bold mb-2">This Week</h2>
       <DndContext
         id={dndId}
         sensors={sensors}
@@ -298,7 +275,6 @@ export function WeekStrip() {
                   label={`${longName}, ${state}`}
                   pressed={gym}
                   onClick={() => {
-                    setFilling(false);
                     if (open === k) {
                       setOpen(null);
                       return;
@@ -345,21 +321,6 @@ export function WeekStrip() {
       <p role="status" aria-live="polite" className="mt-1 text-xs text-muted empty:hidden">
         {notice}
       </p>
-
-      {filling && (
-        <AutoFillPanel
-          days={days.map(dayKey)}
-          routines={routines}
-          lastDone={lastDone}
-          plan={plan}
-          today={today}
-          onClose={() => setFilling(false)}
-          onDone={(n) => {
-            setFilling(false);
-            setNotice(n === 1 ? "Planned 1 day." : `Planned ${n} days.`);
-          }}
-        />
-      )}
 
       {open && (
         <DayPanel
@@ -615,106 +576,6 @@ function RoutineChoices({ routines, onPick }: { routines: { id: string; name: st
           {r.name}
         </button>
       ))}
-    </div>
-  );
-}
-
-/** Lay the split's routines across chosen gym days of this week, filling free days only. */
-function AutoFillPanel({
-  days,
-  routines,
-  lastDone,
-  plan,
-  today,
-  onClose,
-  onDone,
-}: {
-  days: string[];
-  routines: Routine[];
-  lastDone?: LastDone;
-  plan: Map<string, PlannedDayRow>;
-  today: string;
-  onClose: () => void;
-  onDone: (planned: number) => void;
-}) {
-  const split = useSplit();
-  const [picked, setPicked] = useState<number[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Linked routines come first (LINK-01); lastDone picks the one done longest ago.
-  const order = splitRoutineOrder(split, routines, lastDone);
-  // Dates already marked as gym days (no routine yet) are filled first and set the default pick.
-  const marked = markedOpenDates(days, plan, today);
-  const gymDays = picked ?? defaultPickedDays(marked, split.days.length || 3);
-  const fills = autoFillPlan({ days, gymDays, plan, today, routineIds: order, marked });
-  const nameOf = (id: string) => routines.find((r) => r.id === id)?.name ?? "Workout";
-
-  const toggle = (wd: number) =>
-    setPicked(gymDays.includes(wd) ? gymDays.filter((x) => x !== wd) : [...gymDays, wd]);
-
-  return (
-    <div className="card p-3 mt-2">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <p className="font-semibold">Auto-fill from my split</p>
-        <button className="text-muted text-sm" onClick={onClose}>Cancel</button>
-      </div>
-
-      {order.length === 0 ? (
-        <p className="text-sm text-muted">Create a routine first to auto-fill your week.</p>
-      ) : (
-        <div className="space-y-3">
-          <div>
-            <p className="text-sm font-medium mb-1.5">Gym days</p>
-            <div className="flex flex-wrap gap-1.5">
-              {days.map((k) => {
-                const wd = weekdayOf(k);
-                const on = gymDays.includes(wd);
-                return (
-                  <button key={k} aria-pressed={on} className={on ? "chip-on text-xs" : "chip text-xs"} onClick={() => toggle(wd)}>
-                    {new Date(k + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" })}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <p className="text-xs text-muted">
-            {split.days.length === 0 ? "No split set, so your routines are used in order: " : "Order: "}
-            {order.map(nameOf).join(", ")}
-          </p>
-
-          {fills.length === 0 ? (
-            <p className="text-sm text-muted">No free gym days left this week.</p>
-          ) : (
-            <div className="text-sm space-y-0.5">
-              {fills.map((f) => (
-                <p key={f.date} className="flex justify-between gap-2">
-                  <span className="text-muted">
-                    {new Date(f.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long" })}
-                  </span>
-                  <span className="font-medium">{nameOf(f.routine_id)}</span>
-                </p>
-              ))}
-            </div>
-          )}
-
-          <button
-            className="btn-primary w-full py-2 text-sm disabled:opacity-40"
-            disabled={fills.length === 0 || busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                for (const f of fills) await planDay(f.date, f.routine_id);
-                onDone(fills.length);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {fills.length === 1 ? "Fill 1 day" : `Fill ${fills.length} days`}
-          </button>
-          <p className="text-[11px] text-muted">Only free days from today on are filled. Planned, trained and skipped days stay as they are.</p>
-        </div>
-      )}
     </div>
   );
 }

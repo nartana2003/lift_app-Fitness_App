@@ -97,7 +97,6 @@ async function rows(page: Page): Promise<{ date: string; routine_id: string | nu
 
 const BLACK = "rgb(17, 17, 17)";
 const PUSH = { id: "r-push", name: "Push" };
-const PULL = { id: "r-pull", name: "Pull" };
 
 for (const vp of [
   { w: 390, h: 844 },
@@ -348,16 +347,6 @@ test("dragging a routine day onto a routine-less marked date moves the routine t
   await page.mouse.move(b!.x + b!.width / 2, b!.y + b!.height / 2, { steps: 8 });
   await page.mouse.up();
   await expect.poll(async () => (await rows(page)).map((r) => `${r.date}:${r.routine_id}`)).toEqual([`${THU}:${PUSH.id}`]);
-});
-
-test("Auto-fill fills the marked date first and leaves the unmarked days alone", async ({ page, errors }) => {
-  void errors;
-  await open(page, { routines: [PUSH, PULL], days: [{ date: SAT }] });
-  await page.getByRole("button", { name: "Auto-fill from my split" }).click();
-  await expect(page.getByRole("button", { name: "Sat", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: /^Fill \d+ days?$/ }).click();
-  await expect.poll(async () => (await rows(page)).find((r) => r.date === SAT)?.routine_id).toBeTruthy();
-  expect((await rows(page)).filter((r) => r.date === SAT)).toHaveLength(1);
 });
 
 test.describe("real clock", () => {

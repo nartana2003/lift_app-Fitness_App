@@ -2,7 +2,7 @@
 // LINK-03: the WeekStrip day panel and Auto-fill put a split day's linked routines first.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { db, uuid } from "@/lib/offline/db";
+import { db } from "@/lib/offline/db";
 import { createRoutine } from "@/lib/routines";
 import { getDay } from "@/lib/planner";
 import { saveSplit, type Split } from "@/lib/splits";
@@ -19,8 +19,6 @@ import { WeekStrip, planChoices } from "@/components/planner/WeekStrip";
 const NOW = new Date(2026, 9, 14, 12, 0, 0);
 const WEEK = ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18"];
 const THU = WEEK[3];
-const SAT = WEEK[5];
-const short = (key: string) => new Date(key + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" });
 
 const r = (id: string, created_at: string, split_day_id?: string | null, kind: "routine" | "mini" = "routine") => ({
   id,
@@ -123,29 +121,5 @@ describe("WeekStrip day panel", () => {
     expect(within(groups[2]).getByRole("button", { name: "Loose" })).toBeInTheDocument();
     fireEvent.click(within(groups[1]).getByRole("button", { name: "Back day" }));
     await waitFor(async () => expect(await getDay(THU)).toMatchObject({ routine_id: pullId }));
-  });
-});
-
-describe("WeekStrip Auto-fill", () => {
-  it("uses the linked routine done longest ago for each split day", async () => {
-    const [push, pull] = await splitIds({ name: "PP", days: [PPL.days[0], PPL.days[1]] });
-    const a = await make("Push A", push);
-    const b = await make("Push B", push);
-    const pullId = await make("Pull X", pull);
-    // Push A was done more recently than Push B.
-    await db.workouts.put({ id: uuid(), started_at: "2026-10-10T10:00:00.000Z", ended_at: "2026-10-10T11:00:00.000Z", notes: null, routine_id: a });
-    await db.workouts.put({ id: uuid(), started_at: "2026-10-01T10:00:00.000Z", ended_at: "2026-10-01T11:00:00.000Z", notes: null, routine_id: b });
-    await renderStrip();
-    fireEvent.click(screen.getByRole("button", { name: "Auto-fill from my split" }));
-    expect(await screen.findByText("Order: Push B, Pull X")).toBeInTheDocument();
-    // Pick Thu and Sat only.
-    for (const k of WEEK) {
-      const btn = screen.getByRole("button", { name: short(k) });
-      const on = btn.getAttribute("aria-pressed") === "true";
-      if (on !== (k === THU || k === SAT)) fireEvent.click(btn);
-    }
-    fireEvent.click(screen.getByRole("button", { name: "Fill 2 days" }));
-    await waitFor(async () => expect(await getDay(SAT)).toMatchObject({ routine_id: pullId }));
-    expect(await getDay(THU)).toMatchObject({ routine_id: b });
   });
 });

@@ -4,7 +4,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { db, type PlannedDayRow } from "@/lib/offline/db";
 import { createRoutine } from "@/lib/routines";
 import { getDay, markGymDay, planDay, skipDay, unmarkGymDay } from "@/lib/planner";
-import { saveSplit } from "@/lib/splits";
 import { autoFillPlan, canDrag, defaultPickedDays, dropAction, isGymDay, markedOpenDates } from "@/lib/autofill";
 
 vi.mock("next/navigation", () => ({
@@ -30,17 +29,15 @@ const IDX: Record<string, number> = Object.fromEntries(WEEK.map((k, i) => [k, i]
 
 const long = (key: string) =>
   `${new Date(key + "T00:00:00").toLocaleDateString(undefined, { weekday: "long" })} ${Number(key.slice(8))}`;
-const short = (key: string) => new Date(key + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" });
 
 let pushId = "";
-let pullId = "";
 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"], now: NOW });
   await Promise.all(db.tables.map((t) => t.clear()));
   pushId = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench" }] });
   vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 1));
-  pullId = await createRoutine({ name: "Pull", exercises: [{ exercise_id: "row" }] });
+  await createRoutine({ name: "Pull", exercises: [{ exercise_id: "row" }] });
   vi.setSystemTime(NOW);
 });
 
@@ -265,21 +262,5 @@ describe("planner and auto-fill rules with routine-less marks", () => {
       { date: THU, routine_id: "a" },
       { date: SAT, routine_id: "b" },
     ]);
-  });
-
-  it("Auto-fill defaults its picker to the marked dates and fills them", async () => {
-    await saveSplit({ name: "PP", days: [{ name: "Push", muscles: [] }, { name: "Pull", muscles: [] }] });
-    await markGymDay(THU);
-    await markGymDay(SAT);
-    await renderStrip();
-    fireEvent.click(screen.getByRole("button", { name: "Auto-fill from my split" }));
-    expect(await screen.findByText("Order: Push, Pull")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: short(THU) })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: short(SAT) })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: short(FRI) })).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(screen.getByRole("button", { name: "Fill 2 days" }));
-    await waitFor(async () => expect(await getDay(SAT)).toMatchObject({ routine_id: pullId }));
-    expect(await getDay(THU)).toMatchObject({ routine_id: pushId });
-    expect(await getDay(FRI)).toBeUndefined();
   });
 });

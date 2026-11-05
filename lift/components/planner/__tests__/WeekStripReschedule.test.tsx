@@ -4,7 +4,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { db } from "@/lib/offline/db";
 import { createRoutine } from "@/lib/routines";
 import { getDay, planDay } from "@/lib/planner";
-import { saveSplit } from "@/lib/splits";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn(), back: vi.fn() }),
@@ -14,7 +13,7 @@ vi.mock("next/navigation", () => ({
 
 import { WeekStrip } from "@/components/planner/WeekStrip";
 
-// FEAT-03: drag a planned day to reschedule it, and auto-fill the week from the split.
+// FEAT-03: drag a planned day to reschedule it.
 // "Today" is Wednesday 14 Oct 2026; the week is Mon 12 .. Sun 18.
 const NOW = new Date(2026, 9, 14, 12, 0, 0);
 const MON = "2026-10-12";
@@ -28,7 +27,6 @@ const IDX: Record<string, number> = { [MON]: 0, [WED]: 2, [THU]: 3, [FRI]: 4, [S
 const short = (key: string) => new Date(key + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" });
 
 let pushId = "";
-let pullId = "";
 let legsId = "";
 
 beforeEach(async () => {
@@ -36,7 +34,7 @@ beforeEach(async () => {
   await Promise.all(db.tables.map((t) => t.clear()));
   pushId = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench" }] });
   vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 1));
-  pullId = await createRoutine({ name: "Pull", exercises: [{ exercise_id: "row" }] });
+  await createRoutine({ name: "Pull", exercises: [{ exercise_id: "row" }] });
   vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 2));
   legsId = await createRoutine({ name: "Legs", exercises: [{ exercise_id: "squat" }] });
   vi.setSystemTime(NOW);
@@ -131,58 +129,10 @@ describe("WeekStrip drag to reschedule", () => {
   });
 });
 
-describe("WeekStrip auto-fill from my split", () => {
-  const openAutoFill = () => fireEvent.click(screen.getByRole("button", { name: "Auto-fill from my split" }));
-
-  it("asks for a routine when there are none", async () => {
-    await Promise.all(db.tables.map((t) => t.clear()));
+describe("WeekStrip without auto-fill", () => {
+  it("has no auto-fill button", async () => {
     await renderStrip();
-    openAutoFill();
-    expect(await screen.findByText("Create a routine first to auto-fill your week.")).toBeInTheDocument();
-  });
-
-  it("lays the split across the default gym days, from today on", async () => {
-    await saveSplit({ name: "PPL", days: [{ name: "Push", muscles: [] }, { name: "Pull", muscles: [] }, { name: "Legs", muscles: [] }] });
-    await renderStrip();
-    openAutoFill();
-    expect(await screen.findByText("Order: Push, Pull, Legs")).toBeInTheDocument();
-    // Three split days give Mon, Wed, Fri; Monday is past.
-    const fill = await screen.findByRole("button", { name: "Fill 2 days" });
-    fireEvent.click(fill);
-
-    await waitFor(async () => expect(await getDay(WED)).toMatchObject({ routine_id: pushId, status: "planned" }));
-    await waitFor(async () => expect(await getDay(FRI)).toMatchObject({ routine_id: pullId, status: "planned" }));
-    expect(await getDay(MON)).toBeUndefined();
-    expect(await screen.findByText("Planned 2 days.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Fill / })).not.toBeInTheDocument();
-  });
-
-  it("lets the user pick gym days and keeps planned days", async () => {
-    await planDay(THU, legsId);
-    await renderStrip();
-    openAutoFill();
-    // No split: routines are used oldest first.
-    expect(await screen.findByText(/No split set/)).toHaveTextContent("Push, Pull, Legs");
-    for (const k of [THU, SAT, SUN]) fireEvent.click(screen.getByRole("button", { name: short(k) }));
-    expect(screen.getByRole("button", { name: short(THU) })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Fill 4 days" }));
-
-    // Wed, Fri, Sat, Sun get Push, Pull, Legs, Push; Thursday keeps Legs.
-    await waitFor(async () => expect(await getDay(SUN)).toMatchObject({ routine_id: pushId }));
-    expect(await getDay(WED)).toMatchObject({ routine_id: pushId });
-    expect(await getDay(FRI)).toMatchObject({ routine_id: pullId });
-    expect(await getDay(SAT)).toMatchObject({ routine_id: legsId });
-    expect(await getDay(THU)).toMatchObject({ routine_id: legsId });
-  });
-
-  it("says so when no gym day is free", async () => {
-    await planDay(WED, pushId);
-    await planDay(FRI, pushId);
-    await renderStrip();
-    openAutoFill();
-    expect(await screen.findByText("No free gym days left this week.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Fill 0 days" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByText("No free gym days left this week.")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "This Week" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /auto-fill/i })).not.toBeInTheDocument();
   });
 });

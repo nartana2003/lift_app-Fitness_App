@@ -428,17 +428,6 @@ describe("QA auto-fill with marks", () => {
       { date: SAT, routine_id: "b" },
     ]);
   });
-
-  it("the panel Auto-fill fills a marked date and leaves the unmarked Friday alone by default", async () => {
-    await markGymDay(THU);
-    await renderStrip();
-    await waitFor(() => expect(dayButton(THU)).toHaveClass("bg-accent"));
-    fireEvent.click(screen.getByRole("button", { name: "Auto-fill from my split" }));
-    fireEvent.click(await screen.findByRole("button", { name: /^Fill 1 day$/ }));
-    await waitFor(async () => expect((await getDay(THU))?.routine_id).toBeTruthy());
-    expect(await getDay(FRI)).toBeUndefined();
-    expect(await rowsFor(THU)).toHaveLength(1);
-  });
 });
 
 describe("QA no errors", () => {
