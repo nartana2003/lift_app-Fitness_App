@@ -1,0 +1,22 @@
+name: Reminders
+
+# Vercel Hobby only allows daily crons, so this hits the hourly reminder job.
+# Repository secrets: APP_URL (for example https://your-app.vercel.app) and the
+# same CRON_SECRET that is set on Vercel.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron/reminders
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "${APP_URL%/}/api/cron/reminders"

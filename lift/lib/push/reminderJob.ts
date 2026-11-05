@@ -9,7 +9,9 @@
  *   (Vercel sends the Bearer CRON_SECRET header itself);
  * - an external scheduler hitting https://<app>/api/cron/reminders every hour
  *   with that header: Supabase pg_cron + pg_net (net.http_get with the
- *   Authorization header), or a free cron service.
+ *   Authorization header), or a free cron service. The repo ships one:
+ *   .github/workflows/reminders.yml (GitHub Actions, needs the APP_URL and
+ *   CRON_SECRET repository secrets).
  * A daily call would send most reminders late or not at all (the due window is
  * DEFAULT_WINDOW_MIN = 60 minutes).
  *
