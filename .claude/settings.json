@@ -38,13 +38,10 @@
       "Bash(git -C lift checkout:*)",
       "Bash(git -C lift restore:*)",
       "Bash(git -C lift stash:*)",
-      "Bash(git push:*)",
       "Bash(rm -rf:*)",
       "Bash(npm run dev:*)",
       "Edit(/.claude/plan-errata.md)",
-      "Write(/.claude/plan-errata.md)",
-      "Edit(/.claude/settings.json)",
-      "Write(/.claude/settings.json)"
+      "Write(/.claude/plan-errata.md)"
     ],
     "ask": [
       "Bash(npm install:*)",
