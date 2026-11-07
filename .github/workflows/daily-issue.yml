@@ -1,0 +1,79 @@
+name: Daily issue
+
+# Once a day, Claude fixes every open issue not labeled "wontfix" or "not planned",
+# one at a time, oldest first. Each fix is tested, committed and pushed straight to main when
+# checks pass.
+# Repository secret: CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`). Cron times are UTC.
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+    outputs:
+      issues: ${{ steps.list.outputs.issues }}
+    steps:
+      - id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          issues=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search 'sort:created-asc -label:wontfix -label:"not planned"' --limit 100 --json number --jq '[.[].number]')
+          echo "issues=$issues" >> "$GITHUB_OUTPUT"
+
+  solve:
+    needs: list
+    if: needs.list.outputs.issues != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        issue: ${{ fromJSON(needs.list.outputs.issues) }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lift/package-lock.json
+
+      - name: Install dependencies
+        working-directory: lift
+        run: npm ci
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE: ${{ matrix.issue }}
+
+            Solve GitHub issue number ${{ matrix.issue }}:
+
+            1. Run `gh issue view ${{ matrix.issue }} --json state,title,body,labels`. If the issue is closed or has the label `wontfix` or `not planned`, stop and say so.
+            2. Read CLAUDE.md and follow it, including the style and test rules.
+            3. Stay on main.
+            4. Fix the issue. Keep the change small and additive.
+            5. From `lift/`, run `npx tsc --noEmit`, `npm run lint` and `npm test`. Fix every failure. Never skip, delete or loosen a test.
+            6. Only if every check in step 5 passes, commit with the message `Fix #${{ matrix.issue }}: <title>`, run `git pull --rebase origin main`, push to main, and close the issue with `gh issue close ${{ matrix.issue }}`.
+            7. Comment on the issue with each check you ran and its result. State that the Playwright e2e tests were not run in this workflow.
+            8. If a check still fails, do not commit or push. Comment on the issue with what failed.
+
+            Never use git clean, reset, checkout, restore, stash or rm -rf.
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(npm:*),Bash(npx:*),Bash(git:*),Bash(gh issue:*)"
