@@ -10,6 +10,8 @@ let state: State = null;
 const listeners = new Set<() => void>();
 let audio: AudioContext | null = null;
 let fired = false;
+/** True when the end-of-rest chime is already queued on the audio clock. */
+let scheduled = false;
 
 function load() {
   if (typeof window === "undefined") return;
@@ -39,20 +41,46 @@ function unlockAudio() {
   } catch {}
 }
 
-function chime() {
-  if (!audio) return;
-  const t = audio.currentTime;
+/** Oscillators queued on the audio clock for the running rest, so they can be cancelled. */
+let queued: OscillatorNode[] = [];
+
+function cancelQueued() {
+  for (const o of queued) {
+    try {
+      o.stop();
+    } catch {}
+  }
+  queued = [];
+}
+
+/** Play the three-note chime `delay` seconds from now. Returns false when no sound can be queued. */
+function chime(delay = 0): boolean {
+  if (!audio) return false;
+  if (audio.state === "suspended") void audio.resume().catch(() => {});
+  const a = audio;
+  const t = a.currentTime + delay;
   [0, 0.18, 0.36].forEach((d, i) => {
-    const o = audio!.createOscillator();
-    const g = audio!.createGain();
+    const o = a.createOscillator();
+    const g = a.createGain();
     o.frequency.value = i === 2 ? 1320 : 880;
     g.gain.setValueAtTime(0.0001, t + d);
     g.gain.exponentialRampToValueAtTime(0.4, t + d + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.16);
-    o.connect(g).connect(audio!.destination);
+    o.connect(g).connect(a.destination);
     o.start(t + d);
     o.stop(t + d + 0.18);
+    queued.push(o);
   });
+  return a.state === "running";
+}
+
+/**
+ * Queue the chime on the audio clock for when the rest ends. The audio thread keeps time
+ * when the page's timers are throttled (screen off, another app in front).
+ */
+function scheduleChime(seconds: number) {
+  cancelQueued();
+  scheduled = chime(Math.max(0, seconds));
 }
 
 export const restTimer = {
@@ -60,16 +88,20 @@ export const restTimer = {
     unlockAudio();
     fired = false;
     state = { endsAt: Date.now() + seconds * 1000, total: seconds, label };
+    scheduleChime(seconds);
     emit();
   },
   add(seconds: number) {
     if (!state) return;
     state = { ...state, endsAt: Math.max(Date.now(), state.endsAt + seconds * 1000), total: Math.max(1, state.total + seconds) };
     fired = false;
+    scheduleChime((state.endsAt - Date.now()) / 1000);
     emit();
   },
   stop() {
     state = null;
+    cancelQueued();
+    scheduled = false;
     emit();
   },
   subscribe(l: () => void) {
@@ -92,7 +124,11 @@ export function useRestTimer() {
   useEffect(() => {
     if (s && remaining === 0 && !fired) {
       fired = true;
-      chime();
+      // Already queued on the audio clock: only play now if that could not be done.
+      if (!scheduled) chime();
+      try {
+        navigator.vibrate?.([200, 100, 200]);
+      } catch {}
     }
   }, [s, remaining]);
   return { timer: s, remaining };
