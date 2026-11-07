@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { startWorkout } from "@/lib/workout";
 import { HistoryList } from "@/components/HistoryList";
+import { startRoutine } from "@/components/routines/RoutineList";
+import { listRoutines } from "@/lib/routines";
 import { WeekStrip } from "@/components/planner/WeekStrip";
 import { db } from "@/lib/offline/db";
 import { workoutsBetween } from "@/lib/history";
@@ -16,6 +19,8 @@ export default function Home() {
   const router = useRouter();
   const { unit, weekStart } = useSettings();
   const active = useLiveQuery(() => db.active.get("active"), []);
+  const routines = useLiveQuery(listRoutines, [], []).filter((r) => (r.kind ?? "routine") === "routine");
+  const [choosing, setChoosing] = useState(false);
   const week = useLiveQuery(() => {
     const from = startOfWeek(new Date(), weekStart);
     return workoutsBetween(from, addDays(from, 7));
@@ -33,15 +38,46 @@ export default function Home() {
             Resume workout
           </Link>
         ) : (
-          <button
-            className="btn-primary w-full text-lg py-4"
-            onClick={async () => {
-              await startWorkout();
-              router.push("/workout");
-            }}
-          >
-            Start Workout
-          </button>
+          <>
+            <button
+              className="btn-primary w-full text-lg py-4"
+              aria-expanded={choosing}
+              onClick={async () => {
+                if (routines.length > 0) {
+                  setChoosing(!choosing);
+                  return;
+                }
+                await startWorkout();
+                router.push("/workout");
+              }}
+            >
+              Start Workout
+            </button>
+            {choosing && (
+              <div className="card p-3 mt-2 space-y-1.5" role="group" aria-label="Start from">
+                <button
+                  className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
+                  onClick={async () => {
+                    await startWorkout();
+                    router.push("/workout");
+                  }}
+                >
+                  Empty workout
+                </button>
+                {routines.map((r) => (
+                  <button
+                    key={r.id}
+                    className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
+                    onClick={async () => {
+                      if (await startRoutine(r)) router.push("/workout");
+                    }}
+                  >
+                    {r.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 

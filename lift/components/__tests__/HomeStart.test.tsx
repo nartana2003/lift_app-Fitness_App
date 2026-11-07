@@ -1,0 +1,71 @@
+// @vitest-environment jsdom
+// Issue #4: Start Workout on Home offers the user's routines.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { db } from "@/lib/offline/db";
+import { createRoutine } from "@/lib/routines";
+
+const push = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push, back: vi.fn() }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/components/planner/WeekStrip", () => ({ WeekStrip: () => <div>Week strip stub</div> }));
+vi.mock("@/components/HistoryList", () => ({ HistoryList: () => <div>History stub</div> }));
+
+import Home from "@/app/(tabs)/page";
+
+beforeEach(async () => {
+  push.mockReset();
+  await Promise.all(db.tables.map((t) => t.clear()));
+});
+
+describe("Home Start Workout", () => {
+  it("starts an empty workout straight away when there are no routines", async () => {
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Start Workout" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
+    const active = await db.active.get("active");
+    expect(active?.routine_id).toBeNull();
+    expect(active?.exercises).toHaveLength(0);
+  });
+
+  it("lists the routines and starts the chosen one", async () => {
+    const id = await createRoutine({ name: "Push day", exercises: [{ exercise_id: "bench", target_sets: 4 }] });
+    await createRoutine({ name: "Pull day", exercises: [{ exercise_id: "row" }] });
+    render(<Home />);
+    const start = await screen.findByRole("button", { name: "Start Workout" });
+    await waitFor(() => expect(db.routines.count()).resolves.toBe(2));
+    fireEvent.click(start);
+    const list = await screen.findByRole("group", { name: "Start from" });
+    expect(list).toHaveTextContent("Empty workout");
+    expect(list).toHaveTextContent("Pull day");
+    expect(await db.active.get("active")).toBeUndefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Push day" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
+    const active = await db.active.get("active");
+    expect(active?.routine_id).toBe(id);
+    expect(active?.name).toBe("Push day");
+    expect(active?.exercises.map((e) => e.exercise_id)).toEqual(["bench"]);
+  });
+
+  it("still starts an empty workout from the list", async () => {
+    await createRoutine({ name: "Push day", exercises: [{ exercise_id: "bench" }] });
+    render(<Home />);
+    await waitFor(() => expect(db.routines.count()).resolves.toBe(1));
+    fireEvent.click(await screen.findByRole("button", { name: "Start Workout" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Empty workout" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
+    expect((await db.active.get("active"))?.routine_id).toBeNull();
+  });
+
+  it("shows Resume workout instead when a workout is in progress", async () => {
+    await createRoutine({ name: "Push day", exercises: [{ exercise_id: "bench" }] });
+    await db.active.put({ key: "active", id: "w1", started_at: new Date().toISOString(), routine_id: null, name: null, exercises: [] });
+    render(<Home />);
+    expect(await screen.findByRole("link", { name: "Resume workout" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start Workout" })).not.toBeInTheDocument();
+  });
+});
