@@ -8,6 +8,7 @@ import { toggleFavorite, useFavorites } from "@/lib/favorites";
 import { MuscleIcon } from "./MuscleIcon";
 
 export const FAVORITES = "Favorites";
+export const CARDIO = "Cardio";
 
 /**
  * Search + horizontally scrolling muscle row + filter sheet + 2-column card grid.
@@ -33,7 +34,13 @@ export function ExerciseBrowser({
 
   const results = useMemo(() => {
     const isFav = muscle === FAVORITES;
-    let list = searchExercises(exercises, { muscle: isFav ? undefined : muscle, equipment: equip, q });
+    const isCardio = muscle === CARDIO;
+    let list = searchExercises(exercises, {
+      muscle: isFav || isCardio ? undefined : muscle,
+      category: isCardio ? "cardio" : undefined,
+      equipment: equip,
+      q,
+    });
     if (isFav) list = list.filter((e) => favorites.includes(e.id));
     return list;
   }, [exercises, muscle, equip, q, favorites]);
@@ -61,6 +68,11 @@ export function ExerciseBrowser({
           <MuscleTab label={FAVORITES} active={muscle === FAVORITES} onClick={() => onMuscle(muscle === FAVORITES ? undefined : FAVORITES)}>
             <svg viewBox="0 0 24 24" className="size-7" fill={muscle === FAVORITES ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.8}>
               <path d="M6 3h12v18l-6-4-6 4z" strokeLinejoin="round" />
+            </svg>
+          </MuscleTab>
+          <MuscleTab label={CARDIO} active={muscle === CARDIO} onClick={() => onMuscle(muscle === CARDIO ? undefined : CARDIO)}>
+            <svg viewBox="0 0 24 24" className="size-7" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12h4l2-5 4 10 2-5h6" />
             </svg>
           </MuscleTab>
           {MUSCLE_GROUPS.map((m) => (

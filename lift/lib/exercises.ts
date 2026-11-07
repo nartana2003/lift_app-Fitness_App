@@ -31,13 +31,14 @@ export function applyRenames(list: Exercise[], renames: Record<string, string>):
 
 export function searchExercises(
   all: Exercise[],
-  opts: { muscle?: string; equipment?: string[]; q?: string },
+  opts: { muscle?: string; category?: string; equipment?: string[]; q?: string },
 ): Exercise[] {
   const q = opts.q?.trim().toLowerCase();
   const words = q ? q.split(/\s+/) : [];
   return all.filter(
     (e) =>
       (!opts.muscle || e.muscle_groups.includes(opts.muscle as MuscleGroup)) &&
+      (!opts.category || e.category === opts.category) &&
       (!opts.equipment?.length || opts.equipment.includes(e.equipment)) &&
       words.every((w) => e.name.toLowerCase().includes(w) || !!e.original_name?.toLowerCase().includes(w)),
   );
