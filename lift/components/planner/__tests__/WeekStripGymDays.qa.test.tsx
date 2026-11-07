@@ -337,7 +337,7 @@ describe("QA routine-less marked dates next to routine days", () => {
     expect(screen.queryByRole("button", { name: "Move" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     // Planning from the panel keeps it the same marked date.
-    fireEvent.click(screen.getByRole("button", { name: "Pull" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Routine" }), { target: { value: pullId } });
     await waitFor(async () => expect(await getDay(THU)).toMatchObject({ routine_id: pullId, status: "planned" }));
     expect(await rowsFor(THU)).toHaveLength(1);
   });

@@ -73,7 +73,7 @@ describe("WeekStrip", () => {
     await renderStrip();
     openDay(WED);
     expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "Push" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Routine" }), { target: { value: pushId } });
 
     await waitFor(async () => expect(await getDay(WED)).toMatchObject({ routine_id: pushId, status: "planned" }));
     expect(await screen.findByText(/Planned:/)).toHaveTextContent("Planned: Push");
