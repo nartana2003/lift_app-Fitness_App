@@ -10,6 +10,7 @@ import { NEXT_PARAM, safeNext } from "@/lib/authRedirect";
 // service worker with a signed token instead of a session; the route checks
 // the token (lib/push/reminderAction.ts).
 const PUSH_ACTION_PATH = "/api/push/action";
+const FEEDBACK_PATH = "/api/feedback";
 const PUBLIC = ["/login", "/auth", "/manifest.webmanifest", "/sw.js", "/icon", PUSH_ACTION_PATH];
 
 export async function middleware(request: NextRequest) {
@@ -50,7 +51,11 @@ export async function middleware(request: NextRequest) {
   // withAiClient (lib/ai/guard.ts) checks the session again in the route.
   // Same for the push subscription route (lib/push/subscribe.ts checks again).
   // Only the exact /api/push/action path skips this, never a prefix of it.
-  if (!user && (path.startsWith("/api/ai/") || (path.startsWith("/api/push/") && path !== PUSH_ACTION_PATH))) {
+  // Same for the feedback route (lib/feedback/submit.ts checks again).
+  if (
+    !user &&
+    (path.startsWith("/api/ai/") || (path.startsWith("/api/push/") && path !== PUSH_ACTION_PATH) || path === FEEDBACK_PATH)
+  ) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   if (!user && !PUBLIC.some((p) => path.startsWith(p))) {

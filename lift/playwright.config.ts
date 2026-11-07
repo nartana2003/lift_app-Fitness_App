@@ -24,7 +24,8 @@ export default defineConfig({
     // time, so the build runs with them blank too: with Supabase blank the app
     // is in local-only mode (no /login redirect), and with the AI key blank the
     // AI routes answer 503 "unavailable" (the path the specs assert) and tests
-    // never spend API credit.
+    // never spend API credit. The feedback token is blank too, so /api/feedback
+    // answers 503 and no spec can open a real GitHub issue.
     command: `npx next build && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
@@ -34,6 +35,7 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
       SUPABASE_SERVICE_ROLE_KEY: "",
       ANTHROPIC_API_KEY: "",
+      GITHUB_FEEDBACK_TOKEN: "",
     },
     timeout: 900_000,
   },
