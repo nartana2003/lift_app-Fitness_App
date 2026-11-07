@@ -53,6 +53,10 @@ test("Reminders row says Off with nothing planned and counts a planned day", asy
       }),
     tomorrow,
   );
+  // The row was written straight to IndexedDB, not through Dexie, so the page's
+  // live query never sees it. Reload so the page reads it.
+  await page.reload();
+  await page.waitForLoadState("networkidle");
   await expect(header).toContainText("1 planned day at 18:00");
   await header.click();
   await expect(page.getByText(/Next reminder Tomorrow 18:00/)).toBeVisible();
