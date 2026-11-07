@@ -515,7 +515,10 @@ function DayPanel({
                   <button className="btn-ghost py-2 text-sm col-span-2" onClick={() => undoSkip(date)}>Undo</button>
                 )}
                 {row?.status !== "done" && (
-                  <button className="text-xs text-muted col-span-2 py-1" onClick={() => clearDay(date)}>
+                  <button className="btn-ghost col-span-2 py-2.5 text-sm gap-2 text-bad" onClick={() => clearDay(date)}>
+                    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5L18 7M9 7V4.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V7" />
+                    </svg>
                     Clear this day
                   </button>
                 )}
