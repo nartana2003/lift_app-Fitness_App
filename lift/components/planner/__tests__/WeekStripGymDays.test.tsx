@@ -189,7 +189,7 @@ describe("marking gym days", () => {
     fireEvent.click(dayButton(FRI));
     await waitFor(async () => expect(await getDay(FRI)).toBeDefined());
     const id = (await getDay(FRI))!.id;
-    fireEvent.click(await screen.findByRole("button", { name: "Push" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Routine" }), { target: { value: pushId } });
     await waitFor(async () => expect(await getDay(FRI)).toMatchObject({ id, routine_id: pushId, status: "planned" }));
     await waitFor(() => expect(dayButton(FRI).textContent).toContain("•"));
   });

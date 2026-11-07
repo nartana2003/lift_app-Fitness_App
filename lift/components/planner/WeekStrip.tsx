@@ -526,24 +526,30 @@ function DayPanel({
           ) : (
             <>
               <p className="text-sm font-medium mb-2">Plan a routine</p>
-              {choices.groups.length === 0 ? (
-                <RoutineChoices routines={routines} onPick={(id) => planDay(date, id)} />
-              ) : (
-                <div className="space-y-3">
-                  {choices.groups.map((g) => (
-                    <div key={g.dayId} role="group" aria-label={`${g.name} routines`}>
-                      <p className="text-[11px] text-muted mb-1">{g.name}</p>
-                      <RoutineChoices routines={g.routines} onPick={(id) => planDay(date, id)} />
-                    </div>
-                  ))}
-                  {choices.others.length > 0 && (
-                    <div role="group" aria-label="Other routines">
-                      <p className="text-[11px] text-muted mb-1">Other routines</p>
-                      <RoutineChoices routines={choices.others} onPick={(id) => planDay(date, id)} />
-                    </div>
-                  )}
-                </div>
-              )}
+              <select
+                aria-label="Routine"
+                className="w-full"
+                value=""
+                onChange={(e) => e.target.value && planDay(date, e.target.value)}
+              >
+                <option value="">Select a routine</option>
+                {choices.groups.length === 0 ? (
+                  routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)
+                ) : (
+                  <>
+                    {choices.groups.map((g) => (
+                      <optgroup key={g.dayId} label={g.name}>
+                        {g.routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </optgroup>
+                    ))}
+                    {choices.others.length > 0 && (
+                      <optgroup label="Other routines">
+                        {choices.others.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </optgroup>
+                    )}
+                  </>
+                )}
+              </select>
             </>
           )}
           {!routine && row?.status === "planned" && (
@@ -559,23 +565,6 @@ function DayPanel({
           )}
         </>
       )}
-    </div>
-  );
-}
-
-/** Routines as a simple vertical list; tapping one plans it on the day. */
-function RoutineChoices({ routines, onPick }: { routines: { id: string; name: string }[]; onPick: (id: string) => void }) {
-  return (
-    <div className="space-y-1.5">
-      {routines.map((r) => (
-        <button
-          key={r.id}
-          className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
-          onClick={() => onPick(r.id)}
-        >
-          {r.name}
-        </button>
-      ))}
     </div>
   );
 }

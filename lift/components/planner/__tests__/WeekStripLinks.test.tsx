@@ -101,9 +101,9 @@ describe("WeekStrip day panel", () => {
     await renderStrip();
     fireEvent.click(dayButtons()[3]);
     expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Other routines" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Alpha" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Beta" })).toBeInTheDocument();
+    expect(document.querySelector("optgroup")).toBeNull();
+    expect(screen.getByRole("option", { name: "Alpha" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Beta" })).toBeInTheDocument();
   });
 
   it("lists each split day's linked routines first, then the others, and plans the one tapped", async () => {
@@ -114,12 +114,14 @@ describe("WeekStrip day panel", () => {
     await renderStrip();
     fireEvent.click(dayButtons()[3]);
     await screen.findByText("Plan a routine");
-    const groups = await screen.findAllByRole("group", { name: / routines$/ });
-    expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Push routines", "Pull routines", "Other routines"]);
-    expect(within(groups[0]).getByRole("button", { name: "Chest day" })).toBeInTheDocument();
-    expect(within(groups[1]).getByRole("button", { name: "Back day" })).toBeInTheDocument();
-    expect(within(groups[2]).getByRole("button", { name: "Loose" })).toBeInTheDocument();
-    fireEvent.click(within(groups[1]).getByRole("button", { name: "Back day" }));
+    const select = await screen.findByRole("combobox", { name: "Routine" });
+    await waitFor(() => expect(select.querySelectorAll("optgroup")).toHaveLength(3));
+    const groups = Array.from(select.querySelectorAll("optgroup"));
+    expect(groups.map((g) => g.label)).toEqual(["Push", "Pull", "Other routines"]);
+    expect(within(groups[0]).getByRole("option", { name: "Chest day" })).toBeInTheDocument();
+    expect(within(groups[1]).getByRole("option", { name: "Back day" })).toBeInTheDocument();
+    expect(within(groups[2]).getByRole("option", { name: "Loose" })).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: pullId } });
     await waitFor(async () => expect(await getDay(THU)).toMatchObject({ routine_id: pullId }));
   });
 });
