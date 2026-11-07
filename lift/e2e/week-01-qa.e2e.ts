@@ -293,23 +293,22 @@ test("marking works offline and persists after reload", async ({ page, context, 
   await expect(day(page, SAT)).toHaveAttribute("aria-pressed", "true");
 });
 
-test("a routine-less marked date sits beside routine days: skip, undo, move, undo still work", async ({ page, errors }) => {
+test("a routine-less marked date sits beside routine days: move and undo still work, with no Skip and no reason", async ({ page, errors }) => {
   void errors;
   await open(page, { routines: [PUSH], days: [{ date: THU }, { date: FRI, routine_id: PUSH.id }] });
-  // Skip Friday.
   await day(page, FRI).click();
-  await page.getByRole("button", { name: "Skip", exact: true }).click();
-  await page.getByRole("button", { name: "Skip this day" }).click();
-  await expect(day(page, FRI)).toHaveAccessibleName(/skipped, tap to change/);
-  await day(page, FRI).click();
-  await page.getByRole("button", { name: "Undo" }).click();
-  await expect(day(page, FRI)).toHaveAttribute("aria-pressed", "true");
-  // Move Friday to Saturday (a free day), then undo.
+  // Skip is gone; Move goes straight to the day picker with no reason or note.
+  await expect(page.getByRole("button", { name: "Skip", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Move", exact: true }).click();
+  await expect(page.getByText("Move to which day?")).toBeVisible();
+  await expect(page.getByText("Why move it?")).toHaveCount(0);
+  await expect(page.getByPlaceholder("Note (optional)")).toHaveCount(0);
+  // Move Friday to Saturday (a free day), then undo.
   await page.getByRole("button", { name: "Move to Sat" }).click();
   await expect(day(page, SAT)).toHaveAttribute("aria-pressed", "true");
   await expect(day(page, FRI)).toHaveAccessibleName(/moved, tap to change/);
   await day(page, FRI).click();
+  await expect(page.getByText(/^Moved to Sat$/)).toBeVisible();
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(day(page, FRI)).toHaveAttribute("aria-pressed", "true");
   await expect(day(page, SAT)).toHaveAttribute("aria-pressed", "false");

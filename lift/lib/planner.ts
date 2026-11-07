@@ -130,10 +130,10 @@ export async function skipDay(date: string, reason: SkipReason, note?: string) {
 }
 
 /**
- * Move a day's routine to another date, keeping the reason on the original.
- * The original day shows "skipped → moved to Thu".
+ * Move a day's routine to another date. The original day shows "moved to Thu";
+ * a reason is optional (the day panel no longer asks for one).
  */
-export async function moveDay(from: string, to: string, reason: SkipReason, note?: string) {
+export async function moveDay(from: string, to: string, reason: SkipReason | null = null, note?: string) {
   // Both days and their outbox entries are written in one transaction, so a
   // failure part-way leaves neither day changed (no half-finished move).
   await db.transaction("rw", db.planned_days, db.outbox, async () => {

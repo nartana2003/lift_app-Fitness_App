@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
 import { createRoutine } from "@/lib/routines";
-import { getDay, planDay } from "@/lib/planner";
+import { getDay, moveDay, planDay, skipDay } from "@/lib/planner";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -78,17 +78,19 @@ describe("WeekStrip", () => {
     await waitFor(async () => expect(await getDay(WED)).toMatchObject({ routine_id: pushId, status: "planned" }));
     expect(await screen.findByText(/Planned:/)).toHaveTextContent("Planned: Push");
     await waitFor(() => expect(dayButton(WED).textContent).toContain("•"));
-    // Today and planned: can start, skip, move or clear.
-    for (const name of ["Start", "Skip", "Move", "Clear this day"]) {
+    // Today and planned: can start, move or clear. There is no Skip.
+    for (const name of ["Start", "Move", "Clear this day"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
+    expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
   });
 
   it("does not offer Start on a past planned day", async () => {
     await planDay(MON, pushId);
     await renderStrip();
     openDay(MON);
-    expect(await screen.findByRole("button", { name: "Skip" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Move" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
   });
 
@@ -103,57 +105,18 @@ describe("WeekStrip", () => {
     expect(active?.exercises.map((e) => e.exercise_id)).toEqual(["bench"]);
   });
 
-  it("skips a day with a reason and a note", async () => {
+  it("a legacy skipped day still shows its reason and can be undone", async () => {
     await planDay(WED, pushId);
+    await skipDay(WED, "sore", "legs wrecked");
     await renderStrip();
-    openDay(WED);
-    fireEvent.click(await screen.findByRole("button", { name: "Skip" }));
-
-    expect(screen.getByText("Why skip?")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Sore" }));
-    fireEvent.change(screen.getByPlaceholderText("Note (optional)"), { target: { value: "  legs wrecked  " } });
-    fireEvent.click(screen.getByRole("button", { name: "Skip this day" }));
-
-    await waitFor(async () =>
-      expect(await getDay(WED)).toMatchObject({
-        status: "skipped",
-        skip_reason: "sore",
-        skip_note: "legs wrecked",
-        routine_id: pushId,
-      }),
-    );
-    // Panel closes and the strip marks the day as skipped.
-    await waitFor(() => expect(screen.queryByText("Why skip?")).not.toBeInTheDocument());
     await waitFor(() => expect(dayButton(WED).textContent).toContain("–"));
 
     openDay(WED);
     expect(await screen.findByText(/Skipped · Sore — legs wrecked/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
-  });
 
-  it("Back leaves the skip form without changing the day", async () => {
-    await planDay(WED, pushId);
-    await renderStrip();
-    openDay(WED);
-    fireEvent.click(await screen.findByRole("button", { name: "Skip" }));
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.queryByText("Why skip?")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeInTheDocument();
-    expect(await getDay(WED)).toMatchObject({ status: "planned" });
-  });
-
-  it("undoes a skip", async () => {
-    await planDay(WED, pushId);
-    await renderStrip();
-    openDay(WED);
-    fireEvent.click(await screen.findByRole("button", { name: "Skip" }));
-    fireEvent.click(screen.getByRole("button", { name: "Skip this day" }));
-    await waitFor(async () => expect(await getDay(WED)).toMatchObject({ status: "skipped", skip_reason: "busy" }));
-    await waitFor(() => expect(screen.queryByText("Why skip?")).not.toBeInTheDocument());
-
-    openDay(WED);
-    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(async () =>
       expect(await getDay(WED)).toMatchObject({ status: "planned", skip_reason: null, routine_id: pushId }),
     );
@@ -167,16 +130,19 @@ describe("WeekStrip", () => {
     openDay(WED);
     fireEvent.click(await screen.findByRole("button", { name: "Move" }));
 
-    expect(screen.getByText("Why move it?")).toBeInTheDocument();
+    // No reason chips and no note field: just the free days.
+    expect(screen.getByText("Move to which day?")).toBeInTheDocument();
+    expect(screen.queryByText("Why move it?")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Note (optional)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tired" })).not.toBeInTheDocument();
     const moveLabels = screen.getAllByRole("button", { name: /^Move to / }).map((b) => b.textContent);
     // Past days (Mon, Tue), the day itself and the taken Thursday are not offered.
     expect(moveLabels).toEqual([FRI, SAT, SUN].map((k) => `Move to ${short(k)}`));
 
-    fireEvent.click(screen.getByRole("button", { name: "Tired" }));
     fireEvent.click(screen.getByRole("button", { name: `Move to ${short(FRI)}` }));
 
     await waitFor(async () =>
-      expect(await getDay(WED)).toMatchObject({ status: "moved", moved_to: FRI, skip_reason: "tired" }),
+      expect(await getDay(WED)).toMatchObject({ status: "moved", moved_to: FRI, skip_reason: null, skip_note: null }),
     );
     // moveDay writes the two days separately, so Friday can land after Wednesday.
     await waitFor(async () =>
@@ -185,10 +151,29 @@ describe("WeekStrip", () => {
     expect(await getDay(THU)).toMatchObject({ status: "planned", routine_id: legsId });
     await waitFor(() => expect(dayButton(WED).textContent).toContain("→"));
     await waitFor(() => expect(dayButton(FRI).textContent).toContain("•"));
-    await waitFor(() => expect(screen.queryByText("Why move it?")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Move to which day?")).not.toBeInTheDocument());
 
     openDay(WED);
-    expect(await screen.findByText(new RegExp(`Moved to ${short(FRI)} · Tired`))).toBeInTheDocument();
+    expect(await screen.findByText(`Moved to ${short(FRI)}`)).toBeInTheDocument();
+  });
+
+  it("Back leaves the move picker without changing the day", async () => {
+    await planDay(WED, pushId);
+    await renderStrip();
+    openDay(WED);
+    fireEvent.click(await screen.findByRole("button", { name: "Move" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.queryByText("Move to which day?")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+    expect(await getDay(WED)).toMatchObject({ status: "planned" });
+  });
+
+  it("a legacy moved day with a reason still shows it", async () => {
+    await planDay(WED, pushId);
+    await moveDay(WED, FRI, "tired");
+    await renderStrip();
+    openDay(WED);
+    expect(await screen.findByText(`Moved to ${short(FRI)} · Tired`)).toBeInTheDocument();
   });
 
   it("says so when there is no free day to move to", async () => {
@@ -208,7 +193,7 @@ describe("WeekStrip", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Move" }));
     fireEvent.click(screen.getByRole("button", { name: `Move to ${short(FRI)}` }));
     await waitFor(async () => expect(await getDay(FRI)).toMatchObject({ moved_from: WED }));
-    await waitFor(() => expect(screen.queryByText("Why move it?")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Move to which day?")).not.toBeInTheDocument());
 
     openDay(WED);
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }));

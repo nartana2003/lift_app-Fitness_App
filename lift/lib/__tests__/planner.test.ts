@@ -54,6 +54,17 @@ describe("skipping and moving", () => {
     expect(await getDay(THU)).toMatchObject({ status: "planned", routine_id: "r1", moved_from: MON });
   });
 
+  it("moves with no reason or note", async () => {
+    await planDay(MON, "r1");
+    await moveDay(MON, THU);
+
+    expect(await getDay(MON)).toMatchObject({ status: "moved", skip_reason: null, skip_note: null, moved_to: THU, routine_id: "r1" });
+    expect(await getDay(THU)).toMatchObject({ status: "planned", routine_id: "r1", moved_from: MON });
+    await undoSkip(MON);
+    expect(await getDay(MON)).toMatchObject({ status: "planned", moved_to: null });
+    expect(await getDay(THU)).toBeUndefined();
+  });
+
   it("queues both days in order, in the outbox", async () => {
     await planDay(MON, "r1");
     await db.outbox.clear();

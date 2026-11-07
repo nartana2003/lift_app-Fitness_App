@@ -17,7 +17,7 @@ import {
   type KeyboardCoordinateGetter,
   type PointerSensorOptions,
 } from "@dnd-kit/core";
-import { db, type PlannedDayRow, type SkipReason } from "@/lib/offline/db";
+import { db, type PlannedDayRow } from "@/lib/offline/db";
 import {
   clearDay,
   dayKey,
@@ -28,8 +28,6 @@ import {
   rescheduleDay,
   SKIP_LABEL,
   swapDays,
-  SKIP_REASONS,
-  skipDay,
   undoSkip,
   unmarkGymDay,
   weekDays,
@@ -179,7 +177,7 @@ const INSTRUCTIONS = {
 
 const EMPTY: { routines: Routine[]; planRows: PlannedDayRow[] } = { routines: [], planRows: [] };
 
-/** This week at a glance: plan a routine per day, skip with a reason, or move it. */
+/** This week at a glance: plan a routine per day, or move it. */
 export function WeekStrip() {
   const router = useRouter();
   const { weekStart } = useSettings();
@@ -411,9 +409,7 @@ function DayPanel({
 }) {
   const split = useSplit();
   const choices = planChoices(split, routines, lastDone);
-  const [skipping, setSkipping] = useState<null | "skip" | "move">(null);
-  const [reason, setReason] = useState<SkipReason>("busy");
-  const [note, setNote] = useState("");
+  const [moving, setMoving] = useState(false);
   const label = new Date(date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
   const routine = row?.routine_id ? routines.find((r) => r.id === row.routine_id) : undefined;
   const options = moveOptions(days, plan, date);
@@ -443,54 +439,33 @@ function DayPanel({
       )}
       {row?.status === "moved" && (
         <p className="text-sm text-muted mb-2">
-          Moved to {new Date(row.moved_to + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" })} ·{" "}
-          {SKIP_LABEL[row.skip_reason ?? "other"]}
+          Moved to {new Date(row.moved_to + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" })}
+          {row.skip_reason ? ` · ${SKIP_LABEL[row.skip_reason]}` : ""}
         </p>
       )}
 
-      {skipping ? (
+      {moving ? (
         <div className="space-y-2">
-          <p className="text-sm font-medium">{skipping === "move" ? "Why move it?" : "Why skip?"}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {SKIP_REASONS.map((r) => (
-              <button key={r.v} className={reason === r.v ? "chip-on text-xs" : "chip text-xs"} onClick={() => setReason(r.v)}>
-                {r.label}
-              </button>
-            ))}
-          </div>
-          <input className="field py-2 text-sm" placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
-
-          {skipping === "move" ? (
-            options.length === 0 ? (
-              <p className="text-sm text-muted">No free days left this week.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {options.map((d) => (
-                  <button
-                    key={dayKey(d)}
-                    className="chip text-xs"
-                    onClick={async () => {
-                      await moveDay(date, dayKey(d), reason, note);
-                      onClose();
-                    }}
-                  >
-                    Move to {d.toLocaleDateString(undefined, { weekday: "short" })}
-                  </button>
-                ))}
-              </div>
-            )
+          <p className="text-sm font-medium">Move to which day?</p>
+          {options.length === 0 ? (
+            <p className="text-sm text-muted">No free days left this week.</p>
           ) : (
-            <button
-              className="btn-primary w-full py-2 text-sm"
-              onClick={async () => {
-                await skipDay(date, reason, note);
-                onClose();
-              }}
-            >
-              Skip this day
-            </button>
+            <div className="flex flex-wrap gap-1.5">
+              {options.map((d) => (
+                <button
+                  key={dayKey(d)}
+                  className="chip text-xs"
+                  onClick={async () => {
+                    await moveDay(date, dayKey(d));
+                    onClose();
+                  }}
+                >
+                  Move to {d.toLocaleDateString(undefined, { weekday: "short" })}
+                </button>
+              ))}
+            </div>
           )}
-          <button className="btn-ghost w-full py-2 text-sm" onClick={() => setSkipping(null)}>Back</button>
+          <button className="btn-ghost w-full py-2 text-sm" onClick={() => setMoving(false)}>Back</button>
         </div>
       ) : (
         <>
@@ -506,10 +481,7 @@ function DayPanel({
                   </button>
                 )}
                 {row?.status === "planned" && (
-                  <>
-                    <button className="btn-ghost py-2 text-sm" onClick={() => setSkipping("skip")}>Skip</button>
-                    <button className="btn-ghost py-2 text-sm" onClick={() => setSkipping("move")}>Move</button>
-                  </>
+                  <button className="btn-ghost py-2 text-sm col-span-2" onClick={() => setMoving(true)}>Move</button>
                 )}
                 {(row?.status === "skipped" || row?.status === "moved") && (
                   <button className="btn-ghost py-2 text-sm col-span-2" onClick={() => undoSkip(date)}>Undo</button>
