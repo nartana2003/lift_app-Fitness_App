@@ -61,6 +61,19 @@ export function weeklyBuckets(
   return out;
 }
 
+/**
+ * What the readout above the bar chart shows: the picked bar's week and value,
+ * or the total for the whole range (no label) when no bar is picked.
+ */
+export function chartSummary(
+  data: readonly { label: string; value: number }[],
+  active: number | null,
+): { label: string | null; value: number } {
+  const bar = active !== null && Number.isInteger(active) ? data[active] : undefined;
+  if (bar) return { label: bar.label, value: bar.value };
+  return { label: null, value: data.reduce((a, d) => a + d.value, 0) };
+}
+
 export const RANGES = [
   { key: "1m", label: "1 Month", weeks: 5 },
   { key: "3m", label: "3 Months", weeks: 13 },

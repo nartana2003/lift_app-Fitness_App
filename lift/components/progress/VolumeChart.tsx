@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { RANGES, weeklyBuckets, weeksForRange, type Metric, type RangeKey, type WorkoutLite } from "@/lib/progress";
+import { RANGES, chartSummary, weeklyBuckets, weeksForRange, type Metric, type RangeKey, type WorkoutLite } from "@/lib/progress";
 import { dispNum, type Unit } from "@/lib/units";
 import { Segmented } from "./Segmented";
 
@@ -15,6 +15,8 @@ const minfmt = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${Math.round(m %
 export function VolumeChart({ workouts, unit, weekStart }: { workouts: WorkoutLite[]; unit: Unit; weekStart: 0 | 1 }) {
   const [metric, setMetric] = useState<Metric>("volume");
   const [range, setRange] = useState<RangeKey>("3m");
+  // The bar under the pointer (or last tapped); null shows the total for the range.
+  const [active, setActive] = useState<number | null>(null);
 
   const data = useMemo(() => {
     const weeks = weeksForRange(range, workouts, weekStart);
@@ -27,24 +29,38 @@ export function VolumeChart({ workouts, unit, weekStart }: { workouts: WorkoutLi
   const ticks = data.length ? [data[0].label, data[Math.floor(data.length / 2)].label, data[data.length - 1].label] : [];
   const fmt = (v: number) => (metric === "volume" ? `${kfmt(v)} ${unit}` : metric === "duration" ? minfmt(v) : String(v));
   const empty = data.every((d) => d.value === 0);
+  const shown = chartSummary(data, active);
+  const rangeLabel = RANGES.find((r) => r.key === range)?.label ?? "";
+  const metricLabel = metric === "volume" ? "Volume" : metric === "workouts" ? "Workouts" : "Duration";
 
   return (
     <section className="card p-3">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <Segmented
           value={metric}
-          onChange={setMetric}
+          onChange={(m) => {
+            setMetric(m);
+            setActive(null);
+          }}
           options={[
             { value: "volume", label: "Volume" },
             { value: "workouts", label: "Workouts" },
             { value: "duration", label: "Duration" },
           ]}
         />
-        <select className="field w-auto py-1.5 text-sm" value={range} onChange={(e) => setRange(e.target.value as RangeKey)}>
+        <select className="field w-auto py-1.5 text-sm" value={range} onChange={(e) => {
+            setRange(e.target.value as RangeKey);
+            setActive(null);
+          }}
+        >
           {RANGES.map((r) => (
             <option key={r.key} value={r.key}>{r.label}</option>
           ))}
         </select>
+      </div>
+      <div className="mb-2" aria-live="polite" data-testid="chart-readout">
+        <p className="text-xs text-muted">{shown.label ?? `${metricLabel} · ${rangeLabel}`}</p>
+        <p className="text-2xl font-bold tabular-nums">{fmt(shown.value)}</p>
       </div>
       <div className="h-52 relative">
         {empty && (
@@ -53,7 +69,13 @@ export function VolumeChart({ workouts, unit, weekStart }: { workouts: WorkoutLi
           </p>
         )}
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
+          <BarChart
+            data={data}
+            margin={{ top: 8, right: 4, left: 0, bottom: 0 }}
+            onMouseMove={(s) => setActive(s?.activeTooltipIndex == null ? null : Number(s.activeTooltipIndex))}
+            onClick={(s) => setActive(s?.activeTooltipIndex == null ? null : Number(s.activeTooltipIndex))}
+            onMouseLeave={() => setActive(null)}
+          >
             <XAxis dataKey="label" ticks={ticks} interval={0} tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={{ stroke: "#e5e7eb" }} />
             <YAxis width={44} tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} tickFormatter={(v: number) => (metric === "volume" ? kfmt(v) : metric === "duration" ? minfmt(v) : String(v))} allowDecimals={false} />
             <Tooltip
