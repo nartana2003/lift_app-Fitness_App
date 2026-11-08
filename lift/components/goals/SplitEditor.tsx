@@ -56,17 +56,17 @@ function DayRoutines({ day, routines, unassigned }: { day: SplitDay & { id: stri
                 </div>
                 <button
                   type="button"
-                  className="btn-primary px-3 py-1.5 text-xs"
+                  className="btn-primary px-4 py-2 text-xs"
                   disabled={busy === r.id}
                   onClick={() => start(r)}
                 >
                   {busy === r.id ? "Starting…" : "Start"}
                 </button>
-                <Link href={`/routines/${r.id}`} className="text-xs font-semibold underline px-1">
+                <Link href={`/routines/${r.id}`} className="btn-ghost px-4 py-2 text-xs">
                   Edit
                 </Link>
               </div>
-              <button type="button" className="text-xs text-muted underline mt-1" onClick={() => linkRoutineToDay(r.id, null)}>
+              <button type="button" className="text-xs text-muted py-1.5 mt-0.5" onClick={() => linkRoutineToDay(r.id, null)}>
                 Remove from this day
               </button>
             </li>
@@ -76,7 +76,7 @@ function DayRoutines({ day, routines, unassigned }: { day: SplitDay & { id: stri
 
       {adding ? (
         <div className="rounded-lg bg-surface p-2 space-y-2">
-          <Link href={`/routines/new?day=${encodeURIComponent(day.id)}`} className="block text-sm font-semibold underline">
+          <Link href={`/routines/new?day=${encodeURIComponent(day.id)}`} className="btn-ghost block w-full text-center py-2 text-sm">
             New routine for this day
           </Link>
           {unassigned.length > 0 ? (
@@ -101,12 +101,12 @@ function DayRoutines({ day, routines, unassigned }: { day: SplitDay & { id: stri
           ) : (
             <p className="text-xs text-muted">No unassigned routines to attach.</p>
           )}
-          <button type="button" className="text-xs text-muted underline" onClick={() => setAdding(false)}>
+          <button type="button" className="text-xs text-muted py-1.5" onClick={() => setAdding(false)}>
             Cancel
           </button>
         </div>
       ) : (
-        <button type="button" className="text-xs font-semibold underline" onClick={() => setAdding(true)}>
+        <button type="button" className="btn-ghost w-full py-2 text-xs" onClick={() => setAdding(true)}>
           + Add routine
         </button>
       )}
@@ -170,11 +170,11 @@ export function SplitEditor() {
                 value={d.name}
                 onChange={(e) => setDay(i, { name: e.target.value })}
               />
-              <button className="text-xs text-bad px-1" onClick={() => removeDay(i)}>
+              <button className="btn-ghost px-3 py-1.5 text-xs text-bad" onClick={() => removeDay(i)}>
                 Remove
               </button>
             </div>
-            <button className="text-xs text-muted underline mt-1.5" onClick={() => setEditing(editing === i ? null : i)}>
+            <button className="chip text-xs bg-surface mt-2" onClick={() => setEditing(editing === i ? null : i)}>
               {d.muscles.length ? d.muscles.join(", ") : "Pick muscles"}
             </button>
             {editing === i && (
@@ -204,7 +204,7 @@ export function SplitEditor() {
         </p>
       )}
 
-      <button className="text-xs text-muted underline" onClick={() => confirm(clearSplitQuestion(linkedCount)) && clearSplit()}>
+      <button className="btn-ghost w-full py-2 text-sm text-bad" onClick={() => confirm(clearSplitQuestion(linkedCount)) && clearSplit()}>
         Clear split
       </button>
     </div>
