@@ -66,7 +66,7 @@ function ExerciseProgressModal({ exerciseId, onClose }: { exerciseId: string; on
   const { unit } = useSettings();
   const ex = get(exerciseId);
   const [metric, setMetric] = useState<ExerciseMetric>("e1rm");
-  const [range, setRange] = useState<RangeKey>("3m");
+  const [range, setRange] = useState<RangeKey>("1m");
   const sessions = useLiveQuery(() => exerciseSessions(exerciseId, 1000), [exerciseId]);
 
   const data = useMemo(() => {
