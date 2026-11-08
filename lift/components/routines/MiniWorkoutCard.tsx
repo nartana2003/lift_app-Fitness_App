@@ -156,6 +156,37 @@ export async function addMiniToToday(routineId: string, now = new Date()): Promi
   return ADD_MESSAGES.planned;
 }
 
+/** Muscle names as small capsules, or a dash when there are none. */
+export function MuscleCapsules({ muscles }: { muscles: readonly string[] }) {
+  if (muscles.length === 0) return <p className="text-xs text-muted mt-0.5">—</p>;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {muscles.map((m) => (
+        <span key={m} className="rounded-full bg-surface-2 border border-border px-2 py-0.5 text-[11px] text-muted">
+          {m}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Round arrow button that starts a routine. */
+export function StartArrow({ busy, onClick }: { busy: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="btn-primary size-10 shrink-0 rounded-full p-0"
+      aria-label={busy ? "Starting…" : "Start"}
+      disabled={busy}
+      onClick={onClick}
+    >
+      <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M9 5l7 7-7 7" />
+      </svg>
+    </button>
+  );
+}
+
 type Props = {
   routine: Pick<RoutineRow, "id" | "name" | "platform" | "creator" | "source_url" | "thumbnail_url">;
   exerciseCount: number;
@@ -210,10 +241,15 @@ export function MiniWorkoutCard({ routine, exerciseCount, muscles, busy = false,
       <p className="text-xs text-muted mt-1">
         {[platform ?? "Mini", creator].filter(Boolean).join(" · ")}
       </p>
-      <p className="text-xs text-muted mt-0.5">
-        {exerciseCount} exercise{exerciseCount === 1 ? "" : "s"}
-      </p>
-      <p className="text-xs text-muted mt-0.5 line-clamp-2 flex-1">{muscles.join(", ") || "—"}</p>
+      <div className="flex items-end gap-2 flex-1">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-muted mt-0.5">
+            {exerciseCount} exercise{exerciseCount === 1 ? "" : "s"}
+          </p>
+          <MuscleCapsules muscles={muscles} />
+        </div>
+        {onStart && <StartArrow busy={busy} onClick={onStart} />}
+      </div>
       {href && (
         <a
           href={href}
@@ -223,11 +259,6 @@ export function MiniWorkoutCard({ routine, exerciseCount, muscles, busy = false,
         >
           Open original{platform ? ` on ${platform}` : ""}
         </a>
-      )}
-      {onStart && (
-        <button className="btn-primary w-full mt-2 py-2 text-sm" disabled={busy} onClick={onStart}>
-          {busy ? "Starting…" : "Start"}
-        </button>
       )}
       <button
         type="button"

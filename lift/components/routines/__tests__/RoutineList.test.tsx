@@ -224,6 +224,8 @@ describe("RoutineList search and layout", () => {
     await seed([routine("r1", "Push day", "2026-01-01"), routine("r2", "Leg day", "2026-01-02")]);
     render(<RoutineList />);
     await screen.findByText("Push day");
+    // Muscles render as capsules (rounded pills), not as comma-separated text.
+    expect(screen.getAllByText("Chest").some((el) => el.className.includes("rounded-full"))).toBe(true);
     const list = screen.getByRole("list");
     expect(list.className).toContain("space-y-3");
     expect(list.className).not.toContain("overflow-x-auto");

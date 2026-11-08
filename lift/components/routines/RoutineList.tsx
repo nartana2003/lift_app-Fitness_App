@@ -16,7 +16,9 @@ import { MuscleIcon } from "../MuscleIcon";
 import { RoutineMenu } from "./RoutineMenu";
 import {
   MiniWorkoutCard,
+  MuscleCapsules,
   NO_FILTER,
+  StartArrow,
   filterRoutines,
   platformLabel,
   platformsIn,
@@ -138,18 +140,18 @@ export function RoutineList() {
         }
         return (
           <li key={r.id}>
-            <div className="card h-full p-3 flex flex-col">
-              <div className="flex items-start gap-2">
-                <p className="flex-1 font-semibold leading-tight line-clamp-2">{r.name}</p>
-                <RoutineMenu id={r.id} name={r.name} />
+            <div className="card h-full p-3 flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start gap-2">
+                  <p className="flex-1 font-semibold leading-tight line-clamp-2">{r.name}</p>
+                  <RoutineMenu id={r.id} name={r.name} />
+                </div>
+                <p className="text-xs text-muted mt-1">
+                  {r.exercises.length} exercise{r.exercises.length === 1 ? "" : "s"}
+                </p>
+                <MuscleCapsules muscles={muscles} />
               </div>
-              <p className="text-xs text-muted mt-1">
-                {r.exercises.length} exercise{r.exercises.length === 1 ? "" : "s"}
-              </p>
-              <p className="text-xs text-muted mt-0.5 line-clamp-2 flex-1">{muscles.join(", ") || "—"}</p>
-              <button className="btn-primary w-full mt-2 py-2 text-sm" disabled={busy === r.id} onClick={() => start(r.id)}>
-                {busy === r.id ? "Starting…" : "Start"}
-              </button>
+              <StartArrow busy={busy === r.id} onClick={() => start(r.id)} />
             </div>
           </li>
         );
