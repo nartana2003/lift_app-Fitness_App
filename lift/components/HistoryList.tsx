@@ -10,6 +10,7 @@ import { exerciseCaption, exerciseThumb, recordsByWorkout } from "@/lib/homeFeed
 import { formatDuration, startOfWeek } from "@/lib/stats";
 import { useSettings } from "@/lib/settings";
 import { fmtVolume } from "@/lib/units";
+import { formatWorkoutDate, useAvatar, useProfileName } from "@/lib/avatar";
 
 /** Finished workouts, newest first, grouped by week. Lives on the Home screen. */
 export function HistoryList() {
@@ -18,6 +19,8 @@ export function HistoryList() {
   // All of history so records compare against every earlier workout; the list shows the last 400 days.
   const all = useLiveQuery(() => allWorkouts(), []);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const name = useProfileName();
+  const avatar = useAvatar();
 
   if (!all) return null;
 
@@ -71,11 +74,27 @@ export function HistoryList() {
                     </div>
                   )}
                   <Link href={`/history/${w.id}`} className="card block p-4">
-                    <p className="font-semibold pr-8">{w.notes || start.toLocaleDateString(undefined, { weekday: "long" })}</p>
-                    <p className="text-xs text-muted mt-0.5">
-                      {start.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} ·{" "}
-                      {start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                    </p>
+                    <div className="flex items-center gap-3 pr-8">
+                      {name && (
+                        avatar ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={avatar} alt={name} className="size-10 rounded-full object-cover shrink-0" />
+                        ) : (
+                          <span aria-hidden className="size-10 rounded-full bg-accent text-accent-ink grid place-items-center font-bold shrink-0">
+                            {name[0].toUpperCase()}
+                          </span>
+                        )
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-semibold truncate">{w.notes || start.toLocaleDateString(undefined, { weekday: "long" })}</p>
+                        <p className="text-xs text-muted mt-0.5 flex items-center gap-1">
+                          <svg viewBox="0 0 24 24" className="size-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11" />
+                          </svg>
+                          {formatWorkoutDate(start)}
+                        </p>
+                      </div>
+                    </div>
                     <div className="flex gap-6 mt-3">
                       <div>
                         <p className="text-[11px] text-muted">Duration</p>

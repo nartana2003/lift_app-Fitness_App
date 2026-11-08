@@ -13,7 +13,8 @@ import { supabaseConfigured } from "@/lib/supabase/configured";
 import { getRestSec, setRestSec } from "@/lib/workout";
 import { fmtClock } from "@/lib/restTimer";
 import { ageFrom, changedFields, emptyProfile, loadProfileStatus, saveProfile, type Gender, type Profile } from "@/lib/profile";
-import { bmi, bmiLabel, latestMeasurement, saveMeasurement } from "@/lib/measurements";
+import { resizeAvatar, setAvatar, useAvatar } from "@/lib/avatar";
+import { bmi,bmiLabel, latestMeasurement, saveMeasurement } from "@/lib/measurements";
 import { saveSettings, saveTheme, useSettings, useThemePref } from "@/lib/settings";
 import { THEME_LABELS, THEME_PREFS } from "@/lib/theme";
 import { dispNum, fromDisplay } from "@/lib/units";
@@ -53,6 +54,7 @@ export default function ProfilePage() {
   const [rest, setRest] = useState(90);
   const [signedIn, setSignedIn] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const avatar = useAvatar();
   // The profile as last loaded or saved; null until a load could be trusted. Autosave waits for it.
   const baseline = useRef<Profile | null>(null);
   // What an untrusted load put on screen, so edits made meanwhile survive the later trusted load.
@@ -178,9 +180,30 @@ export default function ProfilePage() {
       />
 
       <div className="flex items-center gap-3 mb-4">
-        <div className="size-14 rounded-full bg-accent text-accent-ink grid place-items-center text-xl font-bold shrink-0">
-          {(profile.name.trim()[0] ?? "L").toUpperCase()}
-        </div>
+        <label className="size-14 rounded-full bg-accent text-accent-ink grid place-items-center text-xl font-bold shrink-0 overflow-hidden cursor-pointer focus-within:ring-2 focus-within:ring-offset-2">
+          {avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={avatar} alt="Profile picture" className="size-full object-cover" />
+          ) : (
+            (profile.name.trim()[0] ?? "L").toUpperCase()
+          )}
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            aria-label="Change profile picture"
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              try {
+                await setAvatar(await resizeAvatar(f));
+              } catch {
+                flash("Could not use that picture");
+              }
+            }}
+          />
+        </label>
         <div className="min-w-0">
           <p className="text-lg font-bold truncate">{profile.name.trim() || "Add your name"}</p>
           <p className="text-xs text-muted truncate">{profile.email || (supabaseConfigured ? "Not signed in" : "Saved on this device")}</p>

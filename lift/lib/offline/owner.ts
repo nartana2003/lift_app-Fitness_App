@@ -62,6 +62,7 @@ export const ACCOUNT_META_KEYS = [
   "photos:fails",
   "lastPull",
   "profile",
+  "avatar",
   "lyfta_key",
   "lyfta_map",
   "renames",
