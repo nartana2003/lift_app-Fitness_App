@@ -215,6 +215,11 @@ export default function ProfilePage() {
         <div className="min-w-0">
           <p className="text-lg font-bold truncate">{profile.name.trim() || "Add your name"}</p>
           <p className="text-xs text-muted truncate">{profile.email || (supabaseConfigured ? "Not signed in" : "Saved on this device")}</p>
+          {avatar && (
+            <button type="button" className="text-xs font-semibold underline mt-1" onClick={() => setAvatar(null)}>
+              Remove photo
+            </button>
+          )}
         </div>
       </div>
 
