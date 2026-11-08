@@ -180,6 +180,7 @@ export default function ProfilePage() {
       />
 
       <div className="flex items-center gap-3 mb-4">
+        <div className="relative shrink-0">
         <label className="size-14 rounded-full bg-accent text-accent-ink grid place-items-center text-xl font-bold shrink-0 overflow-hidden cursor-pointer focus-within:ring-2 focus-within:ring-offset-2">
           {avatar ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -204,6 +205,13 @@ export default function ProfilePage() {
             }}
           />
         </label>
+        <span aria-hidden className="pointer-events-none absolute -bottom-1 -right-1 size-6 rounded-full bg-white text-black border border-black grid place-items-center">
+          <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+            <circle cx="12" cy="13" r="3.5" />
+          </svg>
+        </span>
+        </div>
         <div className="min-w-0">
           <p className="text-lg font-bold truncate">{profile.name.trim() || "Add your name"}</p>
           <p className="text-xs text-muted truncate">{profile.email || (supabaseConfigured ? "Not signed in" : "Saved on this device")}</p>
