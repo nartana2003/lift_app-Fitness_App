@@ -170,11 +170,11 @@ export function SplitEditor() {
                 value={d.name}
                 onChange={(e) => setDay(i, { name: e.target.value })}
               />
-              <button className="btn-ghost px-3 py-1.5 text-xs text-bad" onClick={() => removeDay(i)}>
+              <button className="btn-ghost shrink-0 border border-border bg-surface px-3 py-1.5 text-xs text-bad" onClick={() => removeDay(i)}>
                 Remove
               </button>
             </div>
-            <button className="chip text-xs bg-surface mt-2" onClick={() => setEditing(editing === i ? null : i)}>
+            <button className="chip text-xs bg-surface mt-2 max-w-full whitespace-normal text-left rounded-2xl" onClick={() => setEditing(editing === i ? null : i)}>
               {d.muscles.length ? d.muscles.join(", ") : "Pick muscles"}
             </button>
             {editing === i && (
