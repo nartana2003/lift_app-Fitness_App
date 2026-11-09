@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Issue #4: Start Workout on Home offers the user's routines.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
 import { createRoutine } from "@/lib/routines";
 
@@ -59,6 +59,8 @@ describe("Home Start Workout", () => {
     await createRoutine({ name: "Push day", exercises: [{ exercise_id: "bench" }] });
     render(<Home />);
     await waitFor(() => expect(db.routines.count()).resolves.toBe(1));
+    // let the live query deliver the routine to the component before clicking
+    await act(() => new Promise((r) => setTimeout(r, 100)));
     fireEvent.click(await screen.findByRole("button", { name: "Start Workout" }));
     fireEvent.click(await screen.findByRole("button", { name: "Empty workout" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
