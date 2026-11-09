@@ -101,6 +101,15 @@ describe("SplitEditor: routines under each day", () => {
     expect(r!.exercises).toHaveLength(2);
   });
 
+  it("shows each muscle as its own capsule and Add routine as a primary button", async () => {
+    await saveSplit(PPL);
+    render(<SplitEditor />);
+    const item = await waitFor(() => dayItem("Push"));
+    for (const m of ["Chest", "Shoulders", "Triceps"]) expect(within(item).getByText(m)).toBeInTheDocument();
+    expect(within(item).queryByText("Chest, Shoulders, Triceps")).toBeNull();
+    expect(within(item).getByRole("button", { name: "+ Add routine" })).toHaveClass("btn-primary");
+  });
+
   it("Add routine offers a new routine for this day and attaching an unassigned one", async () => {
     const { loose } = await seed();
     render(<SplitEditor />);

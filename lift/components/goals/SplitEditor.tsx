@@ -8,6 +8,7 @@ import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
 import { clearSplit, saveSplit, splitGaps, useSplit, type Split, type SplitDay } from "@/lib/splits";
 import { linkRoutineToDay, listRoutines, type Routine } from "@/lib/routines";
 import { routinesForDay, unassignedRoutines } from "@/lib/splitRoutines";
+import { MuscleCapsules } from "@/components/routines/MiniWorkoutCard";
 import { startRoutine } from "@/components/routines/RoutineList";
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
@@ -106,7 +107,7 @@ function DayRoutines({ day, routines, unassigned }: { day: SplitDay & { id: stri
           </button>
         </div>
       ) : (
-        <button type="button" className="btn-ghost w-full py-2 text-xs" onClick={() => setAdding(true)}>
+        <button type="button" className="btn-primary w-full py-2.5 text-sm" onClick={() => setAdding(true)}>
           + Add routine
         </button>
       )}
@@ -174,8 +175,8 @@ export function SplitEditor() {
                 Remove
               </button>
             </div>
-            <button className="chip text-xs bg-surface mt-2 max-w-full whitespace-normal text-left rounded-2xl" onClick={() => setEditing(editing === i ? null : i)}>
-              {d.muscles.length ? d.muscles.join(", ") : "Pick muscles"}
+            <button type="button" className="mt-2 block w-full text-left" aria-expanded={editing === i} onClick={() => setEditing(editing === i ? null : i)}>
+              {d.muscles.length ? <MuscleCapsules muscles={d.muscles} /> : <span className="chip text-xs bg-surface">Pick muscles</span>}
             </button>
             {editing === i && (
               <div className="flex flex-wrap gap-1.5 mt-2">
