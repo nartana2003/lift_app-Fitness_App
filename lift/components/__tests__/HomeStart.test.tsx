@@ -72,4 +72,11 @@ describe("Home Start Workout", () => {
     expect(await screen.findByRole("link", { name: "Resume workout" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start Workout" })).not.toBeInTheDocument();
   });
+
+  it("renders the button as a full-width pill with a plus icon", async () => {
+    render(<Home />);
+    const button = await screen.findByRole("button", { name: "Start Workout" });
+    expect(button).toHaveClass("w-full", "rounded-full");
+    expect(button.querySelector("svg")).not.toBeNull();
+  });
 });

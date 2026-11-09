@@ -35,13 +35,13 @@ export default function Home() {
     <>
       <div className="pt-4">
         {active ? (
-          <Link href="/workout" className="btn-primary w-full text-lg py-4">
+          <Link href="/workout" className="btn-primary w-full text-lg py-4 rounded-full">
             Resume workout
           </Link>
         ) : (
           <>
             <button
-              className="btn-primary w-full text-lg py-4"
+              className="btn-primary w-full text-lg py-4 rounded-full"
               aria-expanded={choosing}
               onClick={async () => {
                 if (routines.length > 0) {
@@ -52,6 +52,9 @@ export default function Home() {
                 router.push("/workout");
               }}
             >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
               Start Workout
             </button>
             {choosing && (
