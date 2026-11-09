@@ -21,6 +21,7 @@ export default function Home() {
   const active = useLiveQuery(() => db.active.get("active"), []);
   const routines = useLiveQuery(listRoutines, [], []).filter((r) => (r.kind ?? "routine") === "routine");
   const [choosing, setChoosing] = useState(false);
+  const [pickingRoutine, setPickingRoutine] = useState(false);
   const week = useLiveQuery(() => {
     const from = startOfWeek(new Date(), weekStart);
     return workoutsBetween(from, addDays(from, 7));
@@ -64,17 +65,40 @@ export default function Home() {
                 >
                   Empty workout
                 </button>
-                {routines.map((r) => (
-                  <button
-                    key={r.id}
-                    className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
-                    onClick={async () => {
-                      if (await startRoutine(r)) router.push("/workout");
-                    }}
+                <button
+                  className="w-full flex items-center justify-between rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
+                  aria-expanded={pickingRoutine}
+                  onClick={() => setPickingRoutine(!pickingRoutine)}
+                >
+                  Start Routine
+                  <svg
+                    viewBox="0 0 24 24"
+                    className={`size-4 text-muted transition-transform ${pickingRoutine ? "rotate-180" : ""}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
                   >
-                    {r.name}
-                  </button>
-                ))}
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+                {pickingRoutine && (
+                  <div className="space-y-1.5 pl-3" role="group" aria-label="Routines">
+                    {routines.map((r) => (
+                      <button
+                        key={r.id}
+                        className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
+                        onClick={async () => {
+                          if (await startRoutine(r)) router.push("/workout");
+                        }}
+                      >
+                        {r.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </>

@@ -54,6 +54,8 @@ test("with routines Start Workout lists them and starts the chosen one", async (
   await page.getByRole("button", { name: "Start Workout" }).click();
   const list = page.getByRole("group", { name: "Start from" });
   await expect(list.getByRole("button", { name: "Empty workout" })).toBeVisible();
+  await expect(list.getByRole("button", { name: "E2E Push day" })).toHaveCount(0);
+  await list.getByRole("button", { name: "Start Routine" }).click();
   await list.getByRole("button", { name: "E2E Push day" }).click();
 
   await expect(page).toHaveURL(/\/workout$/);

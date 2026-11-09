@@ -40,8 +40,12 @@ describe("Home Start Workout", () => {
     fireEvent.click(start);
     const list = await screen.findByRole("group", { name: "Start from" });
     expect(list).toHaveTextContent("Empty workout");
-    expect(list).toHaveTextContent("Pull day");
+    expect(list).toHaveTextContent("Start Routine");
+    expect(screen.queryByRole("button", { name: "Push day" })).not.toBeInTheDocument();
     expect(await db.active.get("active")).toBeUndefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start Routine" }));
+    expect(screen.getByRole("button", { name: "Pull day" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Push day" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
