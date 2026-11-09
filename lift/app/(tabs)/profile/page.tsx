@@ -211,15 +211,23 @@ export default function ProfilePage() {
             <circle cx="12" cy="13" r="3.5" />
           </svg>
         </span>
+        {avatar && (
+          <button
+            type="button"
+            aria-label="Remove photo"
+            title="Remove photo"
+            className="absolute -top-1 -right-1 size-6 rounded-full bg-white text-black border border-black grid place-items-center"
+            onClick={() => setAvatar(null)}
+          >
+            <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        )}
         </div>
         <div className="min-w-0">
           <p className="text-lg font-bold truncate">{profile.name.trim() || "Add your name"}</p>
           <p className="text-xs text-muted truncate">{profile.email || (supabaseConfigured ? "Not signed in" : "Saved on this device")}</p>
-          {avatar && (
-            <button type="button" className="text-xs font-semibold underline mt-1" onClick={() => setAvatar(null)}>
-              Remove photo
-            </button>
-          )}
         </div>
       </div>
 
