@@ -17,10 +17,14 @@ function rank(e: Exercise): number {
   return score;
 }
 
-/** Best `limit` exercises whose primary muscle is `muscle`, best first. */
-export function suggestForMuscle(all: Exercise[], muscle: string, limit = 3): Exercise[] {
+/**
+ * Best `limit` exercises whose primary muscle is `muscle`, best first. Exercises in
+ * `favorites` (ids) come first; the ranked rest only fills what they do not cover.
+ */
+export function suggestForMuscle(all: Exercise[], muscle: string, limit = 3, favorites: readonly string[] = []): Exercise[] {
+  const fav = new Set(favorites);
   return all
     .filter((e) => e.muscle_groups.includes(muscle as never))
-    .sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name))
+    .sort((a, b) => Number(fav.has(b.id)) - Number(fav.has(a.id)) || rank(b) - rank(a) || a.name.localeCompare(b.name))
     .slice(0, limit);
 }

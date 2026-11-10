@@ -24,6 +24,23 @@ const set = (reps: number | "", weight: number | "", is_warmup = false) => ({
   done: true,
 });
 
+describe("routines auto-favorite their exercises", () => {
+  const favs = async () => (await db.meta.get("favorites"))?.value as string[] | undefined;
+
+  it("favorites exercises on create and on update", async () => {
+    const id = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench" }, { exercise_id: "fly" }] });
+    expect([...(await favs())!].sort()).toEqual(["bench", "fly"]);
+    await updateRoutine(id, { exercises: [{ exercise_id: "bench" }, { exercise_id: "dip" }] });
+    expect([...(await favs())!].sort()).toEqual(["bench", "dip", "fly"]);
+  });
+
+  it("does not touch favorites when only renaming", async () => {
+    const id = await createRoutine({ name: "Push", exercises: [] });
+    await updateRoutine(id, { name: "Pull" });
+    expect(await favs()).toBeUndefined();
+  });
+});
+
 describe("repRangeFrom", () => {
   it("summarises reps as a range, a single number, or the default", () => {
     expect(repRangeFrom([10, 8, 9])).toBe("8-10");

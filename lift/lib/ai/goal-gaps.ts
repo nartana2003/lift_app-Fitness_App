@@ -40,6 +40,8 @@ export const MAX_BODY_BYTES = 8_192;
 export const MAX_PER_DAY = 3;
 /** Days in a week; days_left holds 1..7 dates. */
 export const MAX_DAYS = 7;
+/** Most favourite ids the client sends; the rest are dropped by the client. */
+export const MAX_FAVORITES = 200;
 /** Most sets one added exercise carries (same cap as generate-routines). */
 export const MAX_SETS_PER_ADD = 6;
 /** Rule-based picks split a muscle's sets into exercises of at most this many sets. */
@@ -70,6 +72,8 @@ export type GoalGapsInput = {
   equipment: Equipment[];
   /** Optional goal settings: used for focus muscles and to fill missing targets. */
   goals: (GoalSettings & { targets: Partial<Record<MuscleGroup, number>> }) | null;
+  /** Favourite exercise ids: offered before any other candidate. Left out: none. */
+  favorites?: string[];
 };
 
 export type ValidateResult = { ok: true; input: GoalGapsInput } | { ok: false; error: string };
@@ -88,7 +92,14 @@ export const weekdayOf = (key: string) => WEEKDAYS[new Date(`${key}T00:00:00Z`).
  */
 export function validateInput(raw: unknown): ValidateResult {
   const bad = (error: string): ValidateResult => ({ ok: false, error });
-  if (!isObj(raw) || !onlyKeys(raw, ["gaps", "days_left", "equipment", "goals"])) return bad("body");
+  if (!isObj(raw) || !onlyKeys(raw, ["gaps", "days_left", "equipment", "goals", "favorites"])) return bad("body");
+
+  let favorites: string[] | undefined;
+  if (raw.favorites !== undefined) {
+    if (!Array.isArray(raw.favorites) || raw.favorites.length > MAX_FAVORITES) return bad("favorites");
+    if (!raw.favorites.every((id) => typeof id === "string" && /^[A-Za-z0-9_\-]{1,80}$/.test(id))) return bad("favorites");
+    favorites = [...new Set(raw.favorites as string[])];
+  }
 
   let goals: GoalGapsInput["goals"] = null;
   if (raw.goals !== undefined && raw.goals !== null) {
@@ -125,7 +136,7 @@ export function validateInput(raw: unknown): ValidateResult {
   const equipment = equipmentList(raw.equipment ?? []);
   if (!equipment) return bad("equipment");
 
-  return { ok: true, input: { gaps, days_left, equipment, goals } };
+  return { ok: true, input: { gaps, days_left, equipment, goals, ...(favorites ? { favorites } : {}) } };
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +185,7 @@ export function buildContext(input: GoalGapsInput, catalogue: Exercise[]): GapCo
     );
 
   const candidates = new Map<MuscleGroup, Exercise[]>();
-  for (const n of needs) candidates.set(n.muscle, suggestForMuscle(usable, n.muscle, CANDIDATES_PER_MUSCLE));
+  for (const n of needs) candidates.set(n.muscle, suggestForMuscle(usable, n.muscle, CANDIDATES_PER_MUSCLE, input.favorites));
 
   return { needs, days: [...input.days_left].sort(), allowed, byId, candidates };
 }

@@ -4,6 +4,7 @@
 // Stored on-device first and queued for sync, like workouts.
 import { db, uuid, type ActiveWorkout, type RoutineExerciseRow, type RoutineRow } from "./offline/db";
 import { enqueue } from "./offline/sync";
+import { addFavorites } from "./favorites";
 
 export type RoutineExerciseInput = { exercise_id: string; target_sets?: number; target_reps?: string };
 export type Routine = RoutineRow & { exercises: RoutineExerciseRow[] };
@@ -83,6 +84,7 @@ export async function createRoutine(input: {
       ...exercises.map((r) => ({ table: "routine_exercises" as const, op: "upsert" as const, row: r })),
     ]);
   });
+  await addFavorites(input.exercises.map((e) => e.exercise_id));
   return row.id;
 }
 
@@ -116,6 +118,7 @@ export async function updateRoutine(
     }
     await enqueue(items);
   });
+  if (patch.exercises) await addFavorites(patch.exercises.map((e) => e.exercise_id));
 }
 
 /** Link a routine to a split day, or unlink it with null. Never touches its exercises. */

@@ -192,6 +192,23 @@ describe("validateInput", () => {
     expect(days(["2026-10-12", SUN])).toBe(true);
   });
 
+  it("accepts favorites, dedupes them, and rejects bad ones", () => {
+    const r = validateInput({ ...body(), favorites: ["a1", "a1", "b-2"] });
+    expect(r.ok && r.input.favorites).toEqual(["a1", "b-2"]);
+    expect(validateInput({ ...body(), favorites: "a1" }).ok).toBe(false);
+    expect(validateInput({ ...body(), favorites: ["bad id!"] }).ok).toBe(false);
+    expect(validateInput({ ...body(), favorites: Array.from({ length: 201 }, (_, i) => `x${i}`) }).ok).toBe(false);
+  });
+
+  it("offers favorites before other candidates", () => {
+    const cat = realCatalogue as unknown as Exercise[];
+    const chest = cat.filter((e) => e.muscle_groups.includes("Chest" as never));
+    const fav = chest[chest.length - 1];
+    const r = validateInput({ ...body(), equipment: [], favorites: [fav.id] });
+    if (!r.ok) throw new Error("invalid");
+    expect(buildContext(r.input, cat).candidates.get("Chest")?.[0].id).toBe(fav.id);
+  });
+
   it("rejects unknown equipment and bad goals", () => {
     expect(validateInput({ ...body(), equipment: ["Rocket"] }).ok).toBe(false);
     expect(validateInput({ ...body(), equipment: "Dumbbell" }).ok).toBe(false);

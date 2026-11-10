@@ -23,4 +23,17 @@ describe("suggestForMuscle", () => {
   it("returns nothing for an unknown muscle", () => {
     expect(suggestForMuscle(all, "Tail", 3)).toEqual([]);
   });
+
+  it("puts favorites first, then fills with ranked picks", () => {
+    const chest = all.filter((e) => e.muscle_groups.includes("Chest" as never));
+    const obscure = chest[chest.length - 1];
+    const picks = suggestForMuscle(all, "Chest", 3, [obscure.id]);
+    expect(picks[0].id).toBe(obscure.id);
+    expect(picks).toHaveLength(3);
+  });
+
+  it("ignores favorites for other muscles", () => {
+    const back = all.find((e) => e.muscle_groups.includes("Back" as never))!;
+    expect(suggestForMuscle(all, "Chest", 3, [back.id])).toEqual(suggestForMuscle(all, "Chest", 3));
+  });
 });

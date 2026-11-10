@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../offline/db";
-import { toggleFavorite } from "../favorites";
+import { addFavorites, toggleFavorite } from "../favorites";
 
 beforeEach(async () => {
   await Promise.all(db.tables.map((t) => t.clear()));
@@ -33,5 +33,13 @@ describe("favorite exercises", () => {
   it("does not lose favorites when several are toggled at once", async () => {
     await Promise.all([toggleFavorite("a"), toggleFavorite("b"), toggleFavorite("c")]);
     expect([...(await stored())!].sort()).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("addFavorites", () => {
+  it("adds new ids first and keeps existing ones without duplicates", async () => {
+    await toggleFavorite("squat");
+    await addFavorites(["bench-press", "squat", "bench-press", "row"]);
+    expect(await stored()).toEqual(["bench-press", "row", "squat"]);
   });
 });

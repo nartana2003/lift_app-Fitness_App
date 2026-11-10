@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useCatalogue } from "@/lib/catalogue";
 import { suggestForMuscle } from "@/lib/suggest";
-import { allTargets, useGoals, type Goals } from "@/lib/goals";
+import { useFavorites } from "@/lib/favorites";import { allTargets, useGoals, type Goals } from "@/lib/goals";
 import { addDays, daysLeftInWeek, goalProgress, startOfWeek, type GoalProgress } from "@/lib/stats";
 import { periodStats, type WorkoutLite } from "@/lib/progress";
 import { useSettings } from "@/lib/settings";
@@ -18,6 +18,7 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
   const goals = useGoals();
   const { weekStart } = useSettings();
   const { get, exercises } = useCatalogue();
+  const favorites = useFavorites();
 
   const rows = useMemo(() => {
     const from = startOfWeek(new Date(), weekStart);
@@ -60,7 +61,7 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
           <p className="text-xs text-muted mb-2">Suggestions for the muscles you&apos;re behind on.</p>
           <ul className="space-y-2">
             {focusFirst.slice(0, 3).map((r) => {
-              const picks = suggestForMuscle(exercises, r.muscle, 3);
+              const picks = suggestForMuscle(exercises, r.muscle, 3, favorites);
               return (
                 <li key={r.muscle} className="rounded-xl bg-surface-2 p-3">
                   <p className="text-sm font-semibold">
@@ -77,7 +78,7 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
               );
             })}
           </ul>
-          <AiCatchUp behind={focusFirst} goals={goals} weekStart={weekStart} known={(id) => !!get(id)} nameOf={(id) => get(id)?.name ?? id} />
+          <AiCatchUp behind={focusFirst} goals={goals} favorites={favorites} weekStart={weekStart} known={(id) => !!get(id)} nameOf={(id) => get(id)?.name ?? id} />
         </>
       )}
     </section>
@@ -114,6 +115,7 @@ function GoalRow({ row, focus }: { row: GoalProgress; focus: boolean }) {
 /** Mirrors the route's limits (MAX_TARGET and MAX_USER_TARGET in lib/ai/goal-targets.ts, MAX_SETS_PER_ADD in lib/ai/goal-gaps.ts). */
 export const GAP_MAX_REMAINING = 24;
 export const GAP_MAX_TARGET = 40;
+const GAP_MAX_FAVORITES = 200;
 export const GAP_MAX_SETS = 6;
 
 export type GapAddition = { exercise_id: string; muscle: MuscleGroup; date: string; sets: number; reason: string };
@@ -130,7 +132,7 @@ export function daysLeftKeys(weekStart: 0 | 1, now = new Date()): string[] {
 }
 
 /** The request body the goal-gaps route accepts, built from the card's rows. Null when nothing is behind. */
-export function buildGapsRequest(behind: GoalProgress[], goals: Goals, days: string[]) {
+export function buildGapsRequest(behind: GoalProgress[], goals: Goals, days: string[], favorites: string[] = []) {
   const gaps = behind
     .filter((r) => isMuscleName(r.muscle) && r.remaining > 0)
     .map((r) => {
@@ -154,6 +156,7 @@ export function buildGapsRequest(behind: GoalProgress[], goals: Goals, days: str
       focusMuscles: goals.focusMuscles.filter(isMuscleName),
       targets,
     },
+    ...(favorites.length ? { favorites: favorites.slice(0, GAP_MAX_FAVORITES) } : {}),
   };
 }
 
@@ -235,12 +238,14 @@ export const AI_MESSAGES = {
 function AiCatchUp({
   behind,
   goals,
+  favorites,
   weekStart,
   known,
   nameOf,
 }: {
   behind: GoalProgress[];
   goals: Goals;
+  favorites: string[];
   weekStart: 0 | 1;
   known: (id: string) => boolean;
   nameOf: (id: string) => string;
@@ -255,7 +260,7 @@ function AiCatchUp({
       return;
     }
     const days = daysLeftKeys(weekStart);
-    const body = buildGapsRequest(behind, goals, days);
+    const body = buildGapsRequest(behind, goals, days, favorites);
     if (!body) return;
     setState({ kind: "loading" });
     setAdded({});
