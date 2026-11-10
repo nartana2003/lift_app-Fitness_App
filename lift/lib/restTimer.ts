@@ -59,18 +59,23 @@ function chime(delay = 0): boolean {
   if (audio.state === "suspended") void audio.resume().catch(() => {});
   const a = audio;
   const t = a.currentTime + delay;
-  [0, 0.18, 0.36].forEach((d, i) => {
-    const o = a.createOscillator();
-    const g = a.createGain();
-    o.frequency.value = i === 2 ? 1320 : 880;
-    g.gain.setValueAtTime(0.0001, t + d);
-    g.gain.exponentialRampToValueAtTime(0.4, t + d + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.16);
-    o.connect(g).connect(a.destination);
-    o.start(t + d);
-    o.stop(t + d + 0.18);
-    queued.push(o);
-  });
+  // Alarm: the three-note chime repeated, so it is hard to miss.
+  for (let r = 0; r < 4; r++) {
+    [0, 0.18, 0.36].forEach((n, i) => {
+      const d = r * 0.9 + n;
+      const o = a.createOscillator();
+      const g = a.createGain();
+      o.type = "square";
+      o.frequency.value = i === 2 ? 1320 : 880;
+      g.gain.setValueAtTime(0.0001, t + d);
+      g.gain.exponentialRampToValueAtTime(0.5, t + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.16);
+      o.connect(g).connect(a.destination);
+      o.start(t + d);
+      o.stop(t + d + 0.18);
+      queued.push(o);
+    });
+  }
   return a.state === "running";
 }
 

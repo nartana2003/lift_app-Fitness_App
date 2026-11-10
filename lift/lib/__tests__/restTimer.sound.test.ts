@@ -54,11 +54,12 @@ beforeEach(() => {
 });
 
 describe("rest timer chime", () => {
-  it("queues three notes at the end of the rest when it starts", () => {
+  it("queues a repeating alarm at the end of the rest when it starts", () => {
     restTimer.start(90);
-    expect(oscillators).toHaveLength(3);
-    expect(oscillators.map((o) => o.startAt)).toEqual([190, 190.18, 190.36]);
-    expect(oscillators.map((o) => o.frequency.value)).toEqual([880, 880, 1320]);
+    expect(oscillators).toHaveLength(12);
+    expect(oscillators.slice(0, 3).map((o) => o.startAt)).toEqual([190, 190.18, 190.36]);
+    expect(oscillators.slice(0, 3).map((o) => o.frequency.value)).toEqual([880, 880, 1320]);
+    expect(oscillators[3].startAt).toBeCloseTo(190.9);
   });
 
   it("cancels the queued notes on stop", () => {
@@ -72,8 +73,8 @@ describe("rest timer chime", () => {
     const first = [...oscillators];
     restTimer.add(15);
     expect(first.every((o) => o.stopped)).toBe(true);
-    const next = oscillators.slice(3);
-    expect(next).toHaveLength(3);
+    const next = oscillators.slice(12);
+    expect(next).toHaveLength(12);
     expect(next[0].startAt).toBeGreaterThan(100 + 74);
     expect(next[0].startAt).toBeLessThanOrEqual(100 + 75);
   });
