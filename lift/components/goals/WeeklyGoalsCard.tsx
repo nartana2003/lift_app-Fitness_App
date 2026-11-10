@@ -13,7 +13,7 @@ import { getEquipment } from "@/lib/equipment";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
 import { db } from "@/lib/offline/db";
 import { dayKey, getDay, planDay, weekDays } from "@/lib/planner";
-import { createRoutine, getRoutine, listRoutines } from "@/lib/routines";
+import { createRoutine, deleteRoutine, getRoutine, listRoutines } from "@/lib/routines";
 import { CATCH_UP_NAME, CATCH_UP_SUFFIX, historyCounts, isCatchUpRoutine, planCatchUp, sessionsThisWeek, type CatchUpPlan as CatchUpPlanData } from "@/lib/catchUp";
 import { addExercises, getActive } from "@/lib/workout";
 
@@ -184,7 +184,9 @@ export async function addToDay(date: string, additions: GapAddition[], now = new
       ],
     });
     await planDay(date, id);
-    return `Added to ${base.name} on ${day}.`;
+    // A second add on the same day replaces the earlier catch-up copy instead of leaving it behind.
+    if (isCatchUpRoutine(base.name) && base.source === "ai" && (await db.planned_days.filter((d) => d.routine_id === base.id).count()) === 0) await deleteRoutine(base.id);
+    return `Added to ${base.name.replace(CATCH_UP_SUFFIX, "")} on ${day}.`;
   }
   const id = await createRoutine({ name: CATCH_UP_NAME, source: "ai", favorite: false, exercises: list });
   await planDay(date, id);
@@ -197,33 +199,36 @@ export async function addToDay(date: string, additions: GapAddition[], now = new
  */
 function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: string) => string }) {
   const [frozen, setFrozen] = useState<CatchUpPlanData | null>(null);
-  const [result, setResult] = useState<Record<string, { text: string; ok: boolean }>>({});
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const [msg, setMsg] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
   const shown = frozen ?? plan;
   const todayKey = dayKey(new Date());
+  const keyOf = (a: GapAddition) => `${a.date}|${a.exercise_id}`;
   const groups = shown.trainingDays.map((date) => ({ date, items: shown.additions.filter((a) => a.date === date) })).filter((g) => g.items.length > 0);
+  const left = (g: { items: GapAddition[] }) => g.items.filter((a) => !done.has(keyOf(a)));
 
-  async function run(date: string, items: GapAddition[]) {
-    try {
-      const text = await addToDay(date, items);
-      setResult((r) => ({ ...r, [date]: { text, ok: true } }));
-    } catch {
-      setResult((r) => ({ ...r, [date]: { text: "Could not add these. Try again.", ok: false } }));
-    }
-  }
-
-  async function add(dates: string[]) {
+  /** Adds the given exercises, one day at a time. The plan is frozen at the first add. */
+  async function add(batches: { date: string; items: GapAddition[] }[]) {
     if (!frozen) setFrozen(plan);
     setBusy(true);
     try {
-      for (const date of dates) await run(date, groups.find((g) => g.date === date)!.items);
+      for (const { date, items } of batches) {
+        try {
+          const text = await addToDay(date, items);
+          setDone((d) => new Set([...d, ...items.map(keyOf)]));
+          setMsg((m) => ({ ...m, [date]: text }));
+        } catch {
+          setMsg((m) => ({ ...m, [date]: "Could not add these. Try again." }));
+        }
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  const todo = groups.filter((g) => !result[g.date]?.ok);
+  const todo = groups.filter((g) => left(g).length > 0);
 
   return (
     <div>
@@ -233,7 +238,7 @@ function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: str
             {groups.map((g, i) => {
               const wd = weekdayLabel(g.date);
               const total = g.items.reduce((n, a) => n + a.sets, 0);
-              const r = result[g.date];
+              const rest = left(g);
               return (
                 <li key={g.date} aria-label={wd} className="rounded-2xl bg-surface-2 p-3">
                   <div className="flex items-center gap-3">
@@ -249,7 +254,7 @@ function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: str
                         {total} set{total === 1 ? "" : "s"}
                       </p>
                     </div>
-                    {r?.ok ? (
+                    {rest.length === 0 ? (
                       <span className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-surface border border-border px-3 py-2 text-sm font-semibold">
                         <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <path d="M5 12l5 5L20 7" />
@@ -257,7 +262,7 @@ function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: str
                         Added
                       </span>
                     ) : (
-                      <button className="btn-primary shrink-0 px-3.5 py-2 text-sm" disabled={busy} aria-label={i === 0 ? "Add to next workout" : `Add to ${wd}`} onClick={() => add([g.date])}>
+                      <button className="btn-primary shrink-0 px-3.5 py-2 text-sm" disabled={busy} aria-label={i === 0 ? "Add to next workout" : `Add to ${wd}`} onClick={() => add([{ date: g.date, items: rest }])}>
                         Add
                       </button>
                     )}
@@ -282,12 +287,22 @@ function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: str
                           {a.in_routine ? "+" : ""}
                           {a.sets} set{a.sets === 1 ? "" : "s"}
                         </span>
+                        <button
+                          className="btn-ghost shrink-0 size-8 rounded-full p-0 border border-border"
+                          disabled={busy || done.has(keyOf(a))}
+                          aria-label={done.has(keyOf(a)) ? `${nameOf(a.exercise_id)} added` : `Add ${nameOf(a.exercise_id)} to ${wd}`}
+                          onClick={() => add([{ date: g.date, items: [a] }])}
+                        >
+                          <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d={done.has(keyOf(a)) ? "M5 12l5 5L20 7" : "M12 5v14M5 12h14"} />
+                          </svg>
+                        </button>
                       </li>
                     ))}
                   </ul>
-                  {r?.text && (
+                  {msg[g.date] && (
                     <p role="status" className="text-xs text-muted mt-2">
-                      {r.text}
+                      {msg[g.date]}
                     </p>
                   )}
                 </li>
@@ -295,7 +310,7 @@ function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: str
             })}
           </ul>
           {groups.length > 1 && todo.length > 0 && (
-            <button className="btn-primary w-full py-2.5 text-sm mt-3" disabled={busy} onClick={() => add(todo.map((g) => g.date))}>
+            <button className="btn-primary w-full py-2.5 text-sm mt-3" disabled={busy} onClick={() => add(todo.map((g) => ({ date: g.date, items: left(g) })))}>
               Add all to my week
             </button>
           )}

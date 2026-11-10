@@ -142,3 +142,17 @@ test("Add all to my week plans every training day in one tap", async ({ page }) 
   await expect(plan.getByRole("button", { name: /^Add to/ })).toHaveCount(0);
   expect(await plan.getByText("Added", { exact: true }).count()).toBeGreaterThan(1);
 });
+
+test("each exercise in the catch-up plan can be added on its own", async ({ page }) => {
+  await page.goto("/progress");
+  await page.waitForLoadState("networkidle");
+
+  const c = card(page);
+  const plan = c.getByRole("list", { name: "Catch-up plan" });
+  const one = plan.getByRole("button", { name: /^Add .+ to \w{3}$/ }).first();
+  const label = (await one.getAttribute("aria-label"))!;
+  const name = label.replace(/^Add /, "").replace(/ to \w{3}$/, "");
+  await one.click();
+  await expect(plan.getByRole("button", { name: `${name} added` })).toBeDisabled();
+  await expect(plan.getByRole("status").first()).toBeVisible();
+});

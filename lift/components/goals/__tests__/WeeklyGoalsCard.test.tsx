@@ -208,6 +208,26 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     expect(screen.queryByRole("button", { name: /show all muscles/i })).not.toBeInTheDocument();
   });
 
+  it("adds a single exercise from its own button, then the rest without repeating it", async () => {
+    await renderCard();
+    const first = within(day(WED)).getAllByRole("button", { name: /^Add .+ to \w{3}$/ }).filter((b) => b.getAttribute("aria-label") !== "Add to next workout")[0];
+    const name = first.getAttribute("aria-label")!.replace(/^Add /, "").replace(/ to \w{3}$/, "");
+    fireEvent.click(first);
+    expect(await screen.findByRole("button", { name: `${name} added` })).toBeDisabled();
+    // Only that exercise is on the day so far.
+    const one = await getRoutine((await getDay(WED))!.routine_id!);
+    expect(one!.exercises).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add all to my week" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Add all to my week" })).not.toBeInTheDocument());
+    const all = await getRoutine((await getDay(WED))!.routine_id!);
+    const ids = all!.exercises.map((e) => e.exercise_id);
+    expect(new Set(ids).size).toBe(ids.length);
+    // One catch-up routine per planned day: earlier copies are replaced, not left behind.
+    const names = (await listRoutines()).map((r) => r.name);
+    expect(names.filter((n) => n === "Catch up")).toHaveLength((await db.planned_days.toArray()).length);
+  });
+
   it("adding does not star the exercises or let catch-up routines feed favourites", async () => {
     await renderCard();
     fireEvent.click(within(plan()).getByRole("button", { name: "Add to next workout" }));
@@ -224,6 +244,17 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     expect(msg).toBe("Added to your current workout.");
     expect((await getActive())!.exercises.map((e) => e.exercise_id)).toEqual(["hip-thrust", "glute-bridge"]);
     expect(await getDay(WED)).toBeUndefined();
+  });
+
+  it("addToDay twice on one day replaces its catch-up copy and leaves the saved routine alone", async () => {
+    const id = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench", target_sets: 4 }] });
+    await planDay(FRI, id);
+    await addToDay(FRI, [{ exercise_id: "bench", muscle: "Chest", date: FRI, sets: 2, reason: "" }], NOW);
+    const msg = await addToDay(FRI, [{ exercise_id: "row", muscle: "Back", date: FRI, sets: 3, reason: "" }], NOW);
+    expect(msg).toBe(`Added to Push on ${short(FRI)}.`);
+    expect((await listRoutines()).map((r) => r.name).sort()).toEqual(["Push", "Push + catch up"]);
+    const copy = await getRoutine((await getDay(FRI))!.routine_id!);
+    expect(copy!.exercises.map((e) => [e.exercise_id, e.target_sets])).toEqual([["bench", 6], ["row", 3]]);
   });
 
   it("addToDay adds sets to an exercise already in the day's routine and keeps a catch-up name from stacking", async () => {
