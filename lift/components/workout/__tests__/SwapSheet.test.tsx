@@ -115,10 +115,10 @@ describe("SwapSheet: AI picks", () => {
     mockFetch(() => Promise.resolve(jsonRes(200, AI_BODY)));
     renderSheet();
     await screen.findByRole("region", { name: "Coach picks" });
-    fireEvent.click(screen.getByRole("button", { name: "It hurts" }));
+    fireEvent.click(screen.getByRole("button", { name: "No equipment" }));
     await waitFor(() => expect(aiCalls()).toHaveLength(2));
     const body = JSON.parse((aiCalls()[1][1] as RequestInit).body as string);
-    expect(body).toEqual({ exercise_id: "bench", reason: "hurts", equipment: ["Dumbbell", "Bodyweight"] });
+    expect(body).toEqual({ exercise_id: "bench", reason: "equipment", equipment: ["Dumbbell", "Bodyweight"] });
   });
 
   it("hides Coach picks while searching", async () => {
@@ -152,7 +152,7 @@ describe("SwapSheet: AI picks", () => {
     expect(screen.queryByText("Ranking alternatives…")).toBeNull();
     expect(new Set(await ruleNames())).toEqual(new Set(["Dumbbell Press", "Push-Up", "Cable Fly"]));
 
-    fireEvent.click(screen.getByRole("button", { name: "Want variety" }));
+    fireEvent.click(screen.getByRole("button", { name: "No equipment" }));
     await settle();
     expect(aiCalls()).toHaveLength(1);
   });
@@ -231,9 +231,10 @@ describe("parseSwapResponse", () => {
       },
       "bench",
     )!;
+    expect(SWAP_AI.maxAlternatives).toBe(10);
     expect(out).toHaveLength(SWAP_AI.maxAlternatives);
     expect(out[0]).toEqual({ exercise_id: "push_up", reason: "first" });
-    expect(out.map((p) => p.exercise_id)).toEqual(["push_up", "x0", "x1", "x2", "x3", "x4"]);
+    expect(out.map((p) => p.exercise_id)).toEqual(["push_up", ...many.slice(0, 9).map((m) => m.exercise_id)]);
   });
 });
 

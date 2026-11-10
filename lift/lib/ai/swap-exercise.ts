@@ -25,7 +25,7 @@
 import type { AiRequest } from "./client";
 import type { Exercise } from "../exercises";
 import type { Equipment } from "../muscles";
-import { ALL_SWAP_REASONS, SWAP_REASONS, swapOptions, type SwapReason } from "../swap";
+import { ALL_SWAP_REASONS, swapOptions, type SwapReason } from "../swap";
 import { cleanNote, equipmentOk } from "./generate-routines";
 import { equipmentList, escapeForTag, isObj, onlyKeys, parseJsonText } from "./validate";
 import { loadPrompt } from "../../prompts/load";
@@ -36,7 +36,7 @@ import { loadPrompt } from "../../prompts/load";
 
 export const MAX_BODY_BYTES = 8_192;
 /** Alternatives returned (the swap sheet shows 6). */
-export const MAX_ALTERNATIVES = 6;
+export const MAX_ALTERNATIVES = 10;
 /** Catalogue exercises offered to the model to rank. */
 export const MAX_CANDIDATES = 24;
 /** Most ids the client may list as already in the workout. */
@@ -46,7 +46,7 @@ export const MAX_ID_LENGTH = 120;
 export const MAX_REASON = 200;
 
 /** Swap reasons, in lib/swap.ts order. */
-export const REASONS: readonly SwapReason[] = SWAP_REASONS.map((r) => r.v);
+export const REASONS: readonly SwapReason[] = ALL_SWAP_REASONS;
 
 /** What each reason asks of the alternatives. Fixed text, sent as data. */
 export const REASON_DETAIL: Record<SwapReason, string> = {

@@ -26,7 +26,7 @@ export function SwapSheet({
 
   const options = q.trim()
     ? searchExercises(exercises, { q }).filter((e) => e.id !== current.id).slice(0, 8)
-    : swapOptions(exercises, current, reason, 6);
+    : swapOptions(exercises, current, reason, 10);
 
   // Coach picks: only ids the local catalogue knows, never the current exercise.
   const picks = q.trim()
@@ -118,7 +118,7 @@ export function SwapSheet({
 
 /** Mirrors the route's limits in lib/ai/swap-exercise.ts (client code may not import lib/ai). */
 export const SWAP_AI = {
-  maxAlternatives: 6,
+  maxAlternatives: 10,
   maxReason: 200,
   maxId: 120,
 } as const;

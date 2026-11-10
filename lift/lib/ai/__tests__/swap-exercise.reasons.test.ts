@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import realCatalogue from "../../../data/exercises.json";
 import { REASONS, REASON_DETAIL, buildContext, ruleReason, validateInput } from "../swap-exercise";
-import { ALL_SWAP_REASONS, SWAP_REASONS } from "../../swap";
+import { ALL_SWAP_REASONS } from "../../swap";
 import type { Exercise } from "../../exercises";
 
 const CAT = realCatalogue as unknown as Exercise[];
@@ -15,7 +15,7 @@ describe("swap-exercise: the Coach reasons", () => {
   });
 
   it("keeps the live sheet's reasons as they were and describes all six", () => {
-    expect(REASONS).toEqual(SWAP_REASONS.map((r) => r.v));
+    expect(REASONS).toEqual(ALL_SWAP_REASONS);
     for (const r of ALL_SWAP_REASONS) expect(REASON_DETAIL[r]).toBeTruthy();
     expect(REASON_DETAIL.difficult).toMatch(/too hard/);
     expect(REASON_DETAIL.discomfort).toMatch(/no medical advice/i);

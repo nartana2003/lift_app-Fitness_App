@@ -23,7 +23,7 @@ import {
   type SwapExerciseInput,
   type SwapExerciseResult,
 } from "../swap-exercise";
-import { SWAP_REASONS, swapOptions } from "../../swap";
+import { ALL_SWAP_REASONS, swapOptions } from "../../swap";
 import type { Exercise } from "../../exercises";
 import type { Equipment, MuscleGroup } from "../../muscles";
 import { POST } from "../../../app/api/ai/swap-exercise/route";
@@ -113,7 +113,7 @@ describe("validateInput", () => {
   });
 
   it("accepts every reason from lib/swap.ts and nothing else", () => {
-    expect(REASONS).toEqual(SWAP_REASONS.map((r) => r.v));
+    expect(REASONS).toEqual(ALL_SWAP_REASONS);
     for (const reason of REASONS) expect(validateInput({ ...body(), reason }, BY_ID).ok).toBe(true);
     for (const reason of ["Busy", "machine busy", "", 1, null, undefined]) expect(validateInput({ ...body(), reason }, BY_ID).ok).toBe(false);
     for (const r of REASONS) expect(REASON_DETAIL[r]).toBeTruthy();

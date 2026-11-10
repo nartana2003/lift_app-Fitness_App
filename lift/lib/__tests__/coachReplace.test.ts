@@ -37,7 +37,7 @@ const ids = (r: { options: Exercise[] }) => r.options.map((e) => e.id);
 
 describe("swap reasons", () => {
   it("the live workout sheet still offers its four reasons; the Coach adds two", () => {
-    expect(SWAP_REASONS.map((r) => r.v)).toEqual(["busy", "equipment", "hurts", "variety"]);
+    expect(SWAP_REASONS.map((r) => r.v)).toEqual(["busy", "equipment"]);
     expect(ALL_SWAP_REASONS).toEqual(["busy", "equipment", "hurts", "variety", "difficult", "discomfort"]);
     expect(REPLACE_REASONS.map((r) => r.label)).toEqual(["Replace", "Equipment unavailable", "Too difficult", "Causes discomfort"]);
     for (const r of REPLACE_REASONS) expect(ALL_SWAP_REASONS).toContain(r.v);

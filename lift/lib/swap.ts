@@ -6,15 +6,13 @@ export type SwapReason = "busy" | "equipment" | "hurts" | "variety" | "difficult
 export const SWAP_REASONS: { v: SwapReason; label: string }[] = [
   { v: "busy", label: "Machine busy" },
   { v: "equipment", label: "No equipment" },
-  { v: "hurts", label: "It hurts" },
-  { v: "variety", label: "Want variety" },
 ];
 
 /**
  * Every reason a swap can be asked for. SWAP_REASONS above is what the live workout
  * sheet offers; the Coach also asks for "difficult" and "discomfort".
  */
-export const ALL_SWAP_REASONS: readonly SwapReason[] = [...SWAP_REASONS.map((r) => r.v), "difficult", "discomfort"];
+export const ALL_SWAP_REASONS: readonly SwapReason[] = ["busy", "equipment", "hurts", "variety", "difficult", "discomfort"];
 
 const overlap = (a: readonly string[], b: readonly string[]) => a.filter((x) => b.includes(x)).length;
 
