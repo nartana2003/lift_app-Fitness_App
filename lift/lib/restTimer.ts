@@ -88,12 +88,32 @@ function scheduleChime(seconds: number) {
   scheduled = chime(Math.max(0, seconds));
 }
 
+let notifyTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Local "rest over" notification for when the page is in the background and push is not in play. */
+function notifyDone() {
+  try {
+    if (typeof document === "undefined" || document.visibilityState !== "hidden") return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const opts = { body: "Time for your next set.", tag: "lift-rest", data: { url: "/workout" }, requireInteraction: true };
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.ready.then((r) => r.showNotification("Rest over", opts)).catch(() => {});
+    } else new Notification("Rest over", opts);
+  } catch {}
+}
+
+function scheduleNotify(seconds: number) {
+  clearTimeout(notifyTimer);
+  notifyTimer = setTimeout(notifyDone, Math.max(0, seconds) * 1000);
+}
+
 export const restTimer = {
   start(seconds: number, label = "Rest") {
     unlockAudio();
     fired = false;
     state = { endsAt: Date.now() + seconds * 1000, total: seconds, label };
     scheduleChime(seconds);
+    scheduleNotify(seconds);
     emit();
   },
   add(seconds: number) {
@@ -101,11 +121,13 @@ export const restTimer = {
     state = { ...state, endsAt: Math.max(Date.now(), state.endsAt + seconds * 1000), total: Math.max(1, state.total + seconds) };
     fired = false;
     scheduleChime((state.endsAt - Date.now()) / 1000);
+    scheduleNotify((state.endsAt - Date.now()) / 1000);
     emit();
   },
   stop() {
     state = null;
     cancelQueued();
+    clearTimeout(notifyTimer);
     scheduled = false;
     emit();
   },
