@@ -71,15 +71,17 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="mt-4">
+      <div className="h-20" aria-hidden="true" />
+      <div className="fixed inset-x-0 z-30 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] px-4 pointer-events-none">
+        <div className="max-w-lg mx-auto pointer-events-auto flex flex-col-reverse">
         {active ? (
-          <Link href="/workout" className="btn-primary w-full text-lg py-4 rounded-full">
+          <Link href="/workout" className="btn-primary w-full text-lg py-4 rounded-full shadow-lg">
             Resume workout
           </Link>
         ) : (
           <>
             <button
-              className="btn-primary w-full text-lg py-4 rounded-full"
+              className="btn-primary w-full text-lg py-4 rounded-full shadow-lg"
               aria-expanded={choosing}
               onClick={async () => {
                 if (planned) {
@@ -100,7 +102,7 @@ export default function Home() {
               Start Workout
             </button>
             {planned && (
-              <p className="text-xs text-muted text-center mt-2">
+              <p className="text-xs text-muted text-center mb-2 bg-bg/90 rounded-full py-1">
                 Planned today: {planned.name}.{" "}
                 <button className="underline" aria-expanded={choosing} onClick={() => setChoosing(!choosing)}>
                   Choose another
@@ -108,7 +110,7 @@ export default function Home() {
               </p>
             )}
             {choosing && (
-              <div className="card p-3 mt-2 space-y-1.5" role="group" aria-label="Start from">
+              <div className="card p-3 mb-2 space-y-1.5" role="group" aria-label="Start from">
                 <button
                   className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
                   onClick={async () => {
@@ -156,6 +158,7 @@ export default function Home() {
             )}
           </>
         )}
+        </div>
       </div>
 
       <WeekStrip />

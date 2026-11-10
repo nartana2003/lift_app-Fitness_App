@@ -101,6 +101,17 @@ describe("Home Start Workout", () => {
     expect((await db.active.get("active"))?.routine_id).toBe(id);
   });
 
+  it("floats Start Workout and Resume workout above the tab bar (issue #26)", async () => {
+    const { unmount } = render(<Home />);
+    const button = await screen.findByRole("button", { name: "Start Workout" });
+    expect(button.closest(".fixed")).not.toBeNull();
+    unmount();
+    await db.active.put({ key: "active", id: "w1", started_at: new Date().toISOString(), routine_id: null, name: null, exercises: [] });
+    render(<Home />);
+    const link = await screen.findByRole("link", { name: "Resume workout" });
+    expect(link.closest(".fixed")).not.toBeNull();
+  });
+
   it("shows no change against an empty last week (issue #24)", async () => {
     render(<Home />);
     expect(await screen.findAllByLabelText("No change from last week")).toHaveLength(3);
