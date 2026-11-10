@@ -8,7 +8,7 @@ Prompts without an `.md` file (inline arrays in `lib/ai/`): `suggest-split` (Coa
 
 | Prompt | Feature | Screen |
 | --- | --- | --- |
-| `goal-gaps.md` | Catch-up picks for weekly goals | Goals: `components/goals/WeeklyGoalsCard.tsx` |
+| `goal-gaps.md` | Catch-up picks for weekly goals | None now: the Goals card plans with rules only (`lib/catchUp.ts`) |
 | `overload-suggestion.md` | Progressive overload suggestion | Workout: `components/workout/ExerciseCard.tsx` |
 | `parse-log.md` | Quick log from typed or dictated text | Workout: `components/workout/QuickLog.tsx` |
 | `photo-analysis.md` | Monthly photo comment | Progress, Photos: `components/progress/PhotosTab.tsx` |

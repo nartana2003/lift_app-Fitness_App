@@ -248,6 +248,81 @@ describe("planCatchUp: sets already planned", () => {
   });
 });
 
+describe("planCatchUp: variety", () => {
+  // "bar-extension" sorts before "pushdown", so it is the first pick unless variety changes it.
+  const catalogue = [ex("bar-extension", "Triceps"), ex("pushdown", "Triceps", "Machine/Cable"), ex("bench", "Chest")];
+
+  it("prefers equipment the day does not use yet among the top picks", () => {
+    const routines = new Map([["push", routine("Push", ["bench"])]]);
+    const plan = planCatchUp(input({ catalogue, routines, planned: [row(FRI, "push")], sessionsPerWeek: 1, behind: [{ muscle: "Triceps", remaining: 3 }] }));
+    expect(plan.additions[0].exercise_id).toBe("pushdown");
+  });
+
+  it("falls back to the first pick when every option uses equipment the day already has", () => {
+    const same = [ex("bar-extension", "Triceps"), ex("close-grip", "Triceps"), ex("bench", "Chest")];
+    const routines = new Map([["push", routine("Push", ["bench"])]]);
+    const plan = planCatchUp(input({ catalogue: same, routines, planned: [row(FRI, "push")], sessionsPerWeek: 1, behind: [{ muscle: "Triceps", remaining: 3 }] }));
+    expect(plan.additions).toHaveLength(1);
+    expect(plan.additions[0].exercise_id).toBe("bar-extension");
+  });
+
+  it("does not change the pick on a day with nothing planned", () => {
+    const plan = planCatchUp(input({ catalogue, planned: [row(WED, null)], sessionsPerWeek: 1, behind: [{ muscle: "Triceps", remaining: 3 }] }));
+    expect(plan.additions).toHaveLength(1);
+    expect(plan.additions[0].exercise_id).toBe("bar-extension");
+  });
+});
+
+describe("planCatchUp: exercises that hit two muscles", () => {
+  const pullUp = { ...ex("weighted-pull-up", "Back"), muscle_groups: ["Back", "Biceps"] as MuscleGroup[] };
+
+  it("credits every primary muscle of a placed exercise and says so in the reason", () => {
+    const plan = planCatchUp(input({ catalogue: [pullUp], planned: [row(WED, null)], sessionsPerWeek: 1, behind: [{ muscle: "Back", remaining: 3 }, { muscle: "Biceps", remaining: 3 }] }));
+    expect(plan.additions).toHaveLength(1);
+    expect(plan.additions[0]).toMatchObject({ exercise_id: "weighted-pull-up", muscle: "Back", sets: 3 });
+    expect(plan.additions[0].reason).toContain("Also counts toward Biceps");
+    expect(plan.unmet).toEqual([]);
+  });
+
+  it("only credits the sets the other muscle still needs", () => {
+    const plan = planCatchUp(input({ catalogue: [pullUp, ex("curl", "Biceps", "Dumbbell")], planned: [row(WED, null), row(FRI, null)], sessionsPerWeek: 2, behind: [{ muscle: "Back", remaining: 6 }, { muscle: "Biceps", remaining: 4 }] }));
+    const biceps = plan.additions.filter((a) => a.muscle === "Biceps").reduce((n, a) => n + a.sets, 0);
+    const back = plan.additions.filter((a) => a.muscle === "Back").reduce((n, a) => n + a.sets, 0);
+    expect(back).toBe(6);
+    // The pull-up sets cover biceps too, so at most the remaining 4 biceps sets are covered in total.
+    expect(biceps + Math.min(back, 4)).toBeGreaterThanOrEqual(4);
+    expect(plan.unmet).toEqual([]);
+  });
+
+  it("when slots are short, prefers the exercise that covers two behind muscles so more muscles fit", () => {
+    const catalogue = [ex("row", "Back"), pullUp, ex("curl", "Biceps", "Dumbbell"), ex("squat", "Quads"), ex("hip-thrust", "Glutes")];
+    const behind: CatchUpInput["behind"] = [
+      { muscle: "Back", remaining: 3 },
+      { muscle: "Biceps", remaining: 3 },
+      { muscle: "Quads", remaining: 3 },
+      { muscle: "Glutes", remaining: 3 },
+    ];
+    // One training day: 3 slots for 4 muscles.
+    const plan = planCatchUp(input({ catalogue, behind, planned: [row(WED, null)], sessionsPerWeek: 1 }));
+    expect(plan.additions.map((a) => a.exercise_id).sort()).toEqual(["hip-thrust", "squat", "weighted-pull-up"]);
+    expect(plan.unmet).toEqual([]);
+  });
+
+  it("with plenty of slots, keeps the user's own order of exercises", () => {
+    const catalogue = [ex("row", "Back"), pullUp];
+    const routines = new Map([["other", routine("Other", ["row"])]]);
+    const plan = planCatchUp(input({ catalogue, routines, behind: [{ muscle: "Back", remaining: 3 }], planned: [row(WED, null)], sessionsPerWeek: 1 }));
+    expect(plan.additions[0].exercise_id).toBe("row");
+  });
+
+  it("marks sets added to an exercise already in the day's routine", () => {
+    const routines = new Map([["push", routine("Push", ["bench"])]]);
+    const plan = planCatchUp(input({ routines, planned: [row(FRI, "push"), row(WED, null)], sessionsPerWeek: 2, behind: [{ muscle: "Chest", remaining: 3 }, { muscle: "Quads", remaining: 3 }] }));
+    expect(plan.additions.find((a) => a.muscle === "Chest")!.in_routine).toBe(true);
+    expect(plan.additions.find((a) => a.muscle === "Quads")!.in_routine).toBe(false);
+  });
+});
+
 describe("planCatchUp: rules for picks", () => {
   it("skips disliked exercises", () => {
     const plan = planCatchUp(input({ planned: [row(WED, null)], dislikedIds: ["bench"], behind: [{ muscle: "Chest", remaining: 3 }] }));

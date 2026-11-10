@@ -14,7 +14,15 @@ export const MAX_SETS = 6;
 /** Sets per addition before a muscle's remaining sets are split across days. */
 const SETS_PER_PIECE = 3;
 
-export type CatchUpAddition = { exercise_id: string; muscle: MuscleGroup; date: string; sets: number; reason: string };
+export type CatchUpAddition = {
+  exercise_id: string;
+  muscle: MuscleGroup;
+  date: string;
+  sets: number;
+  reason: string;
+  /** The exercise is already in that day's routine, so these are extra sets on it. */
+  in_routine: boolean;
+};
 
 export type CatchUpInput = {
   /** Muscles under target, most important first. */
@@ -156,11 +164,20 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
     })
     .filter((n) => n.remaining > 0);
 
-  const unmet: CatchUpPlan["unmet"] = [];
+  // Sets still needed per muscle. An exercise that trains two behind muscles counts toward both.
+  const left = new Map(needs.map((n) => [n.muscle, n.remaining]));
+  const pieces = needs.reduce((n, x) => n + splitSets(x.remaining).length, 0);
+  const scarce = pieces > trainingDays.length * MAX_PER_DAY;
+  const alsoOf = new Map<CatchUpAddition, Set<MuscleGroup>>();
+
   for (const need of needs) {
-    const picks = candidates(need.muscle);
-    let left = Math.max(0, Math.round(need.remaining));
-    for (const sets of splitSets(need.remaining)) {
+    let picks = candidates(need.muscle);
+    if (scarce) {
+      // Short on slots: prefer exercises that also train another muscle that is still behind (stable, so personal order holds on ties).
+      const extra = (id: string) => (byId.get(id)?.muscle_groups ?? []).filter((g) => g !== need.muscle && (left.get(g) ?? 0) > 0).length;
+      picks = picks.map((id, i) => ({ id, i, n: extra(id) })).sort((a, b) => b.n - a.n || a.i - b.i).map((x) => x.id);
+    }
+    for (const sets of splitSets(left.get(need.muscle) ?? 0)) {
       // Days whose routine already trains the muscle come first, then free days, then other routines.
       const open = trainingDays
         .map((d, i) => {
@@ -171,40 +188,56 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
         .sort((a, b) => a.rank - b.rank || a.load - b.load || a.i - b.i);
 
       let gave = 0;
+      let item: CatchUpAddition | null = null;
       for (const { d } of open) {
         const list = added.get(d)!;
         const mineHere = dayRoutine.get(d)?.exercises.find((e) => trains(byId.get(e.exercise_id), need.muscle) && usable(byId.get(e.exercise_id)));
         // A full day only takes more sets on an exercise it already has for this muscle.
-        const id =
-          list.length >= MAX_PER_DAY
-            ? list.find((a) => a.muscle === need.muscle && a.sets < MAX_SETS)?.exercise_id
-            : (mineHere?.exercise_id ?? picks.find((p) => !onDay.get(d)!.has(p) && !list.some((a) => a.exercise_id === p)));
+        let id: string | undefined;
+        if (list.length >= MAX_PER_DAY) id = list.find((a) => a.muscle === need.muscle && a.sets < MAX_SETS)?.exercise_id;
+        else if (mineHere) id = mineHere.exercise_id;
+        else {
+          // Among the first few fresh picks, prefer equipment the day does not use yet, for variety.
+          const fresh = picks.filter((p) => !onDay.get(d)!.has(p) && !list.some((a) => a.exercise_id === p));
+          const used = new Set([...onDay.get(d)!, ...list.map((a) => a.exercise_id)].map((x) => byId.get(x)?.equipment));
+          id = fresh.slice(0, 3).find((p) => !used.has(byId.get(p)?.equipment)) ?? fresh[0];
+        }
         if (!id) continue;
         const prior = list.find((a) => a.exercise_id === id);
-        const inRoutine = onDay.get(d)!.has(id);
         if (prior) {
           if (prior.sets >= MAX_SETS) continue;
           gave = Math.min(sets, MAX_SETS - prior.sets);
           prior.sets += gave;
-          prior.reason = reasonFor(nameOf(id), need.muscle, prior.sets, inRoutine, dayRoutine.get(d)?.name);
+          item = prior;
         } else {
           gave = sets;
-          list.push({ exercise_id: id, muscle: need.muscle, date: d, sets, reason: reasonFor(nameOf(id), need.muscle, sets, inRoutine, dayRoutine.get(d)?.name) });
+          item = { exercise_id: id, muscle: need.muscle, date: d, sets, reason: "", in_routine: onDay.get(d)!.has(id) };
+          list.push(item);
         }
         break;
       }
-      if (gave === 0) break;
-      left -= gave;
+      if (!item || gave === 0) break;
+      // Credit every primary muscle of the exercise that is still behind.
+      const also = alsoOf.get(item) ?? new Set<MuscleGroup>();
+      for (const g of byId.get(item.exercise_id)?.muscle_groups ?? []) {
+        const cur = left.get(g);
+        if (cur === undefined || cur <= 0) continue;
+        left.set(g, Math.max(0, cur - gave));
+        if (g !== need.muscle) also.add(g);
+      }
+      alsoOf.set(item, also);
+      item.reason = reasonFor(nameOf(item.exercise_id), need.muscle, item.sets, item.in_routine, dayRoutine.get(item.date)?.name, [...also]);
     }
-    if (left > 0) unmet.push({ muscle: need.muscle, sets: left });
   }
 
+  const unmet: CatchUpPlan["unmet"] = needs.map((n) => ({ muscle: n.muscle, sets: left.get(n.muscle) ?? 0 })).filter((u) => u.sets > 0);
   return { trainingDays, additions: trainingDays.flatMap((d) => added.get(d)!), unmet, covered, noSessionsLeft: false };
 }
 
-function reasonFor(name: string, muscle: MuscleGroup, sets: number, inRoutine: boolean, routineName?: string): string {
+function reasonFor(name: string, muscle: MuscleGroup, sets: number, inRoutine: boolean, routineName: string | undefined, also: MuscleGroup[]): string {
   const s = `${sets} set${sets === 1 ? "" : "s"}`;
-  return inRoutine
+  const base = inRoutine
     ? `${s} more on ${name}, already in ${routineName ?? "this day's routine"}. Brings ${muscle} toward target.`
     : `${s} of ${name} brings ${muscle} toward this week's target.`;
+  return also.length ? `${base} Also counts toward ${also.join(" and ")}.` : base;
 }

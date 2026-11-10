@@ -2,8 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 // UI-03: weekly goals card on Progress. A fresh profile has no workouts, so every
 // muscle is under its default target and the rule-based "Catch up" plan renders
-// without seeding. There is no AI key in e2e, so "Refine with AI" must show the
-// plain unavailable/failure note and leave the plan exactly as it was.
+// without seeding. The plan is fully rule-based: no AI step, nothing to fail offline.
 const BENCH = "Barbell_Bench_Press_-_Medium_Grip";
 
 const card = (page: Page) => page.locator("section").filter({ has: page.getByRole("heading", { name: "Weekly goals" }) });
@@ -59,7 +58,7 @@ async function seedPlannedRoutine(page: Page) {
   }, BENCH);
 }
 
-test("weekly goals card shows the catch-up plan and a plain note when AI is unavailable", async ({ page }) => {
+test("weekly goals card shows the rule-based catch-up plan with no AI step", async ({ page }) => {
   await page.goto("/progress");
   await page.waitForLoadState("networkidle"); // let React hydrate before clicking
 
@@ -67,22 +66,14 @@ test("weekly goals card shows the catch-up plan and a plain note when AI is unav
   await expect(c.getByRole("heading", { name: "Weekly goals" })).toBeVisible();
   await expect(c.getByRole("heading", { name: "Catch up" })).toBeVisible();
 
-  // The plan is rule-based: exercise links per training day, with a one-tap add, and no AI call needed.
+  // The plan is rule-based: exercise links per training day, with a one-tap add.
   const plan = c.getByRole("list", { name: "Catch-up plan" });
   await expect(plan).toBeVisible();
-  const links = plan.locator('a[href^="/exercises/"]');
-  await expect(links.first()).toBeVisible();
-  const linkCount = await links.count();
+  await expect(plan.locator('a[href^="/exercises/"]').first()).toBeVisible();
   await expect(plan.getByRole("button", { name: "Add to next workout" })).toBeVisible();
 
-  await c.getByRole("button", { name: "Refine with AI" }).click();
-  await expect(
-    c.getByText(/AI refine is not available right now|Could not refine the plan with AI|AI refine is available when back online/),
-  ).toBeVisible();
-
-  // Rule-based plan unchanged by the failed refine.
-  await expect(links).toHaveCount(linkCount);
-  await expect(plan.getByRole("button", { name: "Add to next workout" })).toBeVisible();
+  // No AI controls on the card.
+  await expect(c.getByRole("button", { name: /AI/ })).toHaveCount(0);
 });
 
 test("catch-up adds sets to the planned routine as a copy and does not star exercises", async ({ page }) => {

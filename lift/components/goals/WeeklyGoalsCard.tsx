@@ -5,12 +5,12 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCatalogue } from "@/lib/catalogue";
 import { usePreferred } from "@/lib/favorites";
-import { allTargets, useGoals, type Goals } from "@/lib/goals";
+import { allTargets, useGoals } from "@/lib/goals";
 import { addDays, daysLeftInWeek, goalProgress, startOfWeek, type GoalProgress } from "@/lib/stats";
 import { periodStats, type WorkoutLite } from "@/lib/progress";
 import { useSettings } from "@/lib/settings";
-import { equipmentForAi, getEquipment } from "@/lib/equipment";
-import { MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "@/lib/muscles";
+import { getEquipment } from "@/lib/equipment";
+import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
 import { db } from "@/lib/offline/db";
 import { dayKey, getDay, planDay, weekDays } from "@/lib/planner";
 import { createRoutine, getRoutine, listRoutines } from "@/lib/routines";
@@ -94,16 +94,7 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
               <p className="text-xs text-muted mb-2">
                 Sets to add on your {plan.trainingDays.length} remaining training day{plan.trainingDays.length === 1 ? "" : "s"}, based on your routines.
               </p>
-              <CatchUpPlan
-                key={plan.trainingDays.join()}
-                plan={plan}
-                behind={focusFirst}
-                goals={goals}
-                favorites={preferred!}
-                equipment={equipment!}
-                known={(id) => !!get(id)}
-                nameOf={(id) => get(id)?.name ?? id}
-              />
+              <CatchUpPlan key={plan.trainingDays.join()} plan={plan} nameOf={(id) => get(id)?.name ?? id} />
             </>
           )}
         </>
@@ -134,21 +125,13 @@ function GoalRow({ row, focus }: { row: GoalProgress; focus: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
-// AI catch-up plan (POST /api/ai/goal-gaps). The rule-based chips above stay
-// as they are; this only adds a plan with a day for each exercise and a
-// one-tap add. Any failure leaves the card exactly as it was, plus a short note.
+// Catch-up plan: sets to add on the training days left this week (lib/catchUp.ts),
+// with a one-tap add per day.
 // ---------------------------------------------------------------------------
-
-/** Mirrors the route's limits (MAX_TARGET and MAX_USER_TARGET in lib/ai/goal-targets.ts, MAX_SETS_PER_ADD in lib/ai/goal-gaps.ts). */
-export const GAP_MAX_REMAINING = 24;
-export const GAP_MAX_TARGET = 40;
-const GAP_MAX_FAVORITES = 200;
-export const GAP_MAX_SETS = 6;
 
 export type GapAddition = { exercise_id: string; muscle: MuscleGroup; date: string; sets: number; reason: string };
 
 const isMuscleName = (m: unknown): m is MuscleGroup => typeof m === "string" && (MUSCLE_GROUPS as readonly string[]).includes(m);
-const intIn = (n: unknown, lo: number, hi: number): n is number => typeof n === "number" && Number.isInteger(n) && n >= lo && n <= hi;
 
 /** Today and the rest of this week as local YYYY-MM-DD keys. */
 export function daysLeftKeys(weekStart: 0 | 1, now = new Date()): string[] {
@@ -156,51 +139,6 @@ export function daysLeftKeys(weekStart: 0 | 1, now = new Date()): string[] {
   return weekDays(weekStart, now)
     .map(dayKey)
     .filter((k) => k >= today);
-}
-
-/** The request body the goal-gaps route accepts, built from the card's rows. Null when nothing is behind. */
-export function buildGapsRequest(behind: GoalProgress[], goals: Goals, days: string[], favorites: string[] = [], equipment: Equipment[] = []) {
-  const gaps = behind
-    .filter((r) => isMuscleName(r.muscle) && r.remaining > 0)
-    .map((r) => {
-      const sets_remaining = Math.min(r.remaining, GAP_MAX_REMAINING);
-      return {
-        muscle: r.muscle as MuscleGroup,
-        sets_remaining,
-        ...(intIn(r.target, sets_remaining, GAP_MAX_TARGET) ? { target: r.target } : {}),
-      };
-    });
-  if (gaps.length === 0 || days.length === 0) return null;
-  const targets: Partial<Record<MuscleGroup, number>> = {};
-  for (const [m, v] of Object.entries(goals.targets ?? {})) if (isMuscleName(m) && intIn(v, 0, GAP_MAX_TARGET)) targets[m] = v;
-  return {
-    gaps,
-    days_left: days,
-    goals: {
-      goalType: goals.goalType,
-      experience: goals.experience,
-      sessionsPerWeek: Math.max(1, Math.min(7, Math.round(goals.sessionsPerWeek || 3))),
-      focusMuscles: goals.focusMuscles.filter(isMuscleName),
-      targets,
-    },
-    ...(favorites.length ? { favorites: favorites.slice(0, GAP_MAX_FAVORITES) } : {}),
-    ...(equipmentForAi(equipment).length ? { equipment: equipmentForAi(equipment) } : {}),
-  };
-}
-
-/** Keeps only well-formed additions for known exercises on the days offered. Null when the body is unusable. */
-export function parseGapsResponse(json: unknown, days: string[], known: (id: string) => boolean): GapAddition[] | null {
-  if (typeof json !== "object" || json === null || !Array.isArray((json as { additions?: unknown }).additions)) return null;
-  const out: GapAddition[] = [];
-  for (const a of (json as { additions: unknown[] }).additions) {
-    if (typeof a !== "object" || a === null) continue;
-    const { exercise_id, muscle, date, sets, reason } = a as Record<string, unknown>;
-    if (typeof exercise_id !== "string" || !known(exercise_id)) continue;
-    if (!isMuscleName(muscle) || typeof date !== "string" || !days.includes(date) || !intIn(sets, 1, GAP_MAX_SETS)) continue;
-    if (out.some((x) => x.date === date && x.exercise_id === exercise_id)) continue;
-    out.push({ exercise_id, muscle, date, sets, reason: typeof reason === "string" ? reason.slice(0, 200) : "" });
-  }
-  return out;
 }
 
 const weekdayLabel = (key: string) => new Date(key + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" });
@@ -253,80 +191,16 @@ export async function addToDay(date: string, additions: GapAddition[], now = new
   return `Planned a catch-up workout on ${day}.`;
 }
 
-type AiState =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "done"; additions: GapAddition[] };
-
-export const AI_MESSAGES = {
-  offline: "AI refine is available when back online.",
-  unavailable: "AI refine is not available right now. The plan above still applies.",
-  failed: "Could not refine the plan with AI. The plan above still applies.",
-  empty: "AI had no changes for this week. The plan above still applies.",
-} as const;
-
 /**
- * The rule-based plan by training day, with a one-tap add per day. "Refine with AI"
- * swaps in the AI's picks for the same days; any failure leaves the plan as it was.
- * The plan is frozen at the first add, so tapping add never reshuffles the other days.
+ * The plan by training day, with a one-tap add per day. The plan is frozen at the
+ * first add, so tapping add never reshuffles the other days.
  */
-function CatchUpPlan({
-  plan,
-  behind,
-  goals,
-  favorites,
-  equipment,
-  known,
-  nameOf,
-}: {
-  plan: CatchUpPlanData;
-  behind: GoalProgress[];
-  goals: Goals;
-  favorites: string[];
-  equipment: Equipment[];
-  known: (id: string) => boolean;
-  nameOf: (id: string) => string;
-}) {
-  const [state, setState] = useState<AiState>({ kind: "idle" });
+function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: string) => string }) {
   const [frozen, setFrozen] = useState<CatchUpPlanData | null>(null);
   const [added, setAdded] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
   const shown = frozen ?? plan;
-  const additions: GapAddition[] = state.kind === "done" ? state.additions : shown.additions;
-
-  async function refine() {
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setState({ kind: "error", message: AI_MESSAGES.offline });
-      return;
-    }
-    const days = shown.trainingDays;
-    // Sets your planned routines already cover are not asked for again.
-    const covered = new Map<string, number>(shown.covered.map((c) => [c.muscle, c.sets]));
-    const gaps = behind.map((r) => ({ ...r, remaining: r.remaining - (covered.get(r.muscle) ?? 0) })).filter((r) => r.remaining > 0);
-    const body = buildGapsRequest(gaps, goals, days, favorites, equipment);
-    if (!body) return;
-    setState({ kind: "loading" });
-    setAdded({});
-    try {
-      const res = await fetch("/api/ai/goal-gaps", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        setState({ kind: "error", message: res.status === 503 ? AI_MESSAGES.unavailable : AI_MESSAGES.failed });
-        return;
-      }
-      const picks = parseGapsResponse(await res.json(), days, known);
-      if (!picks) setState({ kind: "error", message: AI_MESSAGES.failed });
-      else if (picks.length === 0) setState({ kind: "error", message: AI_MESSAGES.empty });
-      else setState({ kind: "done", additions: picks });
-    } catch {
-      setState({ kind: "error", message: AI_MESSAGES.failed });
-    }
-  }
 
   async function add(date: string, items: GapAddition[]) {
     if (!frozen) setFrozen(plan);
@@ -341,7 +215,7 @@ function CatchUpPlan({
     }
   }
 
-  const groups = shown.trainingDays.map((date) => ({ date, items: additions.filter((a) => a.date === date) })).filter((g) => g.items.length > 0);
+  const groups = shown.trainingDays.map((date) => ({ date, items: shown.additions.filter((a) => a.date === date) })).filter((g) => g.items.length > 0);
 
   return (
     <div>
@@ -386,26 +260,11 @@ function CatchUpPlan({
           Already covered by your planned routines: {shown.covered.map((c) => `${c.muscle} (${c.sets} set${c.sets === 1 ? "" : "s"})`).join(", ")}.
         </p>
       )}
-      {state.kind !== "done" && shown.unmet.length > 0 && (
+      {shown.unmet.length > 0 && (
         <p className="text-xs text-muted mt-2">
           Not enough room this week for: {shown.unmet.map((u) => `${u.muscle} (${u.sets} set${u.sets === 1 ? "" : "s"})`).join(", ")}.
         </p>
       )}
-      {state.kind === "error" && (
-        <p role="status" className="text-xs text-muted mt-2">
-          {state.message}
-        </p>
-      )}
-      <div className="mt-3 flex gap-2">
-        <button className="btn-ghost flex-1 py-2 text-sm" onClick={refine} disabled={state.kind === "loading" || groups.length === 0}>
-          {state.kind === "loading" ? "Refining..." : state.kind === "done" ? "Refresh AI plan" : "Refine with AI"}
-        </button>
-        {state.kind === "done" && (
-          <button className="btn-ghost py-2 px-3 text-sm" onClick={() => (setState({ kind: "idle" }), setAdded({}))}>
-            Basic plan
-          </button>
-        )}
-      </div>
     </div>
   );
 }
