@@ -34,6 +34,13 @@ describe("routines auto-favorite their exercises", () => {
     expect([...(await favs())!].sort()).toEqual(["bench", "dip", "fly"]);
   });
 
+  it("leaves favorites alone when the routine is created with favorite: false", async () => {
+    await createRoutine({ name: "Catch up", source: "ai", favorite: false, exercises: [{ exercise_id: "bench" }] });
+    expect(await favs()).toBeUndefined();
+    await createRoutine({ name: "Push", favorite: true, exercises: [{ exercise_id: "fly" }] });
+    expect(await favs()).toEqual(["fly"]);
+  });
+
   it("does not touch favorites when only renaming", async () => {
     const id = await createRoutine({ name: "Push", exercises: [] });
     await updateRoutine(id, { name: "Pull" });

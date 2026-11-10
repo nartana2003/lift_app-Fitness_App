@@ -54,6 +54,8 @@ export async function createRoutine(input: {
   notes?: string;
   /** The split day this routine belongs to. Left out: no link (the field is not written). */
   split_day_id?: string | null;
+  /** Star its exercises (default true). The catch-up plan passes false so its picks do not become favourites. */
+  favorite?: boolean;
   /** Link fields (Save from link). Left out: null, as before. */
   source_url?: string | null;
   platform?: RoutineRow["platform"];
@@ -84,7 +86,7 @@ export async function createRoutine(input: {
       ...exercises.map((r) => ({ table: "routine_exercises" as const, op: "upsert" as const, row: r })),
     ]);
   });
-  await addFavorites(input.exercises.map((e) => e.exercise_id));
+  if (input.favorite !== false) await addFavorites(input.exercises.map((e) => e.exercise_id));
   return row.id;
 }
 

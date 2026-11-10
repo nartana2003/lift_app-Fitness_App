@@ -2,23 +2,33 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { useCatalogue } from "@/lib/catalogue";
-import { suggestForMuscle } from "@/lib/suggest";
-import { useFavorites } from "@/lib/favorites";import { allTargets, useGoals, type Goals } from "@/lib/goals";
+import { usePreferred } from "@/lib/favorites";
+import { allTargets, useGoals, type Goals } from "@/lib/goals";
 import { addDays, daysLeftInWeek, goalProgress, startOfWeek, type GoalProgress } from "@/lib/stats";
 import { periodStats, type WorkoutLite } from "@/lib/progress";
 import { useSettings } from "@/lib/settings";
-import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
+import { equipmentForAi, getEquipment } from "@/lib/equipment";
+import { MUSCLE_GROUPS, type Equipment, type MuscleGroup } from "@/lib/muscles";
+import { db } from "@/lib/offline/db";
 import { dayKey, getDay, planDay, weekDays } from "@/lib/planner";
-import { createRoutine, getRoutine } from "@/lib/routines";
+import { createRoutine, getRoutine, listRoutines } from "@/lib/routines";
+import { CATCH_UP_NAME, CATCH_UP_SUFFIX, historyCounts, isCatchUpRoutine, planCatchUp, sessionsThisWeek, type CatchUpPlan as CatchUpPlanData } from "@/lib/catchUp";
 import { addExercises, getActive } from "@/lib/workout";
 
-/** Done vs target sets per muscle this week, with suggestions for what's behind. */
+/** Done vs target sets per muscle this week, with a plan for what's behind. */
 export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
   const goals = useGoals();
   const { weekStart } = useSettings();
   const { get, exercises } = useCatalogue();
-  const favorites = useFavorites();
+  // Each of these is undefined until it has loaded; the plan waits so it never shows a first guess that then changes.
+  const preferred = usePreferred();
+  const equipment = useLiveQuery(getEquipment, []);
+  const routines = useLiveQuery(() => listRoutines(), []);
+  const from = dayKey(startOfWeek(new Date(), weekStart));
+  const planned = useLiveQuery(() => db.planned_days.where("date").between(from, dayKey(addDays(new Date(from + "T00:00:00"), 6)), true, true).toArray(), [from]);
+  const ready = !!preferred && !!equipment && !!routines && !!planned;
 
   const rows = useMemo(() => {
     const from = startOfWeek(new Date(), weekStart);
@@ -33,6 +43,22 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
     const fa = goals.focusMuscles.includes(a.muscle as never) ? 0 : 1;
     const fb = goals.focusMuscles.includes(b.muscle as never) ? 0 : 1;
     return fa - fb || b.remaining - a.remaining;
+  });
+
+  const days = daysLeftKeys(weekStart);
+  const sessionsDone = sessionsThisWeek(workouts, weekStart);
+  const plan = planCatchUp({
+    behind: focusFirst.filter((r) => isMuscleName(r.muscle)).map((r) => ({ muscle: r.muscle as MuscleGroup, remaining: r.remaining })),
+    days,
+    planned: planned ?? [],
+    sessionsPerWeek: goals.sessionsPerWeek,
+    sessionsDone,
+    routines: new Map((routines ?? []).map((r) => [r.id, r])),
+    catalogue: exercises,
+    history: historyCounts(workouts),
+    favorites: preferred ?? [],
+    dislikedIds: goals.dislikedIds,
+    equipment: equipment ?? [],
   });
 
   return (
@@ -55,30 +81,31 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
         ))}
       </ul>
 
+      {focusFirst.length === 0 && <p className="text-xs text-muted mt-4">All weekly targets are met.</p>}
       {focusFirst.length > 0 && (
         <>
           <h3 className="font-semibold mt-5 mb-1">Catch up</h3>
-          <p className="text-xs text-muted mb-2">Suggestions for the muscles you&apos;re behind on.</p>
-          <ul className="space-y-2">
-            {focusFirst.slice(0, 3).map((r) => {
-              const picks = suggestForMuscle(exercises, r.muscle, 3, favorites);
-              return (
-                <li key={r.muscle} className="rounded-xl bg-surface-2 p-3">
-                  <p className="text-sm font-semibold">
-                    {r.muscle} · {r.remaining} more set{r.remaining === 1 ? "" : "s"}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {picks.map((e) => (
-                      <Link key={e.id} href={`/exercises/${e.id}`} className="chip text-xs bg-surface">
-                        {e.name}
-                      </Link>
-                    ))}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          <AiCatchUp behind={focusFirst} goals={goals} favorites={favorites} weekStart={weekStart} known={(id) => !!get(id)} nameOf={(id) => get(id)?.name ?? id} />
+          {!ready ? null : plan.noSessionsLeft ? (
+            <p className="text-xs text-muted">
+              You have done your {goals.sessionsPerWeek} session{goals.sessionsPerWeek === 1 ? "" : "s"} this week, so no more are added.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs text-muted mb-2">
+                Sets to add on your {plan.trainingDays.length} remaining training day{plan.trainingDays.length === 1 ? "" : "s"}, based on your routines.
+              </p>
+              <CatchUpPlan
+                key={plan.trainingDays.join()}
+                plan={plan}
+                behind={focusFirst}
+                goals={goals}
+                favorites={preferred!}
+                equipment={equipment!}
+                known={(id) => !!get(id)}
+                nameOf={(id) => get(id)?.name ?? id}
+              />
+            </>
+          )}
         </>
       )}
     </section>
@@ -132,7 +159,7 @@ export function daysLeftKeys(weekStart: 0 | 1, now = new Date()): string[] {
 }
 
 /** The request body the goal-gaps route accepts, built from the card's rows. Null when nothing is behind. */
-export function buildGapsRequest(behind: GoalProgress[], goals: Goals, days: string[], favorites: string[] = []) {
+export function buildGapsRequest(behind: GoalProgress[], goals: Goals, days: string[], favorites: string[] = [], equipment: Equipment[] = []) {
   const gaps = behind
     .filter((r) => isMuscleName(r.muscle) && r.remaining > 0)
     .map((r) => {
@@ -157,6 +184,7 @@ export function buildGapsRequest(behind: GoalProgress[], goals: Goals, days: str
       targets,
     },
     ...(favorites.length ? { favorites: favorites.slice(0, GAP_MAX_FAVORITES) } : {}),
+    ...(equipmentForAi(equipment).length ? { equipment: equipmentForAi(equipment) } : {}),
   };
 }
 
@@ -206,18 +234,21 @@ export async function addToDay(date: string, additions: GapAddition[], now = new
   const base = planned?.routine_id ? await getRoutine(planned.routine_id) : undefined;
   if (base) {
     const have = new Set(base.exercises.map((e) => e.exercise_id));
+    const more = new Map(list.map((e) => [e.exercise_id, e.target_sets]));
     const id = await createRoutine({
-      name: `${base.name} + catch up`,
+      name: isCatchUpRoutine(base.name) ? base.name : `${base.name}${CATCH_UP_SUFFIX}`,
       source: "ai",
+      favorite: false,
       exercises: [
-        ...base.exercises.map((e) => ({ exercise_id: e.exercise_id, target_sets: e.target_sets, target_reps: e.target_reps })),
+        // An exercise already in the routine gets the extra sets; the rest are added.
+        ...base.exercises.map((e) => ({ exercise_id: e.exercise_id, target_sets: e.target_sets + (more.get(e.exercise_id) ?? 0), target_reps: e.target_reps })),
         ...list.filter((e) => !have.has(e.exercise_id)),
       ],
     });
     await planDay(date, id);
     return `Added to ${base.name} on ${day}.`;
   }
-  const id = await createRoutine({ name: "Catch up", source: "ai", exercises: list });
+  const id = await createRoutine({ name: CATCH_UP_NAME, source: "ai", favorite: false, exercises: list });
   await planDay(date, id);
   return `Planned a catch-up workout on ${day}.`;
 }
@@ -226,41 +257,52 @@ type AiState =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "done"; additions: GapAddition[]; days: string[] };
+  | { kind: "done"; additions: GapAddition[] };
 
 export const AI_MESSAGES = {
-  offline: "AI plan is available when back online.",
-  unavailable: "AI plan is not available right now. The suggestions above still apply.",
-  failed: "Could not get an AI plan. The suggestions above still apply.",
-  empty: "No AI plan for this week. The suggestions above still apply.",
+  offline: "AI refine is available when back online.",
+  unavailable: "AI refine is not available right now. The plan above still applies.",
+  failed: "Could not refine the plan with AI. The plan above still applies.",
+  empty: "AI had no changes for this week. The plan above still applies.",
 } as const;
 
-function AiCatchUp({
+/**
+ * The rule-based plan by training day, with a one-tap add per day. "Refine with AI"
+ * swaps in the AI's picks for the same days; any failure leaves the plan as it was.
+ * The plan is frozen at the first add, so tapping add never reshuffles the other days.
+ */
+function CatchUpPlan({
+  plan,
   behind,
   goals,
   favorites,
-  weekStart,
+  equipment,
   known,
   nameOf,
 }: {
+  plan: CatchUpPlanData;
   behind: GoalProgress[];
   goals: Goals;
   favorites: string[];
-  weekStart: 0 | 1;
+  equipment: Equipment[];
   known: (id: string) => boolean;
   nameOf: (id: string) => string;
 }) {
   const [state, setState] = useState<AiState>({ kind: "idle" });
+  const [frozen, setFrozen] = useState<CatchUpPlanData | null>(null);
   const [added, setAdded] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function load() {
+  const shown = frozen ?? plan;
+  const additions: GapAddition[] = state.kind === "done" ? state.additions : shown.additions;
+
+  async function refine() {
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setState({ kind: "error", message: AI_MESSAGES.offline });
       return;
     }
-    const days = daysLeftKeys(weekStart);
-    const body = buildGapsRequest(behind, goals, days, favorites);
+    const days = shown.trainingDays;
+    const body = buildGapsRequest(behind, goals, days, favorites, equipment);
     if (!body) return;
     setState({ kind: "loading" });
     setAdded({});
@@ -274,16 +316,17 @@ function AiCatchUp({
         setState({ kind: "error", message: res.status === 503 ? AI_MESSAGES.unavailable : AI_MESSAGES.failed });
         return;
       }
-      const additions = parseGapsResponse(await res.json(), days, known);
-      if (!additions) setState({ kind: "error", message: AI_MESSAGES.failed });
-      else if (additions.length === 0) setState({ kind: "error", message: AI_MESSAGES.empty });
-      else setState({ kind: "done", additions, days });
+      const picks = parseGapsResponse(await res.json(), days, known);
+      if (!picks) setState({ kind: "error", message: AI_MESSAGES.failed });
+      else if (picks.length === 0) setState({ kind: "error", message: AI_MESSAGES.empty });
+      else setState({ kind: "done", additions: picks });
     } catch {
       setState({ kind: "error", message: AI_MESSAGES.failed });
     }
   }
 
   async function add(date: string, items: GapAddition[]) {
+    if (!frozen) setFrozen(plan);
     setBusy(date);
     try {
       const msg = await addToDay(date, items);
@@ -295,31 +338,24 @@ function AiCatchUp({
     }
   }
 
-  const groups =
-    state.kind === "done"
-      ? state.days.map((date) => ({ date, items: state.additions.filter((a) => a.date === date) })).filter((g) => g.items.length > 0)
-      : [];
+  const groups = shown.trainingDays.map((date) => ({ date, items: additions.filter((a) => a.date === date) })).filter((g) => g.items.length > 0);
 
   return (
-    <div className="mt-3">
-      <button className="btn-ghost w-full py-2 text-sm" onClick={load} disabled={state.kind === "loading"}>
-        {state.kind === "loading" ? "Planning..." : state.kind === "done" ? "Refresh AI plan" : "Plan the week with AI"}
-      </button>
-      {state.kind === "error" && (
-        <p role="status" className="text-xs text-muted mt-2">
-          {state.message}
-        </p>
-      )}
-      {groups.length > 0 && (
-        <ul className="space-y-2 mt-2" aria-label="AI catch-up plan">
+    <div>
+      {groups.length > 0 ? (
+        <ul className="space-y-2" aria-label="Catch-up plan">
           {groups.map((g, i) => (
             <li key={g.date} className="rounded-xl bg-surface-2 p-3">
               <p className="text-sm font-semibold">{weekdayLabel(g.date)}</p>
               <ul className="mt-1 space-y-1">
                 {g.items.map((a) => (
                   <li key={a.exercise_id} className="text-sm">
+                    <Link href={`/exercises/${a.exercise_id}`} className="underline">
+                      {nameOf(a.exercise_id)}
+                    </Link>
                     <span>
-                      {nameOf(a.exercise_id)} · {a.sets} set{a.sets === 1 ? "" : "s"}
+                      {" "}
+                      · {a.sets} set{a.sets === 1 ? "" : "s"}
                     </span>
                     {a.reason && <span className="block text-xs text-muted">{a.reason}</span>}
                   </li>
@@ -337,7 +373,29 @@ function AiCatchUp({
             </li>
           ))}
         </ul>
+      ) : (
+        <p className="text-xs text-muted">No exercises could be placed this week.</p>
       )}
+      {state.kind !== "done" && shown.unmet.length > 0 && (
+        <p className="text-xs text-muted mt-2">
+          Not enough room this week for: {shown.unmet.map((u) => `${u.muscle} (${u.sets} set${u.sets === 1 ? "" : "s"})`).join(", ")}.
+        </p>
+      )}
+      {state.kind === "error" && (
+        <p role="status" className="text-xs text-muted mt-2">
+          {state.message}
+        </p>
+      )}
+      <div className="mt-3 flex gap-2">
+        <button className="btn-ghost flex-1 py-2 text-sm" onClick={refine} disabled={state.kind === "loading" || groups.length === 0}>
+          {state.kind === "loading" ? "Refining..." : state.kind === "done" ? "Refresh AI plan" : "Refine with AI"}
+        </button>
+        {state.kind === "done" && (
+          <button className="btn-ghost py-2 px-3 text-sm" onClick={() => (setState({ kind: "idle" }), setAdded({}))}>
+            Basic plan
+          </button>
+        )}
+      </div>
     </div>
   );
 }
