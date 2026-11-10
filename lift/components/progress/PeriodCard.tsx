@@ -16,13 +16,13 @@ import { RecapCard } from "./RecapCard";
 /** Every skip reason the app has (SKIP_LABEL in lib/planner.ts). */
 const RECAP_SKIP_REASONS = Object.keys(SKIP_LABEL).length;
 
-function DeltaTag({ d }: { d: Delta }) {
-  if (d.pct === null) return <span className="text-[11px] text-muted">new</span>;
+/** Change against the previous period as a number (like the home page), not a percentage. */
+function DeltaTag({ d, fmt }: { d: Delta; fmt: (n: number) => string }) {
   if (d.diff === 0) return <span className="text-[11px] text-muted">same as last</span>;
   const up = d.diff > 0;
   return (
     <span className={`text-[11px] font-semibold ${up ? "text-text" : "text-muted"}`}>
-      {up ? "▲" : "▼"} {Math.abs(Math.round(d.pct))}%
+      {up ? "▲" : "▼"} {fmt(Math.abs(d.diff))}
     </span>
   );
 }
@@ -104,17 +104,17 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
         <div>
           <p className="text-xl font-bold">{cmp.sessions.current}</p>
           <p className="text-xs text-muted">workouts</p>
-          <DeltaTag d={cmp.sessions} />
+          <DeltaTag d={cmp.sessions} fmt={String} />
         </div>
         <div>
           <p className="text-xl font-bold">{formatDuration(cmp.duration.current)}</p>
           <p className="text-xs text-muted">time</p>
-          <DeltaTag d={cmp.duration} />
+          <DeltaTag d={cmp.duration} fmt={formatDuration} />
         </div>
         <div>
           <p className="text-xl font-bold">{fmtVolume(cmp.volume.current, unit)}</p>
           <p className="text-xs text-muted">volume</p>
-          <DeltaTag d={cmp.volume} />
+          <DeltaTag d={cmp.volume} fmt={(n) => fmtVolume(n, unit)} />
         </div>
       </div>
       <p className="text-[11px] text-muted mt-1.5 text-center">vs last {mode}</p>

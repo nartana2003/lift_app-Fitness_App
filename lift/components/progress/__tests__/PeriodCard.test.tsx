@@ -26,6 +26,22 @@ afterEach(() => {
 const renderCard = () => render(<PeriodCard workouts={[]} unit="kg" weekStart={1} />);
 const skipped = () => screen.getByRole("region", { name: "Skipped workouts" });
 
+describe("PeriodCard change vs last period (issue #36)", () => {
+  const w = (iso: string, weight: number) => ({
+    id: iso,
+    started_at: iso,
+    ended_at: iso,
+    exercises: [{ exercise_id: "x", sets: [{ reps: 10, weight, done: true }] }],
+  });
+
+  it("shows numbers, not percentages", () => {
+    const workouts = [w("2026-10-13T10:00:00", 100), w("2026-10-14T10:00:00", 100), w("2026-10-06T10:00:00", 100)];
+    const { container } = render(<PeriodCard workouts={workouts as never} unit="kg" weekStart={1} />);
+    expect(container.textContent).toContain("▲ 1");
+    expect(container.textContent).not.toContain("%");
+  });
+});
+
 describe("PeriodCard skip statistics", () => {
   it("keeps the existing snapshot and says when nothing was skipped", async () => {
     renderCard();
