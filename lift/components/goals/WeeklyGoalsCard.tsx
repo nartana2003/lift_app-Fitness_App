@@ -302,7 +302,10 @@ function CatchUpPlan({
       return;
     }
     const days = shown.trainingDays;
-    const body = buildGapsRequest(behind, goals, days, favorites, equipment);
+    // Sets your planned routines already cover are not asked for again.
+    const covered = new Map<string, number>(shown.covered.map((c) => [c.muscle, c.sets]));
+    const gaps = behind.map((r) => ({ ...r, remaining: r.remaining - (covered.get(r.muscle) ?? 0) })).filter((r) => r.remaining > 0);
+    const body = buildGapsRequest(gaps, goals, days, favorites, equipment);
     if (!body) return;
     setState({ kind: "loading" });
     setAdded({});
@@ -373,8 +376,15 @@ function CatchUpPlan({
             </li>
           ))}
         </ul>
+      ) : shown.covered.length > 0 && shown.unmet.length === 0 ? (
+        <p className="text-xs text-muted">Your planned routines already cover your remaining sets.</p>
       ) : (
         <p className="text-xs text-muted">No exercises could be placed this week.</p>
+      )}
+      {shown.covered.length > 0 && (
+        <p className="text-xs text-muted mt-2">
+          Already covered by your planned routines: {shown.covered.map((c) => `${c.muscle} (${c.sets} set${c.sets === 1 ? "" : "s"})`).join(", ")}.
+        </p>
       )}
       {state.kind !== "done" && shown.unmet.length > 0 && (
         <p className="text-xs text-muted mt-2">

@@ -98,6 +98,9 @@ test("catch-up adds sets to the planned routine as a copy and does not star exer
   const todayBlock = plan.getByRole("listitem").filter({ has: page.getByText(today, { exact: true }) }).first();
   await expect(todayBlock.getByText(/more on .*Bench Press.*, already in E2E Push/)).toBeVisible();
 
+  // The routine's 4 planned bench sets already count toward chest, so they are not asked for again.
+  await expect(c.getByText(/Already covered by your planned routines: .*Chest \(4 sets\)/)).toBeVisible();
+
   await todayBlock.getByRole("button", { name: /Add to/ }).click();
   await expect(c.getByText(`Added to E2E Push on ${today}.`)).toBeVisible();
 

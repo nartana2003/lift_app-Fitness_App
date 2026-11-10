@@ -63,7 +63,7 @@ const row = (date: string, routine_id: string | null, status: PlannedDayRow["sta
   created_at: "2026-10-12T00:00:00.000Z",
 });
 
-const routine = (name: string, ids: string[], sets = 3) => ({ name, exercises: ids.map((exercise_id) => ({ exercise_id, target_sets: sets })) });
+const routine = (name: string, ids: string[], sets = 1) => ({ name, exercises: ids.map((exercise_id) => ({ exercise_id, target_sets: sets })) });
 
 const input = (over: Partial<CatchUpInput> = {}): CatchUpInput => ({
   behind: [{ muscle: "Chest", remaining: 6 }],
@@ -155,7 +155,8 @@ describe("planCatchUp: using the user's routines", () => {
     ]);
     const plan = planCatchUp(input({ planned: [row(WED, "legs"), row(FRI, "push")], routines, behind: [{ muscle: "Chest", remaining: 3 }] }));
     expect(plan.additions).toHaveLength(1);
-    expect(plan.additions[0]).toMatchObject({ exercise_id: "bench", date: FRI, sets: 3, muscle: "Chest" });
+    // The routine already has 1 chest set planned, so 2 of the 3 missing sets are added.
+    expect(plan.additions[0]).toMatchObject({ exercise_id: "bench", date: FRI, sets: 2, muscle: "Chest" });
     expect(plan.additions[0].reason).toContain("more on bench");
     expect(plan.additions[0].reason).toContain("Push");
   });
@@ -193,6 +194,57 @@ describe("planCatchUp: using the user's routines", () => {
     const routines = new Map([["copy", routine("Push + catch up", ["bench"])]]);
     const plan = planCatchUp(input({ routines, planned: [row(FRI, "copy")], behind: [{ muscle: "Chest", remaining: 3 }] }));
     expect(plan.additions[0]).toMatchObject({ exercise_id: "bench", date: FRI });
+  });
+});
+
+describe("planCatchUp: sets already planned", () => {
+  const push = (sets: number) => new Map([["push", routine("Push", ["bench"], sets)]]);
+
+  it("subtracts the sets planned on training days from what is still needed", () => {
+    const plan = planCatchUp(input({ routines: push(4), planned: [row(FRI, "push")], sessionsPerWeek: 1, behind: [{ muscle: "Chest", remaining: 10 }] }));
+    expect(plan.covered).toEqual([{ muscle: "Chest", sets: 4 }]);
+    expect(plan.additions.reduce((n, a) => n + a.sets, 0) + plan.unmet.reduce((n, u) => n + u.sets, 0)).toBe(6);
+  });
+
+  it("adds nothing for a muscle the planned routines already cover, and caps covered at what was needed", () => {
+    const plan = planCatchUp(input({ routines: push(8), planned: [row(FRI, "push")], sessionsPerWeek: 1, behind: [{ muscle: "Chest", remaining: 3 }] }));
+    expect(plan.additions).toEqual([]);
+    expect(plan.unmet).toEqual([]);
+    expect(plan.covered).toEqual([{ muscle: "Chest", sets: 3 }]);
+    expect(plan.noSessionsLeft).toBe(false);
+  });
+
+  it("still plans the other muscles when one is covered", () => {
+    const plan = planCatchUp(
+      input({ routines: push(8), planned: [row(FRI, "push")], sessionsPerWeek: 1, behind: [{ muscle: "Chest", remaining: 3 }, { muscle: "Back", remaining: 3 }] }),
+    );
+    expect(plan.additions.map((a) => a.muscle)).toEqual(["Back"]);
+  });
+
+  it("counts every primary muscle of a planned exercise", () => {
+    const both = { ...ex("pull-up", "Back"), muscle_groups: ["Back", "Biceps"] as MuscleGroup[] };
+    const routines = new Map([["pull", routine("Pull", ["pull-up"], 4)]]);
+    const plan = planCatchUp(input({ catalogue: [both], routines, planned: [row(FRI, "pull")], sessionsPerWeek: 1, behind: [{ muscle: "Back", remaining: 6 }, { muscle: "Biceps", remaining: 2 }] }));
+    expect(plan.covered).toEqual([{ muscle: "Back", sets: 4 }, { muscle: "Biceps", sets: 2 }]);
+  });
+
+  it("ignores routines on days that are done, skipped or not planned", () => {
+    const routines = new Map([["push", routine("Push", ["bench"], 8)], ["old", routine("Old", ["bench"], 8)]]);
+    const plan = planCatchUp(input({ routines, planned: [row(WED, "push", "done"), row(THU, "old", "skipped")], sessionsPerWeek: 1, behind: [{ muscle: "Chest", remaining: 3 }] }));
+    expect(plan.covered).toEqual([]);
+    expect(plan.additions.length).toBeGreaterThan(0);
+  });
+
+  it("reports nothing covered when no planned routine trains a behind muscle", () => {
+    const plan = planCatchUp(input({ routines: push(4), planned: [row(FRI, "push")], sessionsPerWeek: 1, behind: [{ muscle: "Back", remaining: 3 }] }));
+    expect(plan.covered).toEqual([]);
+  });
+
+  it("counts an earlier catch-up copy planned on the day, so a second look does not add the same sets again", () => {
+    const routines = new Map([["copy", routine("Push + catch up", ["bench"], 6)]]);
+    const plan = planCatchUp(input({ routines, planned: [row(FRI, "copy")], sessionsPerWeek: 1, behind: [{ muscle: "Chest", remaining: 6 }] }));
+    expect(plan.additions).toEqual([]);
+    expect(plan.covered).toEqual([{ muscle: "Chest", sets: 6 }]);
   });
 });
 
@@ -244,7 +296,7 @@ describe("planCatchUp: rules for picks", () => {
     const plan = planCatchUp(input({ routines, catalogue: [ex("bench", "Chest")], planned: [row(FRI, "push")], sessionsPerWeek: 1, behind: [{ muscle: "Chest", remaining: 10 }] }));
     expect(plan.additions).toHaveLength(1);
     expect(plan.additions[0].sets).toBe(MAX_SETS);
-    expect(plan.unmet).toEqual([{ muscle: "Chest", sets: 10 - MAX_SETS }]);
+    expect(plan.unmet).toEqual([{ muscle: "Chest", sets: 9 - MAX_SETS }]); // 1 of the 10 is already planned
   });
 
   it("caps sets per exercise and spreads the rest to another day", () => {
@@ -252,7 +304,8 @@ describe("planCatchUp: rules for picks", () => {
     const plan = planCatchUp(input({ routines, planned: [row(WED, "push"), row(FRI, null)], behind: [{ muscle: "Chest", remaining: 12 }] }));
     for (const a of plan.additions) expect(a.sets).toBeLessThanOrEqual(MAX_SETS);
     expect(new Set(plan.additions.map((a) => a.date)).size).toBeGreaterThan(1);
-    expect(plan.additions.reduce((n, a) => n + a.sets, 0) + plan.unmet.reduce((n, u) => n + u.sets, 0)).toBe(12);
+    // 1 of the 12 sets is already planned in the routine.
+    expect(plan.additions.reduce((n, a) => n + a.sets, 0) + plan.unmet.reduce((n, u) => n + u.sets, 0)).toBe(11);
   });
 
   it("never lists the same exercise twice on one day", () => {

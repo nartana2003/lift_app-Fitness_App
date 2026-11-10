@@ -138,6 +138,31 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     expect(within(day(THU)).getByText(/more on Barbell Row, already in Pull/)).toBeInTheDocument();
   });
 
+  it("counts sets already planned in a routine: says so, and does not ask the AI for them again", async () => {
+    // Chest defaults to 11 sets a week; this routine plans all 11, so chest is already covered.
+    const push = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench", target_sets: 11 }] });
+    await planDay(FRI, push);
+    fetchMock.mockResolvedValue(json(200, { additions: ADDITIONS }));
+    fireEvent.click(await renderCard());
+    expect(screen.getByText(/Already covered by your planned routines: Chest \(11 sets\)/)).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.gaps.map((g: { muscle: string }) => g.muscle)).not.toContain("Chest");
+    expect(validateInput(body).ok).toBe(true);
+    // No chest sets are suggested on any day.
+    expect(within(plan()).queryByRole("link", { name: "Bench Press" })).not.toBeInTheDocument();
+  });
+
+  it("says the plan is already covered when every behind muscle is planned", async () => {
+    await saveGoals({ targets: { ...Object.fromEntries(MUSCLE_GROUPS.map((m) => [m, 0])), Chest: 4 } });
+    const push = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench", target_sets: 4 }] });
+    await planDay(FRI, push);
+    render(<WeeklyGoalsCard workouts={[]} />);
+    expect(await screen.findByText("Your planned routines already cover your remaining sets.")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Catch-up plan" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refine with AI" })).toBeDisabled();
+  });
+
   it("says nothing is added when the week's sessions are already done", async () => {
     // Mon, Tue and Wed (today): three sessions with a goal of three.
     await renderCard([workoutOn(MON), workoutOn(TUE), workoutOn(WED)]).catch(() => undefined);

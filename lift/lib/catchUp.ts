@@ -44,6 +44,8 @@ export type CatchUpPlan = {
   additions: CatchUpAddition[];
   /** Sets that did not fit (no usable exercise or every day full). */
   unmet: { muscle: MuscleGroup; sets: number }[];
+  /** Sets per muscle that the routines already planned on the training days cover, so they are not added again. */
+  covered: { muscle: MuscleGroup; sets: number }[];
   /** True when the user has already reached their sessions this week and nothing is planned. */
   noSessionsLeft: boolean;
 };
@@ -111,7 +113,7 @@ export function splitSets(n: number): number[] {
 export function planCatchUp(input: CatchUpInput): CatchUpPlan {
   const sessionsLeft = Math.max(0, Math.round(input.sessionsPerWeek) - input.sessionsDone);
   const trainingDays = pickTrainingDays(input.days, input.planned, sessionsLeft);
-  if (trainingDays.length === 0) return { trainingDays, additions: [], unmet: [], noSessionsLeft: true };
+  if (trainingDays.length === 0) return { trainingDays, additions: [], unmet: [], covered: [], noSessionsLeft: true };
 
   const byId = new Map(input.catalogue.map((e) => [e.id, e]));
   const disliked = new Set(input.dislikedIds ?? []);
@@ -138,8 +140,24 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
     return [...new Set([...mine, ...logged, ...fav, ...ranked])];
   };
 
+  // Sets already planned on the training days count toward the targets even though they are not done yet.
+  const planned = new Map<MuscleGroup, number>();
+  for (const d of trainingDays) {
+    for (const e of dayRoutine.get(d)?.exercises ?? []) {
+      for (const m of byId.get(e.exercise_id)?.muscle_groups ?? []) planned.set(m, (planned.get(m) ?? 0) + e.target_sets);
+    }
+  }
+  const covered: CatchUpPlan["covered"] = [];
+  const needs = input.behind
+    .map((b) => {
+      const c = Math.min(b.remaining, planned.get(b.muscle) ?? 0);
+      if (c > 0) covered.push({ muscle: b.muscle, sets: c });
+      return { muscle: b.muscle, remaining: b.remaining - c };
+    })
+    .filter((n) => n.remaining > 0);
+
   const unmet: CatchUpPlan["unmet"] = [];
-  for (const need of input.behind) {
+  for (const need of needs) {
     const picks = candidates(need.muscle);
     let left = Math.max(0, Math.round(need.remaining));
     for (const sets of splitSets(need.remaining)) {
@@ -181,7 +199,7 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
     if (left > 0) unmet.push({ muscle: need.muscle, sets: left });
   }
 
-  return { trainingDays, additions: trainingDays.flatMap((d) => added.get(d)!), unmet, noSessionsLeft: false };
+  return { trainingDays, additions: trainingDays.flatMap((d) => added.get(d)!), unmet, covered, noSessionsLeft: false };
 }
 
 function reasonFor(name: string, muscle: MuscleGroup, sets: number, inRoutine: boolean, routineName?: string): string {
