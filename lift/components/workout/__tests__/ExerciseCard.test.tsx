@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect, useRef } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type ActiveSet, type SetRow } from "@/lib/offline/db";
@@ -82,15 +83,25 @@ async function seedHistory() {
 const liveSets = async () => (await db.active.get("active"))!.exercises[0].sets;
 
 /** Re-renders the card from Dexie the way the workout page does. */
-function Harness({ onPr }: { onPr: (name: string, prs: PrType[]) => void }) {
+function Harness({ onPr, closed = false }: { onPr: (name: string, prs: PrType[]) => void; closed?: boolean }) {
   const w = useLiveQuery(() => db.active.get("active"), []);
   const ex = w?.exercises[0];
-  return ex ? <ExerciseCard ex={ex} info={bench} onPr={onPr} /> : null;
+  const box = useRef<HTMLDivElement>(null);
+  // Cards start collapsed; open it once, as a tap on the title does, unless the test is about the closed card.
+  const opened = useRef(false);
+  useEffect(() => {
+    const btn = box.current?.querySelector<HTMLButtonElement>("button[aria-expanded='false']");
+    if (!closed && !opened.current && btn) {
+      opened.current = true;
+      btn.click();
+    }
+  });
+  return <div ref={box}>{ex ? <ExerciseCard ex={ex} info={bench} onPr={onPr} /> : null}</div>;
 }
 
-function renderCard() {
+function renderCard(closed = false) {
   const onPr = vi.fn();
-  render(<Harness onPr={onPr} />);
+  render(<Harness onPr={onPr} closed={closed} />);
   return onPr;
 }
 
@@ -141,6 +152,18 @@ describe("ExerciseCard: previous-set column", () => {
 });
 
 describe("ExerciseCard: collapse", () => {
+  it("starts collapsed to the picture, name and sets done, until opened", async () => {
+    await seedActive([set("a", { weight: 50, reps: 8, done: true }), set("b")]);
+    renderCard(true);
+    await screen.findByRole("heading", { name: "Bench Press" });
+    expect(screen.getByRole("button", { name: "Expand Bench Press" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("1 of 2 sets done")).toHaveTextContent("1/2");
+    expect(screen.queryByRole("button", { name: /^(Complete|Undo) set$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ Add set" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Expand Bench Press" }));
+    expect(rows()).toHaveLength(2);
+  });
+
   it("tapping the title folds the card to the picture and name, and again unfolds it", async () => {
     await seedActive([set("a"), set("b")]);
     renderCard();

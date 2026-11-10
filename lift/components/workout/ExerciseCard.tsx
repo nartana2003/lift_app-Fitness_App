@@ -48,8 +48,8 @@ export function ExerciseCard({
   const { unit, suggestions } = useSettings();
   const [menu, setMenu] = useState(false);
   const [swapping, setSwapping] = useState(false);
-  // Tap the title to fold the card down to the picture and name.
-  const [collapsed, setCollapsed] = useState(false);
+  // Collapsed by default; tap the title to open the sets.
+  const [collapsed, setCollapsed] = useState(true);
   const name = info?.name ?? ex.exercise_id;
 
   const lastWork = last?.sets.filter((s) => !s.is_warmup) ?? [];

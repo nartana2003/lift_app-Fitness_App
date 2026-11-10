@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect, useRef } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type ActiveSet, type SetRow } from "@/lib/offline/db";
@@ -64,7 +65,17 @@ const lighter = (over: Record<string, unknown> = {}) => ({
 function Harness() {
   const w = useLiveQuery(() => db.active.get("active"), []);
   const ex = w?.exercises[0];
-  return ex ? <ExerciseCard ex={ex} info={bench} onPr={() => {}} /> : null;
+  const box = useRef<HTMLDivElement>(null);
+  // Cards start collapsed; open it once, as a tap on the title does.
+  const opened = useRef(false);
+  useEffect(() => {
+    const btn = box.current?.querySelector<HTMLButtonElement>("button[aria-expanded='false']");
+    if (!opened.current && btn) {
+      opened.current = true;
+      btn.click();
+    }
+  });
+  return <div ref={box}>{ex ? <ExerciseCard ex={ex} info={bench} onPr={() => {}} /> : null}</div>;
 }
 
 const liveSets = async () => (await db.active.get("active"))!.exercises[0].sets;
