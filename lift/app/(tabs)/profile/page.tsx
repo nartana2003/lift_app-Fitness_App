@@ -44,7 +44,7 @@ const GENDERS: { v: Gender; label: string }[] = [
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { unit, weekStart, suggestions } = useSettings();
+  const { unit, weekStart, suggestions, rirPrompt } = useSettings();
   const theme = useThemePref();
   const reminders = useReminders();
   const plannedDates = useMarkedGymDates(localDateKey(new Date()));
@@ -337,6 +337,24 @@ export default function ProfilePage() {
                 aria-checked={suggestions === on}
                 className={suggestions === on ? "chip-on justify-center py-2" : "chip justify-center py-2"}
                 onClick={() => saveSettings({ suggestions: on })}
+              >
+                {on ? "On" : "Off"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="font-semibold block">Rate effort after each set</span>
+          <span className="text-xs text-muted block mb-2">Ask how many reps you had left (RIR)</span>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Rate effort after each set">
+            {([true, false] as const).map((on) => (
+              <button
+                key={String(on)}
+                type="button"
+                role="radio"
+                aria-checked={rirPrompt === on}
+                className={rirPrompt === on ? "chip-on justify-center py-2" : "chip justify-center py-2"}
+                onClick={() => saveSettings({ rirPrompt: on })}
               >
                 {on ? "On" : "Off"}
               </button>

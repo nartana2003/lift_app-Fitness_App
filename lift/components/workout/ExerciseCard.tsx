@@ -45,7 +45,7 @@ export function ExerciseCard({
 }) {
   const last = useLiveQuery(() => lastSession(ex.exercise_id), [ex.exercise_id]);
   const rest = useLiveQuery(() => getRestSec(ex.exercise_id), [ex.exercise_id], 90);
-  const { unit, suggestions } = useSettings();
+  const { unit, suggestions, rirPrompt } = useSettings();
   const [menu, setMenu] = useState(false);
   const [swapping, setSwapping] = useState(false);
   // Collapsed by default; tap the title to open the sets.
@@ -67,9 +67,9 @@ export function ExerciseCard({
   const pick = sug && !allDone ? (ai ?? sug) : null;
   // Say nothing when the advice is "repeat last time": the Last time line already shows it.
   const shown = pick && last && repeatsLast(pick, last.sets) ? null : pick;
-  // Ask for effort on the most recently ticked working set, until it's rated.
+  // With the Rate effort preference on, ask for effort on the most recently ticked working set, until it's rated.
   const lastDone = ex.sets.findLast((s) => s.done && !s.is_warmup);
-  const rateSet = lastDone?.rir === null ? lastDone : undefined;
+  const rateSet = rirPrompt && lastDone?.rir === null ? lastDone : undefined;
 
   async function tick(setId: string, wasDone: boolean) {
     if (!wasDone) restTimer.start(rest ?? 90, `Rest · ${name}`);

@@ -232,7 +232,16 @@ describe("ExerciseCard: logging a set", () => {
     expect((await liveSets())[1]).toMatchObject({ done: false, weight: "", reps: "" });
   });
 
-  it("asks how the set felt and stores the rating", async () => {
+  it("does not ask how the set felt by default", async () => {
+    await seedActive([set("a", { weight: 60, reps: 10 })]);
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Complete set" }));
+    await screen.findByRole("button", { name: "Undo set" });
+    expect(screen.queryByText("How many more reps could you have done?")).toBeNull();
+  });
+
+  it("asks how the set felt and stores the rating when the preference is on", async () => {
+    await saveSettings({ rirPrompt: true });
     await seedActive([set("a", { weight: 60, reps: 10 })]);
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Complete set" }));

@@ -11,11 +11,13 @@ export type Settings = {
   weekStart: 0 | 1;
   /** Show the progressive overload suggestion on workout cards (default on). */
   suggestions: boolean;
+  /** Ask how many reps were left after each set (default off). */
+  rirPrompt: boolean;
   /** Light (default when unset), dark, or follow the OS. Read via normalizeTheme(). */
   theme?: ThemePref;
 };
 
-export const DEFAULT_SETTINGS: Settings = { unit: "kg", weekStart: 1, suggestions: true };
+export const DEFAULT_SETTINGS: Settings = { unit: "kg", weekStart: 1, suggestions: true, rirPrompt: false };
 
 const KEY = "settings";
 

@@ -142,6 +142,6 @@ describe("saveTheme", () => {
   });
 
   it("does not add theme to the default settings object", () => {
-    expect(DEFAULT_SETTINGS).toEqual({ unit: "kg", weekStart: 1, suggestions: true });
+    expect(DEFAULT_SETTINGS).toEqual({ unit: "kg", weekStart: 1, suggestions: true, rirPrompt: false });
   });
 });
