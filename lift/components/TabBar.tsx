@@ -84,7 +84,8 @@ const TABS = [
 export function TabBar() {
   const path = usePathname();
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 bg-bg/90 backdrop-blur border-t border-border pb-safe">
+    // transform-gpu gives the bar its own layer so iOS Safari keeps it pinned to the bottom while the page scrolls.
+    <nav className="fixed bottom-0 inset-x-0 z-40 transform-gpu bg-bg/90 backdrop-blur border-t border-border pb-safe">
       <ul className="flex max-w-lg mx-auto">
         {TABS.map(({ href, label, Icon }) => {
           const active = href === "/" ? path === "/" || path.startsWith("/history") : path.startsWith(href);

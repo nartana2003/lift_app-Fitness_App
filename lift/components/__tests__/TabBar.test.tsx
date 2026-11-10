@@ -50,6 +50,11 @@ describe("TabBar", () => {
     expect(labels()).toEqual(["Home", "Exercises", "Coach", "Progress", "Profile"]);
   });
 
+  it("is fixed to the bottom of the screen on its own layer", () => {
+    render(<TabBar />);
+    expect(screen.getByRole("navigation")).toHaveClass("fixed", "bottom-0", "inset-x-0", "transform-gpu");
+  });
+
   it("gives every item an equal share", () => {
     render(<TabBar />);
     for (const li of screen.getAllByRole("listitem")) expect(li).toHaveClass("flex-1", "min-w-0");

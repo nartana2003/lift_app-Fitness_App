@@ -38,6 +38,19 @@ test("Start Workout floats bottom right above the tab bar and stays while scroll
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 });
 
+test("the tab bar stays fixed at the very bottom while scrolling long history", async ({ page }) => {
+  await home(page);
+  await page.evaluate(() => {
+    document.body.style.minHeight = "4000px";
+  });
+  const bottomGap = () =>
+    page.evaluate(() => window.innerHeight - document.querySelector("nav")!.getBoundingClientRect().bottom);
+  for (const y of [0, 800, 2500, 99999]) {
+    await page.evaluate((y) => window.scrollTo(0, y), y);
+    expect(await bottomGap()).toBeCloseTo(0, 0);
+  }
+});
+
 test("tapping the floating button starts a workout, and Home then floats Resume workout", async ({ page }) => {
   await home(page);
   await page.getByRole("button", { name: "Start Workout" }).click();
