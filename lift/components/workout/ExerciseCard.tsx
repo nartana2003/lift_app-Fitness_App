@@ -87,7 +87,7 @@ export function ExerciseCard({
   return (
     <section className="card p-3">
       <div className="flex items-start gap-3">
-        <Link href={`/exercises/${ex.exercise_id}`}>
+        <Link href={`/exercises/${ex.exercise_id}?from=workout`}>
           <ExerciseDemo urls={info?.image_urls.slice(0, 1) ?? []} alt={name} small />
         </Link>
         <button

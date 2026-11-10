@@ -115,6 +115,16 @@ beforeEach(async () => {
   restTimer.stop();
 });
 
+describe("ExerciseCard: exercise detail link", () => {
+  it("links the picture to the exercise page marked as coming from the workout", async () => {
+    await seedActive([set("a")]);
+    renderCard();
+    await screen.findByText("First time — set a baseline");
+    const link = document.querySelector('a[href^="/exercises/"]');
+    expect(link).toHaveAttribute("href", expect.stringContaining("?from=workout"));
+  });
+});
+
 describe("ExerciseCard: previous-set column", () => {
   it("shows a baseline hint and dashes when there is no history", async () => {
     await seedActive([set("a"), set("b")]);

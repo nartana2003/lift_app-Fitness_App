@@ -15,8 +15,16 @@ import { tiktokAppSearchUrl } from "@/lib/muscles";
 
 const PLATFORM_NAMES = { tiktok: "TikTok", youtube: "YouTube", instagram: "Instagram" } as const;
 
-export default function ExerciseDetail({ params }: { params: Promise<{ id: string }> }) {
+export default function ExerciseDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ from?: string }>;
+}) {
   const { id } = use(params);
+  const from = searchParams ? use(searchParams).from : undefined;
+  const backHref = from === "workout" ? "/workout" : "/exercises";
   const { get, loading } = useCatalogue();
   const ex = get(decodeURIComponent(id));
   const [renaming, setRenaming] = useState(false);
@@ -25,7 +33,7 @@ export default function ExerciseDetail({ params }: { params: Promise<{ id: strin
   const router = useRouter();
 
   if (loading) return <p className="text-muted pt-8">Loading…</p>;
-  if (!ex) return <PageHeader title="Not found" back="/exercises" />;
+  if (!ex) return <PageHeader title="Not found" back={backHref} />;
   const originalVideo = "video_url" in ex && typeof ex.video_url === "string" ? safeHttpUrl(ex.video_url) : null;
   const platform = originalVideo ? parseLink(originalVideo)?.platform : undefined;
 
@@ -33,7 +41,7 @@ export default function ExerciseDetail({ params }: { params: Promise<{ id: strin
     <>
       <PageHeader
         title={ex.name}
-        back="/exercises"
+        back={backHref}
         right={
           <button
             className="text-sm font-medium text-muted underline"
