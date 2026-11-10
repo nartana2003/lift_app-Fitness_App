@@ -106,10 +106,10 @@ describe("Home Start Workout", () => {
     expect(list.parentElement).toBe(start.parentElement);
   });
 
-  it("places Start Workout below My Week (issue #24)", async () => {
+  it("places Start Workout below Weekly Snapshot (issue #24)", async () => {
     render(<Home />);
     const button = await screen.findByRole("button", { name: "Start Workout" });
-    const heading = screen.getByRole("heading", { name: "My Week" });
+    const heading = screen.getByRole("heading", { name: "Weekly Snapshot" });
     expect(heading.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

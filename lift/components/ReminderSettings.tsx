@@ -91,7 +91,7 @@ export function ReminderSettings() {
 
   return (
     <div className="space-y-3.5">
-      <p className="text-sm text-muted">Reminders follow the days you mark on the This Week strip.</p>
+      <p className="text-sm text-muted">Reminders follow the days you mark in Weekly Plan.</p>
       <div>
         <span className="font-semibold block">Gym days</span>
         <span className="text-xs text-muted block mb-2">Optional usual days, reminded every week as well.</span>

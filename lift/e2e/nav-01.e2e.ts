@@ -62,7 +62,7 @@ test("routines live on Exercises > Routines: create, start, delete", async ({ pa
   // Home still lists no routines.
   await page.goto("/");
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "My Week" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Weekly Snapshot" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "My Routines" })).toHaveCount(0);
 
   expect(errors).toEqual([]);

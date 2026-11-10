@@ -230,7 +230,7 @@ export function WeekStrip() {
 
   return (
     <section className="mt-5">
-      <h2 className="text-lg font-bold mb-2">This Week</h2>
+      <h2 className="text-lg font-bold mb-2">Weekly Plan</h2>
       <DndContext
         id={dndId}
         sensors={sensors}

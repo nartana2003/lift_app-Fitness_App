@@ -7,6 +7,6 @@ test("Home week strip has no auto-fill option", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
-  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Weekly Plan" })).toBeVisible();
   await expect(page.getByRole("button", { name: /auto-fill/i })).toHaveCount(0);
 });

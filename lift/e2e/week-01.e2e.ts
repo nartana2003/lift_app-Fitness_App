@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 test("tap a date to mark it a gym day; it stays marked after reload and is round", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Weekly Plan" })).toBeVisible();
 
   // The first markable date is today (past dates cannot be marked).
   const first = page.getByRole("button", { name: /not a gym day, tap to mark$/ }).first();

@@ -58,7 +58,7 @@ function openDay(key: string) {
 describe("WeekStrip", () => {
   it("shows the seven days of this week starting Monday", async () => {
     await renderStrip();
-    expect(screen.getByRole("heading", { name: "This Week" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Weekly Plan" })).toBeInTheDocument();
     expect(dayButtons().map((b) => b.textContent)).toEqual(["M12", "T13", "W14", "T15", "F16", "S17", "S18"]);
   });
 

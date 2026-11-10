@@ -29,7 +29,7 @@ type Seed = { routines: { id: string; name: string }[]; days: { date: string; ro
 async function open(page: Page, seed: Seed) {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Weekly Plan" })).toBeVisible();
   await page.evaluate(async (s) => {
     const idb: IDBDatabase = await new Promise((res, rej) => {
       const r = indexedDB.open("lift");

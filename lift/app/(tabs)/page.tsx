@@ -51,7 +51,7 @@ export default function Home() {
   return (
     <>
       <section className="card p-4 mt-4">
-        <h2 className="font-semibold mb-3">My Week</h2>
+        <h2 className="font-semibold mb-3">Weekly Snapshot</h2>
         <div className="grid grid-cols-3 gap-2 text-center">
           <div>
             <p className="text-2xl font-bold">{sessions}</p>

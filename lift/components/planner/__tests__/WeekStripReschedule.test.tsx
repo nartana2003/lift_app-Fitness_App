@@ -132,7 +132,7 @@ describe("WeekStrip drag to reschedule", () => {
 describe("WeekStrip without auto-fill", () => {
   it("has no auto-fill button", async () => {
     await renderStrip();
-    expect(screen.getByRole("heading", { name: "This Week" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Weekly Plan" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /auto-fill/i })).not.toBeInTheDocument();
   });
 });

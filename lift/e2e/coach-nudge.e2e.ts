@@ -36,7 +36,7 @@ const seed = (page: Page) =>
 test("Home has no Coach card, with or without changed goals", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Weekly Plan" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Build or optimise your split/ })).toHaveCount(0);
   await expect
     .poll(() => page.evaluate(async () => (await indexedDB.databases()).some((d) => d.name === "lift")))
@@ -44,7 +44,7 @@ test("Home has no Coach card, with or without changed goals", async ({ page }) =
   await seed(page);
   await page.reload();
   await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Weekly Plan" })).toBeVisible();
   await expect(page.getByText("Your goals changed")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Optimise for new goals" })).toHaveCount(0);
 });

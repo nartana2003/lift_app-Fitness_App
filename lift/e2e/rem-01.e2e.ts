@@ -8,7 +8,7 @@ test("marking a date on the This Week strip gives a next reminder in Profile", a
   await page.goto("/profile");
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: /^Reminders/ }).click();
-  await expect(page.getByText("Reminders follow the days you mark on the This Week strip.")).toBeVisible();
+  await expect(page.getByText("Reminders follow the days you mark in Weekly Plan.")).toBeVisible();
   await expect(page.getByText("Pick at least one gym day to get reminders.")).toBeVisible();
   await page.getByLabel("Reminder time").fill("23:59");
   await expect(page.getByLabel("Reminder time")).toHaveValue("23:59");

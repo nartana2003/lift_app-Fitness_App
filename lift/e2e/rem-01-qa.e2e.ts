@@ -13,7 +13,7 @@ async function openReminders(page: Page) {
   await page.goto("/profile");
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: /^Reminders/ }).click();
-  await expect(page.getByText("Reminders follow the days you mark on the This Week strip.")).toBeVisible();
+  await expect(page.getByText("Reminders follow the days you mark in Weekly Plan.")).toBeVisible();
 }
 
 async function setTime(page: Page, t: string) {

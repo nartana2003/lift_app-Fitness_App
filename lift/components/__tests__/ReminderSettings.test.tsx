@@ -71,7 +71,7 @@ describe("ReminderSettings with marked gym days", () => {
 
   it("explains that reminders follow the This Week strip and describes weekdays as optional usual days", () => {
     render(<ReminderSettings />);
-    expect(screen.getByText("Reminders follow the days you mark on the This Week strip.")).toBeInTheDocument();
+    expect(screen.getByText("Reminders follow the days you mark in Weekly Plan.")).toBeInTheDocument();
     expect(screen.getByText(/Optional usual days/)).toBeInTheDocument();
     // The existing label is kept.
     expect(screen.getByText("Gym days")).toBeInTheDocument();

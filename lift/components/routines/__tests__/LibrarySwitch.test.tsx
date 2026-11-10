@@ -88,7 +88,7 @@ describe("Home", () => {
   it("no longer shows My Routines; the other sections are still there", async () => {
     render(<Home />);
     expect(await screen.findByRole("button", { name: "Start Workout" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "My Week" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Weekly Snapshot" })).toBeInTheDocument();
     expect(screen.getByText("Week strip stub")).toBeInTheDocument();
     expect(screen.getByText("History stub")).toBeInTheDocument();
     expect(screen.queryByText("My Routines stub")).not.toBeInTheDocument();

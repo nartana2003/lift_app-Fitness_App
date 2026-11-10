@@ -8,7 +8,7 @@ test("no smart time suggestion without workout history; reminder time still edit
   await page.goto("/profile");
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: /^Reminders/ }).click();
-  await expect(page.getByText("Reminders follow the days you mark on the This Week strip.")).toBeVisible();
+  await expect(page.getByText("Reminders follow the days you mark in Weekly Plan.")).toBeVisible();
   await expect(page.getByLabel("Reminder time")).toHaveValue("18:00");
   await expect(page.getByText(/You usually start around/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Use \d\d:\d\d$/ })).toHaveCount(0);
