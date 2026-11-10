@@ -71,15 +71,17 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="mt-4">
+      {/* Floating action button above the tab bar, like Lyfta. Extras stack above it. */}
+      <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex w-full max-w-lg -translate-x-1/2 flex-col-reverse items-end gap-2 px-4 pointer-events-none [&>*]:pointer-events-auto">
         {active ? (
-          <Link href="/workout" className="btn-primary w-full text-lg py-4 rounded-full">
+          <Link href="/workout" className="btn-primary rounded-full px-6 py-4 text-base shadow-lg">
+            <PlayIcon />
             Resume workout
           </Link>
         ) : (
           <>
             <button
-              className="btn-primary w-full text-lg py-4 rounded-full"
+              className="btn-primary rounded-full px-6 py-4 text-base shadow-lg"
               aria-expanded={choosing}
               onClick={async () => {
                 if (planned) {
@@ -94,13 +96,11 @@ export default function Home() {
                 router.push("/workout");
               }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
+              <PlayIcon />
               Start Workout
             </button>
             {planned && (
-              <p className="text-xs text-muted text-center mt-2">
+              <p className="rounded-full border border-border bg-bg px-3 py-1 text-xs text-muted shadow-sm">
                 Planned today: {planned.name}.{" "}
                 <button className="underline" aria-expanded={choosing} onClick={() => setChoosing(!choosing)}>
                   Choose another
@@ -108,7 +108,7 @@ export default function Home() {
               </p>
             )}
             {choosing && (
-              <div className="card p-3 mt-2 space-y-1.5" role="group" aria-label="Start from">
+              <div className="card w-64 max-w-full p-3 space-y-1.5 shadow-lg" role="group" aria-label="Start from">
                 <button
                   className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"
                   onClick={async () => {
@@ -161,7 +161,18 @@ export default function Home() {
       <WeekStrip />
 
       <HistoryList />
+
+      {/* Keeps the last history row clear of the floating button. */}
+      <div className="h-20" aria-hidden />
     </>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M7 4.5v15a.8.8 0 0 0 1.2.7l12-7.5a.8.8 0 0 0 0-1.4l-12-7.5A.8.8 0 0 0 7 4.5Z" />
+    </svg>
   );
 }
 

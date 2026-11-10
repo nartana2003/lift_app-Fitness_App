@@ -75,11 +75,35 @@ describe("Home Start Workout", () => {
     expect(screen.queryByRole("button", { name: "Start Workout" })).not.toBeInTheDocument();
   });
 
-  it("renders the button as a full-width pill with a plus icon", async () => {
+  it("renders the button as a floating pill with a play icon", async () => {
     render(<Home />);
     const button = await screen.findByRole("button", { name: "Start Workout" });
-    expect(button).toHaveClass("w-full", "rounded-full");
+    expect(button).toHaveClass("rounded-full");
+    expect(button).not.toHaveClass("w-full");
     expect(button.querySelector("svg")).not.toBeNull();
+    const float = button.parentElement!;
+    expect(float).toHaveClass("fixed", "z-30");
+    expect(float.className).toContain("bottom-[calc(");
+  });
+
+  it("floats the Resume workout link the same way", async () => {
+    await db.active.put({ key: "active", id: "w1", started_at: new Date().toISOString(), routine_id: null, name: null, exercises: [] });
+    render(<Home />);
+    const link = await screen.findByRole("link", { name: "Resume workout" });
+    expect(link).toHaveClass("rounded-full");
+    expect(link.parentElement).toHaveClass("fixed", "z-30");
+    expect(link).toHaveAttribute("href", "/workout");
+  });
+
+  it("opens the routine list in the floating stack above the button", async () => {
+    await createRoutine({ name: "Push day", exercises: [{ exercise_id: "bench" }] });
+    render(<Home />);
+    await waitFor(() => expect(db.routines.count()).resolves.toBe(1));
+    await act(() => new Promise((r) => setTimeout(r, 100)));
+    const start = await screen.findByRole("button", { name: "Start Workout" });
+    fireEvent.click(start);
+    const list = await screen.findByRole("group", { name: "Start from" });
+    expect(list.parentElement).toBe(start.parentElement);
   });
 
   it("places Start Workout below My Week (issue #24)", async () => {
