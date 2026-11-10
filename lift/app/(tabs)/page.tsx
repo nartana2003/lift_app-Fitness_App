@@ -11,9 +11,12 @@ import { listRoutines } from "@/lib/routines";
 import { WeekStrip } from "@/components/planner/WeekStrip";
 import { db } from "@/lib/offline/db";
 import { workoutsBetween } from "@/lib/history";
-import { addDays, formatDuration, startOfWeek } from "@/lib/stats";
+import { dayKey, getDay } from "@/lib/planner";
+import { addDays, delta, formatDuration, startOfWeek } from "@/lib/stats";
 import { useSettings } from "@/lib/settings";
 import { dispNum } from "@/lib/units";
+
+const seconds = (w: { started_at: string; ended_at: string | null }) => (Date.parse(w.ended_at!) - Date.parse(w.started_at)) / 1000;
 
 export default function Home() {
   const router = useRouter();
@@ -26,14 +29,49 @@ export default function Home() {
     const from = startOfWeek(new Date(), weekStart);
     return workoutsBetween(from, addDays(from, 7));
   }, [weekStart]);
+  const prev = useLiveQuery(() => {
+    const from = startOfWeek(new Date(), weekStart);
+    return workoutsBetween(addDays(from, -7), from);
+  }, [weekStart]);
+  const today = dayKey(new Date());
+  // The routine planned for today on the This Week strip, if any.
+  const plannedId = useLiveQuery(async () => {
+    const row = await getDay(today);
+    return row && row.status === "planned" ? row.routine_id : null;
+  }, [today]);
+  const planned = routines.find((r) => r.id === plannedId) ?? null;
 
   const sessions = week?.length ?? 0;
-  const duration = week?.reduce((a, w) => a + (Date.parse(w.ended_at!) - Date.parse(w.started_at)) / 1000, 0) ?? 0;
+  const duration = week?.reduce((a, w) => a + seconds(w), 0) ?? 0;
   const volume = week?.reduce((a, w) => a + w.volume, 0) ?? 0;
+  const dSessions = delta(sessions, prev?.length ?? 0).diff;
+  const dDuration = delta(duration, prev?.reduce((a, w) => a + seconds(w), 0) ?? 0).diff;
+  const dVolume = delta(volume, prev?.reduce((a, w) => a + w.volume, 0) ?? 0).diff;
 
   return (
     <>
-      <div className="pt-4">
+      <section className="card p-4 mt-4">
+        <h2 className="font-semibold mb-3">My Week</h2>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div>
+            <p className="text-2xl font-bold">{sessions}</p>
+            <p className="text-xs text-muted">workouts</p>
+            <Change diff={dSessions} text={String(Math.abs(dSessions))} />
+          </div>
+          <div>
+            <p className="text-2xl font-bold">{formatDuration(duration)}</p>
+            <p className="text-xs text-muted">time</p>
+            <Change diff={dDuration} text={formatDuration(Math.abs(dDuration))} />
+          </div>
+          <div>
+            <p className="text-2xl font-bold">{Math.round(dispNum(volume, unit)).toLocaleString()}</p>
+            <p className="text-xs text-muted">{unit} volume</p>
+            <Change diff={dVolume} text={Math.round(dispNum(Math.abs(dVolume), unit)).toLocaleString()} />
+          </div>
+        </div>
+      </section>
+
+      <div className="mt-4">
         {active ? (
           <Link href="/workout" className="btn-primary w-full text-lg py-4 rounded-full">
             Resume workout
@@ -44,6 +82,10 @@ export default function Home() {
               className="btn-primary w-full text-lg py-4 rounded-full"
               aria-expanded={choosing}
               onClick={async () => {
+                if (planned) {
+                  if (await startRoutine(planned)) router.push("/workout");
+                  return;
+                }
                 if (routines.length > 0) {
                   setChoosing(!choosing);
                   return;
@@ -57,6 +99,14 @@ export default function Home() {
               </svg>
               Start Workout
             </button>
+            {planned && (
+              <p className="text-xs text-muted text-center mt-2">
+                Planned today: {planned.name}.{" "}
+                <button className="underline" aria-expanded={choosing} onClick={() => setChoosing(!choosing)}>
+                  Choose another
+                </button>
+              </p>
+            )}
             {choosing && (
               <div className="card p-3 mt-2 space-y-1.5" role="group" aria-label="Start from">
                 <button
@@ -108,27 +158,29 @@ export default function Home() {
         )}
       </div>
 
-      <section className="card p-4 mt-4">
-        <h2 className="font-semibold mb-3">My Week</h2>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <p className="text-2xl font-bold">{sessions}</p>
-            <p className="text-xs text-muted">workouts</p>
-          </div>
-          <div>
-            <p className="text-2xl font-bold">{formatDuration(duration)}</p>
-            <p className="text-xs text-muted">time</p>
-          </div>
-          <div>
-            <p className="text-2xl font-bold">{Math.round(dispNum(volume, unit)).toLocaleString()}</p>
-            <p className="text-xs text-muted">{unit} volume</p>
-          </div>
-        </div>
-      </section>
-
       <WeekStrip />
 
       <HistoryList />
     </>
+  );
+}
+
+/** Change against last week: an arrow plus the size of the change; a dash when unchanged. */
+function Change({ diff, text }: { diff: number; text: string }) {
+  if (diff === 0) {
+    return (
+      <p className="text-xs text-muted mt-1" aria-label="No change from last week">
+        -
+      </p>
+    );
+  }
+  const up = diff > 0;
+  return (
+    <p className="text-xs font-medium mt-1 inline-flex items-center gap-0.5" aria-label={`${up ? "Up" : "Down"} ${text} from last week`}>
+      <svg viewBox="0 0 24 24" className="size-3" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d={up ? "M12 19V5M5 12l7-7 7 7" : "M12 5v14M5 12l7 7 7-7"} />
+      </svg>
+      {text}
+    </p>
   );
 }

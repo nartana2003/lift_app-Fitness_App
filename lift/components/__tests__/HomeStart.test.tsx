@@ -81,4 +81,28 @@ describe("Home Start Workout", () => {
     expect(button).toHaveClass("w-full", "rounded-full");
     expect(button.querySelector("svg")).not.toBeNull();
   });
+
+  it("places Start Workout below My Week (issue #24)", async () => {
+    render(<Home />);
+    const button = await screen.findByRole("button", { name: "Start Workout" });
+    const heading = screen.getByRole("heading", { name: "My Week" });
+    expect(heading.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("starts the routine planned for today directly (issue #24)", async () => {
+    const { planDay, dayKey } = await import("@/lib/planner");
+    const id = await createRoutine({ name: "Push day", exercises: [{ exercise_id: "bench" }] });
+    await createRoutine({ name: "Pull day", exercises: [{ exercise_id: "row" }] });
+    await planDay(dayKey(new Date()), id);
+    render(<Home />);
+    await screen.findByText(/Planned today: Push day/);
+    fireEvent.click(screen.getByRole("button", { name: "Start Workout" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
+    expect((await db.active.get("active"))?.routine_id).toBe(id);
+  });
+
+  it("shows no change against an empty last week (issue #24)", async () => {
+    render(<Home />);
+    expect(await screen.findAllByLabelText("No change from last week")).toHaveLength(3);
+  });
 });
