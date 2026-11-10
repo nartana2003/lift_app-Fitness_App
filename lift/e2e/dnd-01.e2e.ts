@@ -155,5 +155,5 @@ test("a click on a planned day still opens its panel", async ({ page, errors }) 
   void errors;
   await open(page, { routines: [PUSH], days: [{ date: WED, routine_id: PUSH.id }] });
   await day(page, WED).click();
-  await expect(page.getByText(/^Planned:/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Change" })).toBeVisible();
 });

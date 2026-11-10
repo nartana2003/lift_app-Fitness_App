@@ -72,16 +72,18 @@ describe("WeekStrip", () => {
   it("plans a routine on a day", async () => {
     await renderStrip();
     openDay(WED);
-    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Routine" })).toBeInTheDocument();
     fireEvent.change(await screen.findByRole("combobox", { name: "Routine" }), { target: { value: pushId } });
 
     await waitFor(async () => expect(await getDay(WED)).toMatchObject({ routine_id: pushId, status: "planned" }));
-    expect(await screen.findByText(/Planned:/)).toHaveTextContent("Planned: Push");
+    expect(await screen.findByText("Push")).toBeInTheDocument();
+    expect(screen.getByText("1 exercise")).toBeInTheDocument();
     await waitFor(() => expect(dayButton(WED).textContent).toContain("•"));
-    // Today and planned: can start, move or clear. There is no Skip.
-    for (const name of ["Start", "Move", "Clear this day"]) {
+    // Planned: can change, move or clear. Start lives on the Home pill, and there is no Skip.
+    for (const name of ["Change", "Move", "Clear this day"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
+    expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
   });
 
@@ -94,15 +96,25 @@ describe("WeekStrip", () => {
     expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
   });
 
-  it("starts the planned routine and goes to the live workout", async () => {
+  it("Change swaps the planned routine for another one", async () => {
     await planDay(WED, pushId);
     await renderStrip();
     openDay(WED);
-    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
-    const active = await db.active.get("active");
-    expect(active).toMatchObject({ routine_id: pushId, name: "Push" });
-    expect(active?.exercises.map((e) => e.exercise_id)).toEqual(["bench"]);
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Routine" }), { target: { value: legsId } });
+    await waitFor(async () => expect(await getDay(WED)).toMatchObject({ routine_id: legsId, status: "planned" }));
+    expect(await screen.findByRole("button", { name: "Change" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Routine" })).not.toBeInTheDocument();
+  });
+
+  it("Change can be cancelled without touching the plan", async () => {
+    await planDay(WED, pushId);
+    await renderStrip();
+    openDay(WED);
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("button", { name: "Move" })).toBeInTheDocument();
+    expect(await getDay(WED)).toMatchObject({ routine_id: pushId });
   });
 
   it("a legacy skipped day still shows its reason and can be undone", async () => {
@@ -120,7 +132,7 @@ describe("WeekStrip", () => {
     await waitFor(async () =>
       expect(await getDay(WED)).toMatchObject({ status: "planned", skip_reason: null, routine_id: pushId }),
     );
-    expect(await screen.findByRole("button", { name: "Start" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Move" })).toBeInTheDocument();
   });
 
   it("moves a day only to free days later this week", async () => {
@@ -210,7 +222,7 @@ describe("WeekStrip", () => {
     openDay(WED);
     fireEvent.click(await screen.findByRole("button", { name: "Clear this day" }));
     await waitFor(async () => expect(await getDay(WED)).toBeUndefined());
-    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Routine" })).toBeInTheDocument();
     await waitFor(() => expect(dayButton(WED).textContent).toBe("W14"));
   });
 
@@ -229,6 +241,6 @@ describe("WeekStrip", () => {
     await renderStrip();
     openDay(WED);
     fireEvent.click(await screen.findByRole("button", { name: "Close" }));
-    expect(screen.queryByText("Plan a routine")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Routine" })).not.toBeInTheDocument();
   });
 });

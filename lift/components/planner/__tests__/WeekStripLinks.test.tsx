@@ -100,7 +100,7 @@ describe("WeekStrip day panel", () => {
     await make("Beta");
     await renderStrip();
     fireEvent.click(dayButtons()[3]);
-    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Routine" })).toBeInTheDocument();
     expect(document.querySelector("optgroup")).toBeNull();
     expect(screen.getByRole("option", { name: "Alpha" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Beta" })).toBeInTheDocument();
@@ -113,7 +113,7 @@ describe("WeekStrip day panel", () => {
     await make("Chest day", push);
     await renderStrip();
     fireEvent.click(dayButtons()[3]);
-    await screen.findByText("Plan a routine");
+    await screen.findByRole("combobox", { name: "Routine" });
     const select = await screen.findByRole("combobox", { name: "Routine" });
     await waitFor(() => expect(select.querySelectorAll("optgroup")).toHaveLength(3));
     const groups = Array.from(select.querySelectorAll("optgroup"));

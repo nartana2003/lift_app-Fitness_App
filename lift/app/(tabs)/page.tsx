@@ -97,16 +97,8 @@ export default function Home() {
               }}
             >
               <PlayIcon />
-              Start Workout
+              {planned ? `Start ${planned.name}` : "Start Workout"}
             </button>
-            {planned && (
-              <p className="rounded-full border border-border bg-bg px-3 py-1 text-xs text-muted shadow-sm">
-                Planned today: {planned.name}.{" "}
-                <button className="underline" aria-expanded={choosing} onClick={() => setChoosing(!choosing)}>
-                  Choose another
-                </button>
-              </p>
-            )}
             {choosing && (
               <div className="card w-64 max-w-full p-3 space-y-1.5 shadow-lg" role="group" aria-label="Start from">
                 <button

@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
@@ -36,7 +35,6 @@ import { listRoutines, type Routine } from "@/lib/routines";
 import { useSettings } from "@/lib/settings";
 import { useSplit, type Split } from "@/lib/splits";
 import { lastDoneByRoutine, nextRoutineForDay, routinesForDay, splitDayIds, type LastDone } from "@/lib/splitRoutines";
-import { startWorkout } from "@/lib/workout";
 import { canDrag, dropAction, isGymDay } from "@/lib/autofill";
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
@@ -179,7 +177,6 @@ const EMPTY: { routines: Routine[]; planRows: PlannedDayRow[] } = { routines: []
 
 /** This week at a glance: plan a routine per day, or move it. */
 export function WeekStrip() {
-  const router = useRouter();
   const { weekStart } = useSettings();
   // Routines and plan rows load in one live query, so a planned day never shows
   // before its routine (e.g. the unmark confirm always has the routine's name).
@@ -329,19 +326,6 @@ export function WeekStrip() {
           plan={plan}
           days={days}
           onClose={() => setOpen(null)}
-          onStart={async (routineId) => {
-            const r = routines.find((x) => x.id === routineId);
-            if (!r) return;
-            if (await db.active.get("active")) {
-              if (!confirm("You already have a workout in progress. Discard it and start this one?")) return;
-            }
-            await startWorkout({
-              name: r.name,
-              routineId: r.id,
-              exercises: r.exercises.map((e) => ({ exercise_id: e.exercise_id, target_sets: e.target_sets, target_reps: e.target_reps })),
-            });
-            router.push("/workout");
-          }}
         />
       )}
     </section>
@@ -396,7 +380,6 @@ function DayPanel({
   plan,
   days,
   onClose,
-  onStart,
 }: {
   date: string;
   row: PlannedDayRow | null;
@@ -405,15 +388,45 @@ function DayPanel({
   plan: Map<string, PlannedDayRow>;
   days: Date[];
   onClose: () => void;
-  onStart: (routineId: string) => void;
 }) {
   const split = useSplit();
   const choices = planChoices(split, routines, lastDone);
   const [moving, setMoving] = useState(false);
+  const [changing, setChanging] = useState(false);
   const label = new Date(date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
   const routine = row?.routine_id ? routines.find((r) => r.id === row.routine_id) : undefined;
   const options = moveOptions(days, plan, date);
-  const isPast = date < dayKey(new Date());
+
+  const picker = (
+    <select
+      aria-label="Routine"
+      className="w-full"
+      value=""
+      onChange={(e) => {
+        if (!e.target.value) return;
+        void planDay(date, e.target.value);
+        setChanging(false);
+      }}
+    >
+      <option value="">Select a routine</option>
+      {choices.groups.length === 0 ? (
+        routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)
+      ) : (
+        <>
+          {choices.groups.map((g) => (
+            <optgroup key={g.dayId} label={g.name}>
+              {g.routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </optgroup>
+          ))}
+          {choices.others.length > 0 && (
+            <optgroup label="Other routines">
+              {choices.others.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </optgroup>
+          )}
+        </>
+      )}
+    </select>
+  );
 
   return (
     <div className="card p-3 mt-2">
@@ -469,29 +482,36 @@ function DayPanel({
         </div>
       ) : (
         <>
-          {routine ? (
+          {routine && changing ? (
             <>
-              <p className="text-sm mb-2">
-                Planned: <span className="font-semibold">{routine.name}</span>
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {row?.status === "planned" && !isPast && (
-                  <button className="btn-primary py-2 text-sm col-span-2" onClick={() => onStart(routine.id)}>
-                    Start
-                  </button>
+              {picker}
+              <button className="btn-ghost w-full mt-2 py-2 text-sm" onClick={() => setChanging(false)}>Cancel</button>
+            </>
+          ) : routine ? (
+            <>
+              <div className="pb-3">
+                <p className="text-lg font-bold">{routine.name}</p>
+                <p className="text-sm text-muted">
+                  {routine.exercises.length} {routine.exercises.length === 1 ? "exercise" : "exercises"}
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {row?.status === "planned" && (
+                  <button className="btn-ghost py-2 text-sm" onClick={() => setChanging(true)}>Change</button>
                 )}
                 {row?.status === "planned" && (
-                  <button className="btn-ghost py-2 text-sm col-span-2" onClick={() => setMoving(true)}>Move</button>
+                  <button className="btn-ghost py-2 text-sm" onClick={() => setMoving(true)}>Move</button>
                 )}
                 {(row?.status === "skipped" || row?.status === "moved") && (
-                  <button className="btn-ghost py-2 text-sm col-span-2" onClick={() => undoSkip(date)}>Undo</button>
+                  <button className="btn-ghost py-2 text-sm col-span-3" onClick={() => undoSkip(date)}>Undo</button>
                 )}
                 {row?.status !== "done" && (
-                  <button className="btn-ghost col-span-2 py-2.5 text-sm gap-2 text-bad" onClick={() => clearDay(date)}>
-                    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5L18 7M9 7V4.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V7" />
-                    </svg>
-                    Clear this day
+                  <button
+                    className={`btn-ghost py-2 text-sm text-bad ${row?.status === "planned" ? "" : "col-span-3"}`}
+                    aria-label="Clear this day"
+                    onClick={() => clearDay(date)}
+                  >
+                    Clear
                   </button>
                 )}
               </div>
@@ -499,33 +519,7 @@ function DayPanel({
           ) : routines.length === 0 ? (
             <p className="text-sm text-muted">Create a routine first, then plan it on a day.</p>
           ) : (
-            <>
-              <p className="text-sm font-medium mb-2">Plan a routine</p>
-              <select
-                aria-label="Routine"
-                className="w-full"
-                value=""
-                onChange={(e) => e.target.value && planDay(date, e.target.value)}
-              >
-                <option value="">Select a routine</option>
-                {choices.groups.length === 0 ? (
-                  routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)
-                ) : (
-                  <>
-                    {choices.groups.map((g) => (
-                      <optgroup key={g.dayId} label={g.name}>
-                        {g.routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                      </optgroup>
-                    ))}
-                    {choices.others.length > 0 && (
-                      <optgroup label="Other routines">
-                        {choices.others.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                      </optgroup>
-                    )}
-                  </>
-                )}
-              </select>
-            </>
+            picker
           )}
           {!routine && row?.status === "planned" && (
             <button

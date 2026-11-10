@@ -107,7 +107,7 @@ describe("marking gym days", () => {
     fireEvent.click(dayButton(THU));
     await waitFor(async () => expect(await getDay(THU)).toMatchObject({ routine_id: null, status: "planned" }));
     expect(await outboxFor(THU)).toHaveLength(1);
-    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Routine" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Gym day:/ })).toBeNull();
     await waitFor(() => expect(dayButton(THU)).toHaveClass("bg-accent"));
     // A marked date with no routine shows no planned-routine dot.
@@ -129,7 +129,7 @@ describe("marking gym days", () => {
   it("tapping a past date opens the panel without marking", async () => {
     await renderStrip();
     fireEvent.click(dayButton(TUE));
-    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Routine" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove gym day" })).toBeNull();
     await new Promise((r) => setTimeout(r, 20));
     expect(await getDay(TUE)).toBeUndefined();

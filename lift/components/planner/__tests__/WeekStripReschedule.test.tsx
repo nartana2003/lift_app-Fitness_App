@@ -125,7 +125,8 @@ describe("WeekStrip drag to reschedule", () => {
     fireEvent.pointerMove(btn, { pointerId: 1, clientX: 12, clientY: 11 });
     fireEvent.pointerUp(btn, { pointerId: 1, clientX: 12, clientY: 11 });
     fireEvent.click(btn);
-    expect(await screen.findByText(/Planned:/)).toHaveTextContent("Planned: Push");
+    expect(await screen.findByRole("button", { name: "Change" })).toBeInTheDocument();
+    expect(screen.getByText("Push")).toBeInTheDocument();
   });
 });
 

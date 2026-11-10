@@ -141,7 +141,7 @@ describe("QA marking rules", () => {
   it("an unmarked past date opens the panel with no Remove gym day button and writes nothing", async () => {
     await renderStrip();
     fireEvent.click(dayButton(MON));
-    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Routine" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove gym day" })).toBeNull();
     await new Promise((r) => setTimeout(r, 30));
     expect(await db.planned_days.count()).toBe(0);
@@ -326,13 +326,13 @@ describe("QA routine-less marked dates next to routine days", () => {
     expect(await getDay(SAT)).toMatchObject({ routine_id: null, status: "planned" });
   });
 
-  it("the panel of a routine-less marked date offers Plan a routine and no Skip, Move or Start", async () => {
+  it("the panel of a routine-less marked date offers the routine picker and no Skip, Move or Start", async () => {
     await markGymDay(THU);
     await planDay(FRI, pushId);
     await renderStrip();
     await waitFor(() => expect(dayButton(THU)).toHaveClass("bg-accent"));
     fireEvent.click(dayButton(THU));
-    expect(await screen.findByText("Plan a routine")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Routine" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Move" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();

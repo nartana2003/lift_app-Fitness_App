@@ -370,8 +370,9 @@ test("tapping a date marks it and lists routines to plan; picking one plans it",
   await day(page, THU).click();
   await expect(day(page, THU)).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /^Gym day:/ })).toHaveCount(0);
-  await expect(page.getByText("Plan a routine")).toBeVisible();
+  await expect(page.getByText("Plan a routine")).toHaveCount(0);
   await page.getByRole("combobox", { name: "Routine" }).selectOption(PUSH.id);
-  await expect(page.getByText("Planned:")).toBeVisible();
+  for (const name of ["Change", "Move", "Clear this day"]) await expect(page.getByRole("button", { name })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toHaveCount(0);
   expect(await rows(page)).toEqual([{ date: THU, routine_id: PUSH.id, status: "planned" }]);
 });

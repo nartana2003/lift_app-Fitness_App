@@ -119,8 +119,9 @@ describe("Home Start Workout", () => {
     await createRoutine({ name: "Pull day", exercises: [{ exercise_id: "row" }] });
     await planDay(dayKey(new Date()), id);
     render(<Home />);
-    await screen.findByText(/Planned today: Push day/);
-    fireEvent.click(screen.getByRole("button", { name: "Start Workout" }));
+    const start = await screen.findByRole("button", { name: "Start Push day" });
+    expect(screen.queryByText(/Planned today/)).not.toBeInTheDocument();
+    fireEvent.click(start);
     await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
     expect((await db.active.get("active"))?.routine_id).toBe(id);
   });
