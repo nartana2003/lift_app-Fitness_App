@@ -167,18 +167,19 @@ export default function Home() {
 
 /** Change against last week: an arrow plus the size of the change; a dash when unchanged. */
 function Change({ diff, text }: { diff: number; text: string }) {
+  const pill = "inline-flex items-center gap-1 rounded-full bg-border/60 px-2.5 py-0.5 text-xs font-medium mt-1.5";
   if (diff === 0) {
     return (
-      <p className="text-xs text-muted mt-1" aria-label="No change from last week">
+      <p className={`${pill} text-muted`} aria-label="No change from last week">
         -
       </p>
     );
   }
   const up = diff > 0;
   return (
-    <p className="text-xs font-medium mt-1 inline-flex items-center gap-0.5" aria-label={`${up ? "Up" : "Down"} ${text} from last week`}>
-      <svg viewBox="0 0 24 24" className="size-3" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d={up ? "M12 19V5M5 12l7-7 7 7" : "M12 5v14M5 12l7 7 7-7"} />
+    <p className={pill} aria-label={`${up ? "Up" : "Down"} ${text} from last week`}>
+      <svg viewBox="0 0 24 24" className="size-3" fill="currentColor" aria-hidden>
+        <path d={up ? "M12 5l8 14H4z" : "M12 19L4 5h16z"} />
       </svg>
       {text}
     </p>
