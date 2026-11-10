@@ -48,9 +48,27 @@ export function ExerciseCard({
   const { unit, suggestions, rirPrompt } = useSettings();
   const [menu, setMenu] = useState(false);
   const [swapping, setSwapping] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   // Collapsed by default; tap the title to open the sets.
   const [collapsed, setCollapsed] = useState(true);
   const name = info?.name ?? ex.exercise_id;
+
+  // The options popover closes on a tap outside it or Escape.
+  useEffect(() => {
+    if (!menu) return;
+    const outside = (e: Event) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenu(false);
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [menu]);
 
   const lastWork = last?.sets.filter((s) => !s.is_warmup) ?? [];
   const range = parseRepRange(repTarget ?? ex.target_reps);
@@ -112,43 +130,73 @@ export function ExerciseCard({
           )}
         </button>
         {!collapsed && (
-          <button className="p-1 text-muted text-xl leading-none" onClick={() => setMenu(!menu)} aria-label="Options">
-            ⋯
-          </button>
+          <div ref={menuRef} className="relative">
+            <button
+              className={`size-10 grid place-items-center rounded-full text-text ${menu ? "bg-surface-2" : ""}`}
+              onClick={() => setMenu(!menu)}
+              aria-label="Options"
+              aria-expanded={menu}
+            >
+              <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden>
+                <circle cx="5" cy="12" r="1.8" />
+                <circle cx="12" cy="12" r="1.8" />
+                <circle cx="19" cy="12" r="1.8" />
+              </svg>
+            </button>
+            {menu && (
+              <div role="group" aria-label="Exercise options" className="absolute right-0 top-11 z-20 w-64 card p-1.5 shadow-lg">
+                <label className="relative flex min-h-12 items-center gap-3 rounded-lg px-2.5 text-[15px] font-semibold">
+                  <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <circle cx="12" cy="13" r="8" />
+                    <path d="M12 9v4l2.5 2M9.5 3h5" />
+                  </svg>
+                  <span className="flex-1">Rest timer</span>
+                  <span className="text-sm font-medium text-muted" aria-hidden>{fmtClock(rest ?? 90)}</span>
+                  <svg viewBox="0 0 24 24" className="size-4 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                  {/* The select sits invisibly over the whole row so a tap anywhere on it opens the picker. */}
+                  <select
+                    aria-label="Rest timer"
+                    className="absolute inset-0 size-full cursor-pointer opacity-0"
+                    value={rest}
+                    onChange={(e) => setRestSec(ex.exercise_id, Number(e.target.value))}
+                  >
+                    {[30, 45, 60, 75, 90, 120, 150, 180, 240, 300].map((s) => (
+                      <option key={s} value={s}>{fmtClock(s)}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2.5 text-left text-[15px] font-semibold"
+                  onClick={() => {
+                    setMenu(false);
+                    setSwapping(true);
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M7 7h11l-3-3M17 17H6l3 3" />
+                  </svg>
+                  Swap exercise
+                </button>
+                <div className="mx-1 my-1.5 h-px bg-border" />
+                <button
+                  className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2.5 text-left text-[15px] font-semibold text-bad"
+                  onClick={() => removeExercise(ex.id)}
+                >
+                  <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5L18 7M9 7V4.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V7" />
+                  </svg>
+                  Remove exercise
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
       {!collapsed && (
         <>
-
-      {menu && (
-        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          <label className="btn-ghost py-2 col-span-2">
-            Rest
-            <select
-              className="bg-transparent"
-              value={rest}
-              onChange={(e) => setRestSec(ex.exercise_id, Number(e.target.value))}
-            >
-              {[30, 45, 60, 75, 90, 120, 150, 180, 240, 300].map((s) => (
-                <option key={s} value={s}>{fmtClock(s)}</option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="btn-ghost py-2 col-span-2"
-            onClick={() => {
-              setMenu(false);
-              setSwapping(true);
-            }}
-          >
-            ⇄ Swap exercise
-          </button>
-          <button className="btn-ghost py-2 col-span-2 text-bad" onClick={() => removeExercise(ex.id)}>
-            Remove exercise
-          </button>
-        </div>
-      )}
 
       {shown && !allDone && (
         <div className="mt-3 flex items-center gap-3 rounded-xl border border-border px-3 py-2">

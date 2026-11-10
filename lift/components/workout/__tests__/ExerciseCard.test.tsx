@@ -694,10 +694,83 @@ describe("ExerciseCard: options menu", () => {
     expect(screen.queryByRole("button", { name: /Swap exercise/ })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
-    expect(screen.getByText("Rest")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Rest timer" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Swap exercise/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove exercise" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Move up/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Move down/ })).not.toBeInTheDocument();
+  });
+
+  it("opens as a floating popover under the dots and shows the current rest time", async () => {
+    await seedActive([set("a")]);
+    renderCard();
+    await screen.findByText("Bench Press");
+    const dots = screen.getByRole("button", { name: "Options" });
+    expect(dots).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(dots);
+    expect(dots).toHaveAttribute("aria-expanded", "true");
+    const popover = screen.getByRole("group", { name: "Exercise options" });
+    expect(popover).toHaveClass("absolute", "right-0");
+    expect(popover.parentElement).toBe(dots.parentElement);
+    // The visible value plus the matching option in the hidden picker.
+    expect(within(popover).getAllByText("1:30")).toHaveLength(2);
+    expect(within(popover).getByRole("combobox", { name: "Rest timer" })).toHaveValue("90");
+    expect(within(popover).getByRole("button", { name: "Remove exercise" })).toHaveClass("text-bad");
+  });
+
+  it("closes on Escape and on a tap outside, but not on a tap inside", async () => {
+    await seedActive([set("a")]);
+    renderCard();
+    await screen.findByText("Bench Press");
+    const dots = screen.getByRole("button", { name: "Options" });
+
+    fireEvent.click(dots);
+    fireEvent.pointerDown(screen.getByRole("group", { name: "Exercise options" }));
+    expect(screen.getByRole("group", { name: "Exercise options" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Exercise options" })).not.toBeInTheDocument();
+
+    fireEvent.click(dots);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("group", { name: "Exercise options" })).not.toBeInTheDocument();
+  });
+
+  it("changing the rest timer saves it for the exercise and shows the new value", async () => {
+    await seedActive([set("a")]);
+    renderCard();
+    await screen.findByText("Bench Press");
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Rest timer" }), { target: { value: "120" } });
+    const popover = screen.getByRole("group", { name: "Exercise options" });
+    await waitFor(() => expect(within(popover).getByRole("combobox", { name: "Rest timer" })).toHaveValue("120"));
+    await waitFor(() => expect(within(popover).getAllByText("2:00")).toHaveLength(2));
+    const { getRestSec } = await import("@/lib/workout");
+    expect(await getRestSec(EX_ID)).toBe(120);
+  });
+
+  it("Swap exercise closes the popover and opens the swap sheet", async () => {
+    // The swap sheet loads the exercise catalogue; answer it with an empty list.
+    const fetchStub = vi.fn().mockResolvedValue(new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchStub);
+    try {
+      await seedActive([set("a")]);
+      renderCard();
+      await screen.findByText("Bench Press");
+      fireEvent.click(screen.getByRole("button", { name: "Options" }));
+      fireEvent.click(screen.getByRole("button", { name: /Swap exercise/ }));
+      expect(screen.queryByRole("group", { name: "Exercise options" })).not.toBeInTheDocument();
+      await waitFor(() => expect(fetchStub).toHaveBeenCalled());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("Remove exercise removes the card from the workout", async () => {
+    await seedActive([set("a")]);
+    renderCard();
+    await screen.findByText("Bench Press");
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove exercise" }));
+    await waitFor(async () => expect((await db.active.get("active"))?.exercises ?? []).toHaveLength(0));
   });
 });
