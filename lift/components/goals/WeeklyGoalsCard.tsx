@@ -20,7 +20,6 @@ import { addExercises, getActive } from "@/lib/workout";
 /** Done vs target sets per muscle this week, with a plan for what's behind. */
 export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
   const goals = useGoals();
-  const [showAll, setShowAll] = useState(false);
   const { weekStart } = useSettings();
   const { get, exercises } = useCatalogue();
   // Each of these is undefined until it has loaded; the plan waits so it never shows a first guess that then changes.
@@ -40,7 +39,6 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
   const daysLeft = daysLeftInWeek(new Date(), weekStart);
   const met = rows.filter((r) => r.status === "met").length;
   const behind = rows.filter((r) => r.remaining > 0);
-  const metRows = rows.filter((r) => r.remaining <= 0);
   const focusFirst = [...behind].sort((a, b) => {
     const fa = goals.focusMuscles.includes(a.muscle as never) ? 0 : 1;
     const fb = goals.focusMuscles.includes(b.muscle as never) ? 0 : 1;
@@ -77,35 +75,11 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
         </Link>
       </div>
 
-      {focusFirst.length > 0 && (
-        <ul className="space-y-2">
-          {focusFirst.map((r) => (
-            <GoalRow key={r.muscle} row={r} focus={goals.focusMuscles.includes(r.muscle as never)} />
-          ))}
-        </ul>
-      )}
-      {metRows.length > 0 && (
-        <>
-          <button
-            type="button"
-            className="mt-3 w-full flex items-center justify-between rounded-xl bg-surface-2 border border-border px-3 py-2.5 text-sm font-medium"
-            aria-expanded={showAll}
-            onClick={() => setShowAll(!showAll)}
-          >
-            {showAll ? "Hide other muscles" : "Show all muscles"}
-            <svg viewBox="0 0 24 24" className={`size-4 text-muted transition-transform ${showAll ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </button>
-          {showAll && (
-            <ul className="space-y-2 mt-3">
-              {metRows.map((r) => (
-                <GoalRow key={r.muscle} row={r} focus={goals.focusMuscles.includes(r.muscle as never)} />
-              ))}
-            </ul>
-          )}
-        </>
-      )}
+      <ul className="space-y-2">
+        {rows.map((r) => (
+          <GoalRow key={r.muscle} row={r} focus={goals.focusMuscles.includes(r.muscle as never)} />
+        ))}
+      </ul>
 
       {focusFirst.length === 0 && <p className="text-xs text-muted mt-4">All weekly targets are met.</p>}
       {focusFirst.length > 0 && (

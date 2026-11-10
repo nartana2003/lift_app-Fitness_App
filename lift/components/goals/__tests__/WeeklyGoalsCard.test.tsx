@@ -198,19 +198,14 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     expect((await getDay(FRI))?.status).toBe("planned");
   });
 
-  it("lists only the muscles that are behind until you ask for all of them", async () => {
+  it("lists every muscle with a target, met or behind, with no show-all toggle", async () => {
     await saveGoals({ targets: { ...Object.fromEntries(MUSCLE_GROUPS.map((m) => [m, 0])), Chest: 11, Glutes: 1 } });
     // One glute set done this week, so Glutes is met and Chest is behind.
     const done: WorkoutLite = { ...workoutOn(WED), exercises: [{ exercise_id: "hip-thrust", sets: [{ is_warmup: false }] as never }] };
     await renderCard([done]);
     expect(screen.getByText("Chest")).toBeInTheDocument();
-    expect(screen.queryByText("Glutes")).not.toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: "Show all muscles" });
-    fireEvent.click(toggle);
     expect(screen.getByText("Glutes")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide other muscles" })).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Hide other muscles" }));
-    expect(screen.queryByText("Glutes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show all muscles/i })).not.toBeInTheDocument();
   });
 
   it("adding does not star the exercises or let catch-up routines feed favourites", async () => {
