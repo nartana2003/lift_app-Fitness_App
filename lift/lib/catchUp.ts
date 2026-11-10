@@ -134,7 +134,6 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
   const added = new Map<string, CatchUpAddition[]>(trainingDays.map((d) => [d, []]));
   // The user's own routines only: earlier catch-up copies must not feed the next plan.
   const routineIds = [...new Set([...input.routines.values()].filter((r) => !isCatchUpRoutine(r.name)).flatMap((r) => r.exercises.map((e) => e.exercise_id)))];
-  const nameOf = (id: string) => byId.get(id)?.name ?? id;
 
   /** The user's own exercises for a muscle: routines, then history, then favourites, then the catalogue ranking. */
   const candidates = (m: MuscleGroup): string[] => {
@@ -226,7 +225,7 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
         if (g !== need.muscle) also.add(g);
       }
       alsoOf.set(item, also);
-      item.reason = reasonFor(nameOf(item.exercise_id), need.muscle, item.sets, item.in_routine, dayRoutine.get(item.date)?.name, [...also]);
+      item.reason = reasonFor(need.muscle, [...also]);
     }
   }
 
@@ -234,10 +233,6 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
   return { trainingDays, additions: trainingDays.flatMap((d) => added.get(d)!), unmet, covered, noSessionsLeft: false };
 }
 
-function reasonFor(name: string, muscle: MuscleGroup, sets: number, inRoutine: boolean, routineName: string | undefined, also: MuscleGroup[]): string {
-  const s = `${sets} set${sets === 1 ? "" : "s"}`;
-  const base = inRoutine
-    ? `${s} more on ${name}, already in ${routineName ?? "this day's routine"}. Brings ${muscle} toward target.`
-    : `${s} of ${name} brings ${muscle} toward this week's target.`;
-  return also.length ? `${base} Also counts toward ${also.join(" and ")}.` : base;
+function reasonFor(muscle: MuscleGroup, also: MuscleGroup[]): string {
+  return also.length ? `Brings ${muscle} to target, also ${also.join(" and ")}` : `Brings ${muscle} to target`;
 }

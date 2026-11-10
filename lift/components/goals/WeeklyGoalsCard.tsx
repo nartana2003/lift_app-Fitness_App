@@ -20,6 +20,7 @@ import { addExercises, getActive } from "@/lib/workout";
 /** Done vs target sets per muscle this week, with a plan for what's behind. */
 export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
   const goals = useGoals();
+  const [showAll, setShowAll] = useState(false);
   const { weekStart } = useSettings();
   const { get, exercises } = useCatalogue();
   // Each of these is undefined until it has loaded; the plan waits so it never shows a first guess that then changes.
@@ -39,6 +40,7 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
   const daysLeft = daysLeftInWeek(new Date(), weekStart);
   const met = rows.filter((r) => r.status === "met").length;
   const behind = rows.filter((r) => r.remaining > 0);
+  const metRows = rows.filter((r) => r.remaining <= 0);
   const focusFirst = [...behind].sort((a, b) => {
     const fa = goals.focusMuscles.includes(a.muscle as never) ? 0 : 1;
     const fb = goals.focusMuscles.includes(b.muscle as never) ? 0 : 1;
@@ -75,11 +77,35 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
         </Link>
       </div>
 
-      <ul className="space-y-2">
-        {rows.map((r) => (
-          <GoalRow key={r.muscle} row={r} focus={goals.focusMuscles.includes(r.muscle as never)} />
-        ))}
-      </ul>
+      {focusFirst.length > 0 && (
+        <ul className="space-y-2">
+          {focusFirst.map((r) => (
+            <GoalRow key={r.muscle} row={r} focus={goals.focusMuscles.includes(r.muscle as never)} />
+          ))}
+        </ul>
+      )}
+      {metRows.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="mt-3 w-full flex items-center justify-between rounded-xl bg-surface-2 border border-border px-3 py-2.5 text-sm font-medium"
+            aria-expanded={showAll}
+            onClick={() => setShowAll(!showAll)}
+          >
+            {showAll ? "Hide other muscles" : "Show all muscles"}
+            <svg viewBox="0 0 24 24" className={`size-4 text-muted transition-transform ${showAll ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          {showAll && (
+            <ul className="space-y-2 mt-3">
+              {metRows.map((r) => (
+                <GoalRow key={r.muscle} row={r} focus={goals.focusMuscles.includes(r.muscle as never)} />
+              ))}
+            </ul>
+          )}
+        </>
+      )}
 
       {focusFirst.length === 0 && <p className="text-xs text-muted mt-4">All weekly targets are met.</p>}
       {focusFirst.length > 0 && (
@@ -92,7 +118,7 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
           ) : (
             <>
               <p className="text-xs text-muted mb-2">
-                Sets to add on your {plan.trainingDays.length} remaining training day{plan.trainingDays.length === 1 ? "" : "s"}, based on your routines.
+                Sets to add on your {plan.trainingDays.length} remaining training day{plan.trainingDays.length === 1 ? "" : "s"}.
               </p>
               <CatchUpPlan key={plan.trainingDays.join()} plan={plan} nameOf={(id) => get(id)?.name ?? id} />
             </>
@@ -192,77 +218,127 @@ export async function addToDay(date: string, additions: GapAddition[], now = new
 }
 
 /**
- * The plan by training day, with a one-tap add per day. The plan is frozen at the
- * first add, so tapping add never reshuffles the other days.
+ * The plan by training day, with a one-tap add per day (or all days). The plan is
+ * frozen at the first add, so adding never reshuffles the other days.
  */
 function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: string) => string }) {
   const [frozen, setFrozen] = useState<CatchUpPlanData | null>(null);
-  const [added, setAdded] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
+  const [result, setResult] = useState<Record<string, { text: string; ok: boolean }>>({});
+  const [busy, setBusy] = useState(false);
 
   const shown = frozen ?? plan;
+  const todayKey = dayKey(new Date());
+  const groups = shown.trainingDays.map((date) => ({ date, items: shown.additions.filter((a) => a.date === date) })).filter((g) => g.items.length > 0);
 
-  async function add(date: string, items: GapAddition[]) {
-    if (!frozen) setFrozen(plan);
-    setBusy(date);
+  async function run(date: string, items: GapAddition[]) {
     try {
-      const msg = await addToDay(date, items);
-      setAdded((a) => ({ ...a, [date]: msg }));
+      const text = await addToDay(date, items);
+      setResult((r) => ({ ...r, [date]: { text, ok: true } }));
     } catch {
-      setAdded((a) => ({ ...a, [date]: "Could not add these. Try again." }));
-    } finally {
-      setBusy(null);
+      setResult((r) => ({ ...r, [date]: { text: "Could not add these. Try again.", ok: false } }));
     }
   }
 
-  const groups = shown.trainingDays.map((date) => ({ date, items: shown.additions.filter((a) => a.date === date) })).filter((g) => g.items.length > 0);
+  async function add(dates: string[]) {
+    if (!frozen) setFrozen(plan);
+    setBusy(true);
+    try {
+      for (const date of dates) await run(date, groups.find((g) => g.date === date)!.items);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const todo = groups.filter((g) => !result[g.date]?.ok);
 
   return (
     <div>
       {groups.length > 0 ? (
-        <ul className="space-y-2" aria-label="Catch-up plan">
-          {groups.map((g, i) => (
-            <li key={g.date} className="rounded-xl bg-surface-2 p-3">
-              <p className="text-sm font-semibold">{weekdayLabel(g.date)}</p>
-              <ul className="mt-1 space-y-1">
-                {g.items.map((a) => (
-                  <li key={a.exercise_id} className="text-sm">
-                    <Link href={`/exercises/${a.exercise_id}`} className="underline">
-                      {nameOf(a.exercise_id)}
-                    </Link>
-                    <span>
-                      {" "}
-                      · {a.sets} set{a.sets === 1 ? "" : "s"}
+        <>
+          <ul className="space-y-2.5" aria-label="Catch-up plan">
+            {groups.map((g, i) => {
+              const wd = weekdayLabel(g.date);
+              const total = g.items.reduce((n, a) => n + a.sets, 0);
+              const r = result[g.date];
+              return (
+                <li key={g.date} aria-label={wd} className="rounded-2xl bg-surface-2 p-3">
+                  <div className="flex items-center gap-3">
+                    <span
+                      aria-hidden="true"
+                      className={`size-10 shrink-0 rounded-full bg-accent text-accent-ink grid place-items-center text-sm font-bold ${g.date === todayKey ? "ring-2 ring-accent ring-offset-2 ring-offset-surface-2" : ""}`}
+                    >
+                      {wd.charAt(0)}
                     </span>
-                    {a.reason && <span className="block text-xs text-muted">{a.reason}</span>}
-                  </li>
-                ))}
-              </ul>
-              {added[g.date] ? (
-                <p role="status" className="text-xs text-muted mt-2">
-                  {added[g.date]}
-                </p>
-              ) : (
-                <button className="btn-primary w-full py-2 text-sm mt-2" disabled={busy !== null} onClick={() => add(g.date, g.items)}>
-                  {i === 0 ? "Add to next workout" : `Add to ${weekdayLabel(g.date)}`}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold">{wd}</p>
+                      <p className="text-xs text-muted">
+                        {total} set{total === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    {r?.ok ? (
+                      <span className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-surface border border-border px-3 py-2 text-sm font-semibold">
+                        <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M5 12l5 5L20 7" />
+                        </svg>
+                        Added
+                      </span>
+                    ) : (
+                      <button className="btn-primary shrink-0 px-3.5 py-2 text-sm" disabled={busy} aria-label={i === 0 ? "Add to next workout" : `Add to ${wd}`} onClick={() => add([g.date])}>
+                        Add
+                      </button>
+                    )}
+                  </div>
+                  <ul className="mt-2.5 space-y-1.5">
+                    {g.items.map((a) => (
+                      <li key={a.exercise_id} className="flex items-center gap-2.5 rounded-xl border border-border bg-surface px-2.5 py-2">
+                        <span aria-hidden="true" className="size-8 shrink-0 rounded-[10px] bg-surface-2 grid place-items-center text-muted">
+                          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M6 6v12M18 6v12M3 9v6M21 9v6M6 12h12" />
+                          </svg>
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <Link href={`/exercises/${a.exercise_id}`} className="block text-[13px] font-semibold leading-tight">
+                            {nameOf(a.exercise_id)}
+                          </Link>
+                          {a.reason && <p className="text-xs text-muted leading-snug">{a.reason}</p>}
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${a.in_routine ? "bg-surface-2 border border-border" : "bg-accent text-accent-ink"}`}
+                        >
+                          {a.in_routine ? "+" : ""}
+                          {a.sets} set{a.sets === 1 ? "" : "s"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {r?.text && (
+                    <p role="status" className="text-xs text-muted mt-2">
+                      {r.text}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {groups.length > 1 && todo.length > 0 && (
+            <button className="btn-primary w-full py-2.5 text-sm mt-3" disabled={busy} onClick={() => add(todo.map((g) => g.date))}>
+              Add all to my week
+            </button>
+          )}
+        </>
       ) : shown.covered.length > 0 && shown.unmet.length === 0 ? (
         <p className="text-xs text-muted">Your planned routines already cover your remaining sets.</p>
       ) : (
         <p className="text-xs text-muted">No exercises could be placed this week.</p>
       )}
       {shown.covered.length > 0 && (
-        <p className="text-xs text-muted mt-2">
-          Already covered by your planned routines: {shown.covered.map((c) => `${c.muscle} (${c.sets} set${c.sets === 1 ? "" : "s"})`).join(", ")}.
+        <p className="text-xs text-muted mt-3 rounded-xl bg-surface-2 px-3 py-2.5">
+          <span className="font-semibold text-text">Covered by your routines:</span> {shown.covered.map((c) => `${c.muscle} (${c.sets} set${c.sets === 1 ? "" : "s"})`).join(", ")}
         </p>
       )}
       {shown.unmet.length > 0 && (
-        <p className="text-xs text-muted mt-2">
-          Not enough room this week for: {shown.unmet.map((u) => `${u.muscle} (${u.sets} set${u.sets === 1 ? "" : "s"})`).join(", ")}.
+        <p className="text-xs text-muted mt-2 rounded-xl bg-surface-2 px-3 py-2.5">
+          <span className="font-semibold text-text">No room this week:</span> {shown.unmet.map((u) => `${u.muscle} (${u.sets} set${u.sets === 1 ? "" : "s"})`).join(", ")}
         </p>
       )}
     </div>

@@ -71,6 +71,7 @@ test("weekly goals card shows the rule-based catch-up plan with no AI step", asy
   await expect(plan).toBeVisible();
   await expect(plan.locator('a[href^="/exercises/"]').first()).toBeVisible();
   await expect(plan.getByRole("button", { name: "Add to next workout" })).toBeVisible();
+  await expect(c.getByRole("button", { name: "Add all to my week" })).toBeVisible();
 
   // No AI controls on the card.
   await expect(c.getByRole("button", { name: /AI/ })).toHaveCount(0);
@@ -86,11 +87,12 @@ test("catch-up adds sets to the planned routine as a copy and does not star exer
   const today = await page.evaluate(() => new Date().toLocaleDateString(undefined, { weekday: "short" }));
   const plan = c.getByRole("list", { name: "Catch-up plan" });
   // Chest work lands on the day whose routine already trains chest, as more sets on that exercise.
-  const todayBlock = plan.getByRole("listitem").filter({ has: page.getByText(today, { exact: true }) }).first();
-  await expect(todayBlock.getByText(/more on .*Bench Press.*, already in E2E Push/)).toBeVisible();
+  const todayBlock = plan.getByRole("listitem", { name: today, exact: true });
+  await expect(todayBlock.getByText(/^\+\d+ sets?$/)).toBeVisible();
+  await expect(todayBlock.getByText("Brings Chest to target")).toBeVisible();
 
   // The routine's 4 planned bench sets already count toward chest, so they are not asked for again.
-  await expect(c.getByText(/Already covered by your planned routines: .*Chest \(4 sets\)/)).toBeVisible();
+  await expect(c.getByText(/Covered by your routines:.*Chest \(4 sets\)/)).toBeVisible();
 
   await todayBlock.getByRole("button", { name: /Add to/ }).click();
   await expect(c.getByText(`Added to E2E Push on ${today}.`)).toBeVisible();
@@ -126,4 +128,17 @@ test("catch-up adds sets to the planned routine as a copy and does not star exer
   expect(result.copy.length).toBeLessThanOrEqual(3);
   // The plan's own picks are never starred.
   expect(result.favourites === null || (result.favourites as string[]).length === 0).toBe(true);
+});
+
+test("Add all to my week plans every training day in one tap", async ({ page }) => {
+  await page.goto("/progress");
+  await page.waitForLoadState("networkidle");
+
+  const c = card(page);
+  const plan = c.getByRole("list", { name: "Catch-up plan" });
+  await expect(plan.getByRole("button", { name: /^Add to/ }).first()).toBeVisible();
+  await c.getByRole("button", { name: "Add all to my week" }).click();
+  await expect(c.getByRole("button", { name: "Add all to my week" })).toHaveCount(0);
+  await expect(plan.getByRole("button", { name: /^Add to/ })).toHaveCount(0);
+  expect(await plan.getByText("Added", { exact: true }).count()).toBeGreaterThan(1);
 });

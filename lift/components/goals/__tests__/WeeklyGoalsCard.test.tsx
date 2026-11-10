@@ -80,7 +80,7 @@ async function renderCard(workouts: WorkoutLite[] = []) {
 }
 
 const plan = () => screen.getByRole("list", { name: "Catch-up plan" });
-const day = (key: string) => within(plan()).getAllByRole("listitem").find((li) => within(li).queryByText(short(key), { selector: "p" }))!;
+const day = (key: string) => within(plan()).getByRole("listitem", { name: short(key) });
 const workoutOn = (date: string): WorkoutLite => ({
   id: date,
   started_at: new Date(date + "T09:00:00").toISOString(),
@@ -98,8 +98,9 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     expect(screen.getByRole("heading", { name: "Catch up" })).toBeInTheDocument();
     // 3 sessions a week, none done, none planned: three spread days (Wed, Fri, Sun).
     expect(screen.getByText(/on your 3 remaining training days/)).toBeInTheDocument();
-    const days = within(plan()).getAllByRole("listitem").filter((li) => li.querySelector(":scope > p"));
-    expect(days.map((li) => li.querySelector(":scope > p")!.textContent)).toEqual([short(WED), short(FRI), short(SUN)].filter((d, i, all) => all.indexOf(d) === i).slice(0, days.length));
+    const days = [WED, FRI, SUN].filter((k) => within(plan()).queryByRole("listitem", { name: short(k) }));
+    expect(days.length).toBeGreaterThan(0);
+    expect(within(plan()).getAllByRole("listitem", { name: /^\w{3}$/ })).toHaveLength(days.length);
     expect(screen.getAllByRole("link", { name: "Bench Press" })[0]).toHaveAttribute("href", "/exercises/bench");
     expect(within(plan()).getByRole("button", { name: "Add to next workout" })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -112,9 +113,11 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     await planDay(FRI, push);
     await renderCard();
     await waitFor(() => expect(within(day(FRI)).getByRole("link", { name: "Bench Press" })).toBeInTheDocument());
-    expect(within(day(FRI)).getByText(/more on Bench Press, already in Push/)).toBeInTheDocument();
+    expect(within(day(FRI)).getByText(/^\+\d+ sets?$/)).toBeInTheDocument();
+    expect(within(day(FRI)).getByText("Brings Chest to target")).toBeInTheDocument();
     // Back work goes to the pull day, on the exercise already in it.
-    expect(within(day(THU)).getByText(/more on Barbell Row, already in Pull/)).toBeInTheDocument();
+    expect(within(day(THU)).getByRole("link", { name: "Barbell Row" })).toBeInTheDocument();
+    expect(within(day(THU)).getByText("Brings Back to target")).toBeInTheDocument();
   });
 
   it("counts sets already planned in a routine: says so, and suggests no more for that muscle", async () => {
@@ -122,7 +125,7 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     const push = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench", target_sets: 11 }] });
     await planDay(FRI, push);
     await renderCard();
-    expect(screen.getByText(/Already covered by your planned routines: Chest \(11 sets\)/)).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.tagName === "P" && /Covered by your routines:.*Chest \(11 sets\)/.test(el.textContent ?? ""))).toBeInTheDocument();
     // No chest sets are suggested on any day.
     expect(within(plan()).queryByRole("link", { name: "Bench Press" })).not.toBeInTheDocument();
   });
@@ -155,7 +158,7 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     await planDay(FRI, pushId);
     await renderCard();
     await waitFor(() => expect(within(day(FRI)).getByRole("link", { name: "Bench Press" })).toBeInTheDocument());
-    const benchSets = Number(within(day(FRI)).getByRole("link", { name: "Bench Press" }).parentElement!.textContent!.match(/· (\d+) set/)![1]);
+    const benchSets = Number(within(day(FRI)).getByText(/^\+\d+ sets?$/).textContent!.match(/\d+/)![0]);
 
     fireEvent.click(within(plan()).getByRole("button", { name: "Add to next workout" }));
     expect(await screen.findByText(`Planned a catch-up workout on ${short(WED)}.`)).toBeInTheDocument();
@@ -176,11 +179,38 @@ describe("WeeklyGoalsCard catch-up plan", () => {
 
   it("does not reshuffle the other days after one is added", async () => {
     await renderCard();
-    const before = within(plan()).getAllByRole("listitem").map((li) => li.textContent);
+    const picks = () => within(plan()).getAllByRole("link").map((l) => l.textContent);
+    const before = picks();
     fireEvent.click(within(plan()).getByRole("button", { name: "Add to next workout" }));
     await screen.findByText(`Planned a catch-up workout on ${short(WED)}.`);
-    await waitFor(() => expect(within(plan()).getAllByRole("listitem").map((li) => li.textContent!.replace(`Planned a catch-up workout on ${short(WED)}.`, "").replace("Add to next workout", ""))).toEqual(before.map((t) => t!.replace("Add to next workout", ""))));
+    expect(picks()).toEqual(before);
     expect(within(plan()).getByRole("button", { name: `Add to ${short(FRI)}` })).toBeInTheDocument();
+    expect(within(day(WED)).getByText("Added")).toBeInTheDocument();
+  });
+
+  it("Add all to my week plans every day in one tap and then hides itself", async () => {
+    await renderCard();
+    fireEvent.click(screen.getByRole("button", { name: "Add all to my week" }));
+    expect(await screen.findByText(`Planned a catch-up workout on ${short(WED)}.`)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Add all to my week" })).not.toBeInTheDocument());
+    expect(within(plan()).getAllByText("Added").length).toBeGreaterThan(1);
+    expect((await getDay(WED))?.status).toBe("planned");
+    expect((await getDay(FRI))?.status).toBe("planned");
+  });
+
+  it("lists only the muscles that are behind until you ask for all of them", async () => {
+    await saveGoals({ targets: { ...Object.fromEntries(MUSCLE_GROUPS.map((m) => [m, 0])), Chest: 11, Glutes: 1 } });
+    // One glute set done this week, so Glutes is met and Chest is behind.
+    const done: WorkoutLite = { ...workoutOn(WED), exercises: [{ exercise_id: "hip-thrust", sets: [{ is_warmup: false }] as never }] };
+    await renderCard([done]);
+    expect(screen.getByText("Chest")).toBeInTheDocument();
+    expect(screen.queryByText("Glutes")).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "Show all muscles" });
+    fireEvent.click(toggle);
+    expect(screen.getByText("Glutes")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide other muscles" })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Hide other muscles" }));
+    expect(screen.queryByText("Glutes")).not.toBeInTheDocument();
   });
 
   it("adding does not star the exercises or let catch-up routines feed favourites", async () => {

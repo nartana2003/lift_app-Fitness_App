@@ -157,8 +157,8 @@ describe("planCatchUp: using the user's routines", () => {
     expect(plan.additions).toHaveLength(1);
     // The routine already has 1 chest set planned, so 2 of the 3 missing sets are added.
     expect(plan.additions[0]).toMatchObject({ exercise_id: "bench", date: FRI, sets: 2, muscle: "Chest" });
-    expect(plan.additions[0].reason).toContain("more on bench");
-    expect(plan.additions[0].reason).toContain("Push");
+    expect(plan.additions[0].in_routine).toBe(true);
+    expect(plan.additions[0].reason).toBe("Brings Chest to target");
   });
 
   it("prefers a free day over a routine that does not train the muscle", () => {
@@ -280,7 +280,7 @@ describe("planCatchUp: exercises that hit two muscles", () => {
     const plan = planCatchUp(input({ catalogue: [pullUp], planned: [row(WED, null)], sessionsPerWeek: 1, behind: [{ muscle: "Back", remaining: 3 }, { muscle: "Biceps", remaining: 3 }] }));
     expect(plan.additions).toHaveLength(1);
     expect(plan.additions[0]).toMatchObject({ exercise_id: "weighted-pull-up", muscle: "Back", sets: 3 });
-    expect(plan.additions[0].reason).toContain("Also counts toward Biceps");
+    expect(plan.additions[0].reason).toBe("Brings Back to target, also Biceps");
     expect(plan.unmet).toEqual([]);
   });
 
