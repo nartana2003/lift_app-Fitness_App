@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Issue #5: completing a set queues the end-of-rest chime on the audio clock.
+// Issue #5: when audio playback is blocked, completing a set queues the end-of-rest chime on the audio clock.
 // The browser cannot be heard here, so AudioContext is replaced by a recorder.
 const BENCH = "Barbell_Bench_Press_-_Medium_Grip";
 
@@ -35,6 +35,8 @@ test("completing a set queues the rest-over chime and Skip cancels it", async ({
       }
     }
     (window as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
+    // A phone that blocks audio playback falls back to the chime queued on the audio clock.
+    HTMLMediaElement.prototype.play = () => Promise.reject(new Error("NotAllowedError"));
   });
 
   await page.goto("/");

@@ -1,13 +1,13 @@
 import { test, expect } from "@playwright/test";
 
 // A rest has to still alert when the phone locks or another app is in front: notification
-// permission is asked at the first rest, silent audio keeps the page alive, and Skip stops it.
+// permission is asked at the first rest, the rest plays as one audio file (silence, then the alarm) that needs no page timer, and Skip stops it.
 // The browser cannot be heard or locked here, so Notification and audio playback are recorders.
 const BENCH = "Barbell_Bench_Press_-_Medium_Grip";
 
-test("starting a rest asks for notifications and keeps the page alive with silent audio until Skip", async ({ page }) => {
+test("starting a rest asks for notifications and plays the rest as one audio file until Skip", async ({ page }) => {
   await page.addInitScript(() => {
-    const w = window as unknown as { __asked: number; __plays: { loop: boolean }[]; __pauses: number };
+    const w = window as unknown as { __asked: number; __plays: { src: string }[]; __pauses: number };
     w.__asked = 0;
     w.__plays = [];
     w.__pauses = 0;
@@ -19,7 +19,7 @@ test("starting a rest asks for notifications and keeps the page alive with silen
     };
     (window as unknown as { Notification: unknown }).Notification = fake;
     HTMLMediaElement.prototype.play = function () {
-      w.__plays.push({ loop: this.loop });
+      w.__plays.push({ src: this.src.slice(0, 5) });
       return Promise.resolve();
     };
     HTMLMediaElement.prototype.pause = function () {
@@ -58,7 +58,7 @@ test("starting a rest asks for notifications and keeps the page alive with silen
   await page.waitForLoadState("networkidle");
   const read = () =>
     page.evaluate(() => {
-      const w = window as unknown as { __asked: number; __plays: { loop: boolean }[]; __pauses: number };
+      const w = window as unknown as { __asked: number; __plays: { src: string }[]; __pauses: number };
       return { asked: w.__asked, plays: w.__plays, pauses: w.__pauses };
     });
 
@@ -67,7 +67,8 @@ test("starting a rest asks for notifications and keeps the page alive with silen
   await expect(page.getByText(/Rest ·/)).toBeVisible();
   const started = await read();
   expect(started.asked).toBe(1);
-  expect(started.plays).toEqual([{ loop: true }]);
+  // The whole rest is one audio file (silence, then the alarm), played from the tap.
+  expect(started.plays).toEqual([{ src: "blob:" }]);
   const pausesBefore = started.pauses;
 
   await page.getByRole("button", { name: "Skip" }).click();

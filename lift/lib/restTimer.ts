@@ -99,56 +99,90 @@ function askNotifyPermission() {
   } catch {}
 }
 
-/** One second of silence as a WAV, built once. */
-let silentUrl: string | undefined;
-function silentWavUrl(): string {
-  if (silentUrl) return silentUrl;
-  const rate = 8000;
-  const b = new Uint8Array(44 + rate).fill(128);
+const RATE = 8000;
+/** The alarm is the three-note chime four times over, about 3.6 s. */
+const ALARM_SEC = 4;
+/** Longest rest played as one audio file; longer ones use the chime queued on the audio clock. */
+const MAX_FILE_SEC = 900;
+
+/** WAV bytes (8 kHz, 8-bit mono): `lead` seconds of silence, then the alarm. */
+export function alarmWav(lead: number): Uint8Array {
+  const n = Math.round((lead + ALARM_SEC) * RATE);
+  const b = new Uint8Array(44 + n).fill(128);
   const dv = new DataView(b.buffer);
   const str = (o: number, t: string) => [...t].forEach((c, i) => (b[o + i] = c.charCodeAt(0)));
   str(0, "RIFF");
-  dv.setUint32(4, 36 + rate, true);
+  dv.setUint32(4, 36 + n, true);
   str(8, "WAVEfmt ");
   dv.setUint32(16, 16, true);
   dv.setUint16(20, 1, true); // PCM
   dv.setUint16(22, 1, true); // mono
-  dv.setUint32(24, rate, true);
-  dv.setUint32(28, rate, true);
+  dv.setUint32(24, RATE, true);
+  dv.setUint32(28, RATE, true);
   dv.setUint16(32, 1, true);
   dv.setUint16(34, 8, true);
   str(36, "data");
-  dv.setUint32(40, rate, true);
-  return (silentUrl = URL.createObjectURL(new Blob([b], { type: "audio/wav" })));
+  dv.setUint32(40, n, true);
+  for (let r = 0; r < 4; r++) {
+    [0, 0.18, 0.36].forEach((note, i) => {
+      const start = Math.round((lead + r * 0.9 + note) * RATE);
+      const len = Math.round(0.16 * RATE);
+      const hz = i === 2 ? 1320 : 880;
+      for (let k = 0; k < len; k++) {
+        const t = k / RATE;
+        const env = Math.min(1, t / 0.02) * Math.min(1, (0.16 - t) / 0.04);
+        const sq = Math.sin(2 * Math.PI * hz * t) >= 0 ? 1 : -1;
+        b[44 + start + k] = 128 + Math.round(sq * env * 0.8 * 127);
+      }
+    });
+  }
+  return b;
 }
 
-let keep: HTMLAudioElement | null = null;
-let keepTimer: ReturnType<typeof setTimeout> | undefined;
+// One audio element is reused, so a phone that unlocked it with the first tap keeps it unlocked.
+let el: HTMLAudioElement | null = null;
+let elUrl: string | undefined;
 
-function stopKeepAwake() {
-  clearTimeout(keepTimer);
+function stopAlarmFile() {
   try {
-    keep?.pause();
+    el?.pause();
+    if (elUrl) URL.revokeObjectURL(elUrl);
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) navigator.mediaSession.metadata = null;
   } catch {}
-  keep = null;
+  elUrl = undefined;
 }
 
 /**
- * Plays silence while a rest runs. A page that is playing audio is not frozen when the phone
- * locks or another app is in front, so the end-of-rest chime and notification still fire on time.
- * Stops shortly after the rest ends.
+ * Play the whole rest as one audio file: silence for the rest, then the alarm. An audio element
+ * is not muted by the phone's silent switch the way Web Audio is, keeps playing when the phone
+ * locks or another app is in front, and needs no page timer to fire at the end.
+ * Returns false when it cannot be used; true means it started (a blocked play falls back to the chime).
  */
-function keepAwake(seconds: number) {
-  stopKeepAwake();
+function playAlarmFile(seconds: number): boolean {
+  stopAlarmFile();
   try {
-    if (typeof Audio === "undefined") return;
-    keep = new Audio(silentWavUrl());
-    keep.loop = true;
-    void Promise.resolve(keep.play()).catch(() => {});
+    if (typeof Audio === "undefined" || typeof URL === "undefined" || seconds > MAX_FILE_SEC) return false;
+    el ??= new Audio();
+    elUrl = URL.createObjectURL(new Blob([alarmWav(Math.max(0, seconds)) as BlobPart], { type: "audio/wav" }));
+    el.src = elUrl;
+    el.loop = false;
+    el.onended = stopAlarmFile;
+    void Promise.resolve(el.play()).catch(() => {
+      // Blocked or unsupported: queue the chime on the audio clock instead.
+      if (state) scheduleChime((state.endsAt - Date.now()) / 1000);
+    });
     if ("mediaSession" in navigator && typeof MediaMetadata !== "undefined") navigator.mediaSession.metadata = new MediaMetadata({ title: "Rest timer", artist: "Lift" });
-  } catch {}
-  keepTimer = setTimeout(stopKeepAwake, (Math.max(0, seconds) + 6) * 1000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Sound the end of the rest: the audio file where possible, else the chime queued on the audio clock. */
+function scheduleAlarm(seconds: number) {
+  cancelQueued();
+  if (playAlarmFile(seconds)) scheduled = true;
+  else scheduleChime(seconds);
 }
 
 /** Remove a "rest over" notification that is still showing. */
@@ -193,10 +227,9 @@ export const restTimer = {
   start(seconds: number, label = "Rest") {
     unlockAudio();
     askNotifyPermission();
-    keepAwake(seconds);
     fired = false;
     state = { endsAt: Date.now() + seconds * 1000, total: seconds, label };
-    scheduleChime(seconds);
+    scheduleAlarm(seconds);
     scheduleNotify(seconds);
     emit();
   },
@@ -204,16 +237,15 @@ export const restTimer = {
     if (!state) return;
     state = { ...state, endsAt: Math.max(Date.now(), state.endsAt + seconds * 1000), total: Math.max(1, state.total + seconds) };
     fired = false;
-    scheduleChime((state.endsAt - Date.now()) / 1000);
+    scheduleAlarm((state.endsAt - Date.now()) / 1000);
     scheduleNotify((state.endsAt - Date.now()) / 1000);
-    keepAwake((state.endsAt - Date.now()) / 1000);
     emit();
   },
   stop() {
     state = null;
     cancelQueued();
     clearTimeout(notifyTimer);
-    stopKeepAwake();
+    stopAlarmFile();
     closeNotice();
     scheduled = false;
     emit();
