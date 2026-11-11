@@ -4,6 +4,8 @@
 import { db, uuid, type OutboxItem, type PlannedDayRow, type SkipReason } from "./offline/db";
 import { flush, writeAndQueue } from "./offline/sync";
 import { addDays, startOfWeek } from "./stats";
+import { isCatchUpRoutine } from "./catchUp";
+import { deleteRoutine } from "./routines";
 
 export const SKIP_REASONS: { v: SkipReason; label: string }[] = [
   { v: "busy", label: "Busy / work" },
@@ -121,6 +123,16 @@ export async function clearDay(date: string) {
     await db.planned_days.delete(cur.id);
     return [{ table: "planned_days", op: "delete", row: { id: cur.id } }];
   });
+  await dropOrphanCatchUp(cur.routine_id);
+}
+
+/** A catch-up copy made for a day goes with that day, so it does not linger in Start Workout. */
+async function dropOrphanCatchUp(routineId: string | null | undefined) {
+  if (!routineId) return;
+  const r = await db.routines.get(routineId);
+  if (!r || r.source !== "ai" || !isCatchUpRoutine(r.name)) return;
+  if ((await db.planned_days.filter((d) => d.routine_id === routineId).count()) > 0) return;
+  await deleteRoutine(routineId);
 }
 
 /** Skip a planned day, with a reason. */

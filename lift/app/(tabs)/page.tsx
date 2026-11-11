@@ -8,6 +8,7 @@ import { startWorkout } from "@/lib/workout";
 import { HistoryList } from "@/components/HistoryList";
 import { startRoutine } from "@/components/routines/RoutineList";
 import { listRoutines } from "@/lib/routines";
+import { isCatchUpRoutine } from "@/lib/catchUp";
 import { WeekStrip } from "@/components/planner/WeekStrip";
 import { db } from "@/lib/offline/db";
 import { workoutsBetween } from "@/lib/history";
@@ -23,6 +24,8 @@ export default function Home() {
   const { unit, weekStart } = useSettings();
   const active = useLiveQuery(() => db.active.get("active"), []);
   const routines = useLiveQuery(listRoutines, [], []).filter((r) => (r.kind ?? "routine") === "routine");
+  // Catch-up copies belong to their planned day, so the chooser leaves them out.
+  const startable = routines.filter((r) => !isCatchUpRoutine(r.name));
   const [choosing, setChoosing] = useState(false);
   const [pickingRoutine, setPickingRoutine] = useState(false);
   const week = useLiveQuery(() => {
@@ -88,7 +91,7 @@ export default function Home() {
                   if (await startRoutine(planned)) router.push("/workout");
                   return;
                 }
-                if (routines.length > 0) {
+                if (startable.length > 0) {
                   setChoosing(!choosing);
                   return;
                 }
@@ -131,7 +134,7 @@ export default function Home() {
                 </button>
                 {pickingRoutine && (
                   <div className="space-y-1.5 pl-3" role="group" aria-label="Routines">
-                    {routines.map((r) => (
+                    {startable.map((r) => (
                       <button
                         key={r.id}
                         className="w-full text-left rounded-xl border border-border px-3 py-2.5 text-sm font-medium"

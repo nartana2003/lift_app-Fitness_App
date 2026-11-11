@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Issue #4: Start Workout on Home offers the user's routines.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
 import { createRoutine } from "@/lib/routines";
 
@@ -104,6 +104,19 @@ describe("Home Start Workout", () => {
     fireEvent.click(start);
     const list = await screen.findByRole("group", { name: "Start from" });
     expect(list.parentElement).toBe(start.parentElement);
+  });
+
+  it("leaves catch-up copies out of the Start Routine list", async () => {
+    await createRoutine({ name: "Push day", exercises: [{ exercise_id: "bench" }] });
+    await createRoutine({ name: "Push day + catch up", source: "ai", favorite: false, exercises: [{ exercise_id: "bench" }] });
+    render(<Home />);
+    await waitFor(() => expect(db.routines.count()).resolves.toBe(2));
+    await act(() => new Promise((r) => setTimeout(r, 100)));
+    fireEvent.click(await screen.findByRole("button", { name: "Start Workout" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start Routine" }));
+    const list = await screen.findByRole("group", { name: "Routines" });
+    expect(within(list).getByRole("button", { name: "Push day" })).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: "Push day + catch up" })).not.toBeInTheDocument();
   });
 
   it("places Start Workout below Weekly Snapshot (issue #24)", async () => {

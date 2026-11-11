@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db, type PlannedDayRow } from "../offline/db";
+import { createRoutine } from "../routines";
 import { clearDay, dayKey, getDay, markDone, moveDay, moveOptions, planDay, skipDay, undoSkip, weekDays } from "../planner";
 
 beforeEach(async () => {
@@ -158,5 +159,29 @@ describe("moveOptions", () => {
   it("excludes days already trained", () => {
     const opts = moveOptions(days, plan([{ date: "2026-10-15", status: "done" }]), MON, now);
     expect(opts.map(dayKey)).not.toContain("2026-10-15");
+  });
+});
+
+describe("clearing a day with a catch-up copy", () => {
+  it("deletes the catch-up routine made for that day", async () => {
+    const id = await createRoutine({ name: "Push + catch up", source: "ai", favorite: false, exercises: [{ exercise_id: "bench" }] });
+    await planDay(MON, id);
+    await clearDay(MON);
+    expect(await db.routines.get(id)).toBeUndefined();
+  });
+
+  it("keeps it while another day still uses it", async () => {
+    const id = await createRoutine({ name: "Catch up", source: "ai", favorite: false, exercises: [{ exercise_id: "bench" }] });
+    await planDay(MON, id);
+    await planDay(THU, id);
+    await clearDay(MON);
+    expect(await db.routines.get(id)).toBeDefined();
+  });
+
+  it("never deletes the user's own routine, even with a catch-up-like name", async () => {
+    const own = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench" }] });
+    await planDay(MON, own);
+    await clearDay(MON);
+    expect(await db.routines.get(own)).toBeDefined();
   });
 });
