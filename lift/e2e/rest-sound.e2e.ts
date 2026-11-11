@@ -68,14 +68,16 @@ test("completing a set queues the rest-over chime and Skip cancels it", async ({
   await page.waitForLoadState("networkidle");
   const notes = () => page.evaluate(() => (window as unknown as { __notes: { at: number; stopped: boolean }[] }).__notes);
 
+  await page.getByRole("button", { name: /^Expand / }).click(); // the card starts collapsed
   await page.getByRole("button", { name: "Complete set" }).click();
   await expect(page.getByText(/Rest ·/)).toBeVisible();
   const queued = await notes();
-  expect(queued).toHaveLength(3);
+  // The alarm is the three-note chime repeated four times.
+  expect(queued).toHaveLength(12);
   // The default rest is 90 s (or the exercise's own), queued ahead on the audio clock.
   expect(queued[0].at).toBeGreaterThan(10);
   expect(queued.every((n) => !n.stopped)).toBe(true);
 
   await page.getByRole("button", { name: "Skip" }).click();
-  expect((await notes()).slice(0, 3).every((n) => n.stopped)).toBe(true);
+  expect((await notes()).slice(0, 12).every((n) => n.stopped)).toBe(true);
 });

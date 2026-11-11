@@ -100,6 +100,8 @@ self.addEventListener("push", (event) => {
       tag: data.tag,
       data: { url: data.url || "/", kind: data.kind, token: data.token },
       actions: data.actions || [],
+      // A rest-over ping must sound and buzz every time, even replacing an earlier one.
+      ...(data.kind === "rest" ? { renotify: true, silent: false, requireInteraction: true, vibrate: [200, 100, 200] } : {}),
     }),
   );
 });
