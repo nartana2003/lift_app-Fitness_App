@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db, uuid } from "@/lib/offline/db";
+import { getActive, startWorkout } from "@/lib/workout";
+
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
 
 const { ExerciseHistory, SessionLog } = await import("@/components/ExerciseHistory");
 const { PrHistory } = await import("@/components/PrHistory");
+const { AddToWorkoutButton } = await import("@/components/AddToWorkoutButton");
 
 const EX = "hip-abductor";
 
@@ -21,6 +26,7 @@ async function session(startedAt: string, sets: [number, number, boolean?][]) {
 
 beforeEach(async () => {
   await Promise.all(db.tables.map((t) => t.clear()));
+  push.mockClear();
 });
 
 describe("ExerciseHistory", () => {
@@ -93,5 +99,30 @@ describe("PrHistory", () => {
     expect(text("Best est. 1RM")).toContain("30.7kg");
     expect(text("Best est. 1RM")).toContain("23kg × 10");
     expect(text("Best volume")).toContain("621kg");
+  });
+});
+
+describe("AddToWorkoutButton", () => {
+  it("starts a workout with the exercise and opens it when none is running", async () => {
+    render(<AddToWorkoutButton exerciseId={EX} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add to workout" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workout"));
+    expect((await getActive())!.exercises.map((e) => e.exercise_id)).toEqual([EX]);
+  });
+
+  it("adds to the running workout in place, then shows it is in the workout", async () => {
+    await startWorkout({ exercises: [{ exercise_id: "bench" }] });
+    render(<AddToWorkoutButton exerciseId={EX} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add to workout" }));
+    expect(await screen.findByRole("button", { name: "In your workout" })).toBeDisabled();
+    expect((await getActive())!.exercises.map((e) => e.exercise_id)).toEqual(["bench", EX]);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("is disabled when the exercise is already in the workout, so it is never added twice", async () => {
+    await startWorkout({ exercises: [{ exercise_id: EX }] });
+    render(<AddToWorkoutButton exerciseId={EX} />);
+    expect(await screen.findByRole("button", { name: "In your workout" })).toBeDisabled();
+    expect((await getActive())!.exercises).toHaveLength(1);
   });
 });
