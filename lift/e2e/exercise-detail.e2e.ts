@@ -1,10 +1,10 @@
 import { test, expect } from "@playwright/test";
 
 // Exercise detail: no repeated last time, an honest trend message, records once, a
-// collapsed History, a monochrome TikTok button, and Add to workout.
+// collapsed History, and the TikTok button.
 const BENCH = "Barbell_Bench_Press_-_Medium_Grip";
 
-test("exercise detail shows progress, records and history, and adds to a workout", async ({ page }) => {
+test("exercise detail shows progress, records and history", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await expect.poll(() => page.evaluate(async () => (await indexedDB.databases()).some((d) => d.name === "lift"))).toBe(true);
@@ -45,17 +45,7 @@ test("exercise detail shows progress, records and history, and adds to a workout
   await expect(page.getByText("1 session", { exact: true })).toBeVisible();
   await expect(page.locator("details").first()).not.toHaveAttribute("open", "");
 
-  // The TikTok button is not the old pink.
-  const tiktok = page.getByRole("link", { name: "Watch on TikTok" });
-  await expect(tiktok).toBeVisible();
-  expect(await tiktok.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgb(254, 44, 85)");
-
-  // Add to workout starts one with this exercise and opens it.
-  await page.getByRole("button", { name: "Add to workout" }).click();
-  await expect(page).toHaveURL(/\/workout/);
-  await expect(page.getByText(/Bench Press/).first()).toBeVisible();
-
-  // Back on the exercise, it says it is already in the workout.
-  await page.goto(`/exercises/${BENCH}`);
-  await expect(page.getByRole("button", { name: "In your workout" })).toBeDisabled();
+  // The Watch on TikTok button is still there, and there is no Add to workout button.
+  await expect(page.getByRole("link", { name: "Watch on TikTok" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Add to workout|In your workout/ })).toHaveCount(0);
 });

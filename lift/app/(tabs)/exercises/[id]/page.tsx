@@ -4,7 +4,6 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { ExerciseDemo } from "@/components/ExerciseDemo";
-import { AddToWorkoutButton } from "@/components/AddToWorkoutButton";
 import { ExerciseHistory, SessionLog } from "@/components/ExerciseHistory";
 import { PrHistory } from "@/components/PrHistory";
 import { useCatalogue } from "@/lib/catalogue";
@@ -69,11 +68,9 @@ export default function ExerciseDetail({
         <span className="chip text-muted">{ex.equipment}</span>
       </div>
 
-      <AddToWorkoutButton exerciseId={ex.id} />
-
       {/* Custom exercises saved from a video link: only http(s) links are shown. */}
       {originalVideo && (
-        <a href={originalVideo} target="_blank" rel="noopener noreferrer" className="btn-ghost w-full mt-2">
+        <a href={originalVideo} target="_blank" rel="noopener noreferrer" className="btn-primary w-full mt-4">
           ▶ {platform ? `Watch original ${PLATFORM_NAMES[platform]} video` : "Watch the original video"}
         </a>
       )}
@@ -83,7 +80,7 @@ export default function ExerciseDetail({
           href={ex.tiktok_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="btn-ghost w-full mt-2"
+          className="btn w-full mt-4 bg-[#fe2c55] text-white"
           onClick={(e) => {
             // Phones: try the TikTok app first; if this page stays in front, open the web search.
             if (!/iPhone|iPad|Android/i.test(navigator.userAgent)) return;
