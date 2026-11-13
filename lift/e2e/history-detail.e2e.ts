@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 // History detail: no weekday title, date and time of start, then Duration,
-// Volume and Records, a body map, and each exercise as a card with its picture, a SET / WEIGHT & REPS / 1RM
+// Volume and Records, a body map, and each exercise as a card with its picture, a SET / WEIGHT & REPS
 // table and a badge for each record a set earned. All local.
 
 test("history detail shows the summary, body map, set table and record badges", async ({ page }) => {
@@ -74,15 +74,18 @@ test("history detail shows the summary, body map, set table and record badges", 
   await expect(page.getByRole("heading", { name: "Exercises" })).toBeVisible();
   const card = page.getByRole("region", { name: "3/4 Sit-Up" });
   await expect(card.getByText("1 set", { exact: true })).toBeVisible();
-  for (const h of ["Set", "Weight & reps", "1RM"]) await expect(card.getByText(h, { exact: true }).first()).toBeVisible();
+  for (const h of ["Set", "Weight & reps"]) await expect(card.getByText(h, { exact: true })).toBeVisible();
   await expect(card.getByText("10kg × 5")).toBeVisible();
-  // 10 kg x 5 is an est. 1RM of 11.7.
-  await expect(card.getByText("11.7")).toBeVisible();
+  // No est. 1RM anywhere: no column, no value, no badge.
+  await expect(page.getByText(/1RM/)).toHaveCount(0);
+  await expect(card.getByText("11.7")).toHaveCount(0);
 
   // 10 kg beats the earlier 8 kg: the set carries record badges.
   const badges = card.getByRole("list", { name: "Records" });
   await expect(badges.getByText("Weight", { exact: true })).toBeVisible();
-  await expect(badges.getByText("1RM", { exact: true })).toBeVisible();
+  await expect(badges.getByText("Volume", { exact: true })).toBeVisible();
+  // The Records total counts only the badges shown: weight and volume.
+  await expect(page.getByText("Records", { exact: true }).locator("xpath=following-sibling::p")).toHaveText("2");
 
   // Editing still swaps the set row for weight and reps inputs.
   await page.getByRole("button", { name: "Edit" }).click();

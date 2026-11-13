@@ -14,8 +14,8 @@ import { useSettings } from "@/lib/settings";
 import { dispNum, fmtVolume } from "@/lib/units";
 import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
 import { repRangeFrom } from "@/lib/routines";
-import { exerciseThumb, recordsBySet, recordsByWorkout } from "@/lib/homeFeed";
-import { e1rm, type PrType } from "@/lib/prs";
+import { exerciseThumb, recordsBySet } from "@/lib/homeFeed";
+import type { PrType } from "@/lib/prs";
 import { BodyMap } from "@/components/MuscleIcon";
 import { TrophyIcon } from "@/components/HistoryList";
 
@@ -34,11 +34,15 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   // Records compare against every earlier workout, like the Home list.
   const records = useLiveQuery(async () => {
     const all = await allWorkouts();
-    return { perWorkout: recordsByWorkout(all), perSet: recordsBySet(all) };
+    return { perSet: recordsBySet(all) };
   }, []);
 
   if (w === null) return null;
   if (!w) return <PageHeader title="Workout not found" back="/" />;
+
+  // Est. 1RM is not shown on this page, so it is not counted or badged either.
+  const shown = (t: PrType) => t !== "e1rm";
+  const recordCount = w.exercises.reduce((n, e) => n + (records?.perSet.get(e.id) ?? []).reduce((a, p) => a + p.filter(shown).length, 0), 0);
 
   const start = new Date(w.started_at);
   const dur = (Date.parse(w.ended_at!) - start.getTime()) / 1000;
@@ -107,7 +111,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
             <p className="text-[11px] text-muted">Records</p>
             <p className="text-lg font-semibold inline-flex items-center gap-1">
               <TrophyIcon />
-              {records?.perWorkout.get(w.id) ?? 0}
+              {recordCount}
             </p>
           </div>
         </div>
@@ -139,14 +143,13 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-[1.5rem_1fr_auto] gap-x-3 px-2 mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted">
+              <div className="grid grid-cols-[1.5rem_1fr] gap-x-3 px-2 mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted">
                 <span>Set</span>
                 <span>Weight &amp; reps</span>
-                <span>1RM</span>
               </div>
               <ul className="mt-1">
                 {e.sets.map((s, i) => (
-                  <li key={s.id} className={`grid grid-cols-[1.5rem_1fr_auto] gap-x-3 items-start rounded-lg px-2 py-2 ${i % 2 === 1 ? "bg-surface-2" : ""}`}>
+                  <li key={s.id} className={`grid grid-cols-[1.5rem_1fr] gap-x-3 items-start rounded-lg px-2 py-2 ${i % 2 === 1 ? "bg-surface-2" : ""}`}>
                     <span className="text-sm font-semibold text-muted">{s.is_warmup ? "W" : i + 1}</span>
                     <div className="min-w-0">
                       {editing ? (
@@ -164,9 +167,9 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                       ) : (
                         <p className="text-sm font-medium">{dispNum(s.weight, unit)}{unit} × {s.reps}</p>
                       )}
-                      {!!earned?.[i]?.length && (
+                      {!!earned?.[i]?.filter(shown).length && (
                         <ul className="flex flex-wrap gap-1 mt-1" aria-label="Records">
-                          {earned[i].map((t) => (
+                          {earned[i].filter(shown).map((t) => (
                             <li key={t} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] font-medium">
                               <TrophyIcon />
                               {PR_SHORT[t]}
@@ -175,9 +178,6 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                         </ul>
                       )}
                     </div>
-                    <span className="text-sm font-semibold tabular-nums text-right">
-                      {s.is_warmup || s.reps <= 0 ? "–" : dispNum(e1rm(s.weight, s.reps), unit)}
-                    </span>
                   </li>
                 ))}
               </ul>
