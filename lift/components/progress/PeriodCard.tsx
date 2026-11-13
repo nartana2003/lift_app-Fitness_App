@@ -11,10 +11,6 @@ import { isoWeek, periodStats, skipStats, type WorkoutLite } from "@/lib/progres
 import { addDays, addMonths, compare, formatDuration, startOfMonth, startOfWeek, type Delta } from "@/lib/stats";
 import { fmtVolume, type Unit } from "@/lib/units";
 import { Segmented } from "./Segmented";
-import { RecapCard } from "./RecapCard";
-
-/** Every skip reason the app has (SKIP_LABEL in lib/planner.ts). */
-const RECAP_SKIP_REASONS = Object.keys(SKIP_LABEL).length;
 
 /** Change against the previous period as a number (like the home page), not a percentage. */
 function DeltaTag({ d, fmt }: { d: Delta; fmt: (n: number) => string }) {
@@ -65,12 +61,6 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
   const max = Math.max(1, ...sets.map(([, n]) => n));
   const notHit = MUSCLE_GROUPS.filter((m) => !cur.sets_by_muscle[m]);
   const skips = useMemo(() => skipStats(planRows, from, to), [planRows, from, to]);
-  // The coach recap gets every reason (not just the top 3 shown here) and last period's counts too.
-  const recapSkips = useMemo(() => skipStats(planRows, from, to, RECAP_SKIP_REASONS), [planRows, from, to]);
-  const prevSkips = useMemo(
-    () => skipStats(planRows, mode === "week" ? addDays(from, -7) : addMonths(from, -1), from, 0),
-    [planRows, from, mode],
-  );
 
   return (
     <section className="card p-4">
@@ -180,19 +170,6 @@ export function PeriodCard({ workouts, unit, weekStart }: { workouts: WorkoutLit
           </div>
         </>
       )}
-
-      <RecapCard
-        key={mode}
-        period={mode}
-        unit={unit}
-        current={cur}
-        previous={prev}
-        workouts={workouts}
-        from={from}
-        to={to}
-        skips={recapSkips}
-        previousSkips={prevSkips}
-      />
     </section>
   );
 }

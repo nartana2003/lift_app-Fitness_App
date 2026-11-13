@@ -1,15 +1,9 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import type { WorkoutLite } from "@/lib/progress";
 import type { PeriodStats } from "@/lib/stats";
 import {
   MAX_HIGHLIGHTS,
-  MSG_FAILED,
-  MSG_OFFLINE,
-  MSG_UNAVAILABLE,
-  ROUTE,
-  RecapCard,
   buildHighlights,
   buildSummaryBody,
   parseSummary,
@@ -50,45 +44,6 @@ const okBody = () => ({
   advice: [{ exercise_id: "bench", text: "You did 3x10 at 60kg twice, try 62.5kg next time.", source: "ai" }],
   adjusted: 0,
 });
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-
-function mockFetch(route: (init?: RequestInit) => Response | Promise<Response>) {
-  const fn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-    if (String(url) === ROUTE) return route(init);
-    throw new Error(`unexpected fetch ${String(url)}`);
-  });
-  vi.stubGlobal("fetch", fn);
-  return fn;
-}
-
-const bodyOf = (fn: ReturnType<typeof mockFetch>, i = 0) => JSON.parse(String((fn.mock.calls[i][1] as RequestInit).body));
-
-function setOnline(v: boolean) {
-  Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => v });
-}
-
-const ids = async () => new Set(["bench", "squat"]);
-
-function renderCard(over: Partial<Parameters<typeof RecapCard>[0]> = {}) {
-  return render(
-    <RecapCard
-      period="week"
-      unit="kg"
-      current={stats()}
-      previous={stats({ sessions: 1, volume: 2000 })}
-      workouts={WORKOUTS}
-      from={FROM}
-      to={TO}
-      loadIds={ids}
-      {...over}
-    />,
-  );
-}
-
-beforeEach(() => setOnline(true));
-afterEach(() => vi.unstubAllGlobals());
 
 // ---------- pure helpers ----------
 
@@ -181,80 +136,3 @@ describe("parseSummary", () => {
 });
 
 // ---------- component ----------
-
-describe("RecapCard", () => {
-  it("fetches nothing until asked", () => {
-    const fn = mockFetch(() => json(okBody()));
-    renderCard();
-    expect(screen.getByRole("heading", { name: "Coach recap" })).toBeInTheDocument();
-    expect(fn).not.toHaveBeenCalled();
-  });
-
-  it("shows the recap and advice on success", async () => {
-    const fn = mockFetch(() => json(okBody()));
-    renderCard();
-    fireEvent.click(screen.getByRole("button", { name: "Get recap" }));
-    expect(await screen.findByText("Two sessions this week and 5,400kg of volume.")).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Overload advice" })).toHaveTextContent("try 62.5kg next time");
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
-    expect(fn).toHaveBeenCalledTimes(1);
-    const body = bodyOf(fn);
-    expect(body.period).toBe("week");
-    expect(body.highlights).toEqual([{ exercise_id: "bench", sets: 3, reps: 10, weight: 60, times: 2 }]);
-    expect(body.previous.sessions).toBe(1);
-  });
-
-  it("shows the unavailable message on 503", async () => {
-    mockFetch(() => json({ unavailable: true }, 503));
-    renderCard();
-    fireEvent.click(screen.getByRole("button", { name: "Get recap" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(MSG_UNAVAILABLE);
-    expect(screen.queryByRole("list", { name: "Overload advice" })).toBeNull();
-  });
-
-  it("shows the failure message on a server error, a bad answer or a network error", async () => {
-    mockFetch(() => json({ error: "x" }, 500));
-    const { unmount } = renderCard();
-    fireEvent.click(screen.getByRole("button", { name: "Get recap" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(MSG_FAILED);
-    unmount();
-
-    mockFetch(() => json({ recap: [] }));
-    const r2 = renderCard();
-    fireEvent.click(screen.getByRole("button", { name: "Get recap" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(MSG_FAILED);
-    r2.unmount();
-
-    mockFetch(() => Promise.reject(new TypeError("network")));
-    renderCard();
-    fireEvent.click(screen.getByRole("button", { name: "Get recap" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(MSG_FAILED);
-  });
-
-  it("shows the offline message without calling the route", async () => {
-    setOnline(false);
-    const fn = mockFetch(() => json(okBody()));
-    renderCard();
-    fireEvent.click(screen.getByRole("button", { name: "Get recap" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(MSG_OFFLINE);
-    expect(fn).not.toHaveBeenCalled();
-  });
-
-  it("retries without highlights on a 400", async () => {
-    const fn = mockFetch(() => (fn.mock.calls.length === 1 ? json({ error: "invalid" }, 400) : json(okBody())));
-    renderCard();
-    fireEvent.click(screen.getByRole("button", { name: "Get recap" }));
-    expect(await screen.findByText("Chest got most of the work.")).toBeInTheDocument();
-    expect(fn).toHaveBeenCalledTimes(2);
-    expect(bodyOf(fn, 1).highlights).toEqual([]);
-  });
-
-  it("sends no highlights when the catalogue cannot be loaded", async () => {
-    const fn = mockFetch(() => json(okBody()));
-    renderCard({ loadIds: () => Promise.reject(new Error("offline")) });
-    fireEvent.click(screen.getByRole("button", { name: "Get recap" }));
-    await waitFor(() => expect(fn).toHaveBeenCalledTimes(1));
-    expect(bodyOf(fn).highlights).toEqual([]);
-    expect(await screen.findByText("Chest got most of the work.")).toBeInTheDocument();
-  });
-});

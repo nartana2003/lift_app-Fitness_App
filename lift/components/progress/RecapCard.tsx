@@ -1,15 +1,10 @@
 "use client";
 
-// "Coach recap" inside the This week / This month card. On tap it sends the
-// period's stats (the same numbers PeriodCard already shows, plus the most
-// repeated set pattern per exercise) to POST /api/ai/summary and shows a short
-// coach-style recap with progressive-overload advice. Nothing is fetched on
-// render. Any failure (no key, offline, bad answer) shows a short plain
-// message; the rule-based stats in PeriodCard are never changed.
-import { useState } from "react";
+// Helpers for the coach recap request and answer: build the body for POST /api/ai/summary
+// from a period's stats (plus the most repeated set pattern per exercise) and read its
+// answer. The Coach recap card was removed from Progress; PhotosTab still uses toBaseStats.
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
-import { loadCatalogue } from "@/lib/catalogue";
-import type { SkipStats, WorkoutLite } from "@/lib/progress";
+import type { WorkoutLite } from "@/lib/progress";
 import { recapSkipFields, type PeriodStats, type SkipCounts } from "@/lib/stats";
 import type { Unit } from "@/lib/units";
 
@@ -190,118 +185,4 @@ export function parseSummary(json: unknown): Recap | null {
     }
   }
   return { recap: lines, advice: tips };
-}
-
-/** Ids of the built-in catalogue (the route only accepts those). */
-async function loadCatalogueIds(): Promise<Set<string>> {
-  const cat = await loadCatalogue();
-  return new Set(cat.byId.keys());
-}
-
-type State = { kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; recap: Recap };
-
-const offline = () => typeof navigator !== "undefined" && navigator.onLine === false;
-
-async function post(body: unknown): Promise<Response> {
-  return fetch(ROUTE, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-}
-
-/** Coach-style recap for the shown week or month, fetched on demand. */
-export function RecapCard({
-  period,
-  unit,
-  current,
-  previous,
-  workouts,
-  from,
-  to,
-  skips,
-  previousSkips,
-  loadIds = loadCatalogueIds,
-}: {
-  period: Period;
-  unit: Unit;
-  current: PeriodStats;
-  previous: PeriodStats | null;
-  workouts: WorkoutLite[];
-  from: Date;
-  to: Date;
-  /** Skipped/moved planned days in this period (and the previous one), sent with the stats. */
-  skips?: SkipStats | null;
-  previousSkips?: SkipStats | null;
-  loadIds?: () => Promise<Set<string>>;
-}) {
-  const [state, setState] = useState<State>({ kind: "idle" });
-
-  const run = async () => {
-    if (offline()) {
-      setState({ kind: "error", message: MSG_OFFLINE });
-      return;
-    }
-    setState({ kind: "loading" });
-    try {
-      let ids: Set<string> | null = null;
-      try {
-        ids = await loadIds();
-      } catch {
-        ids = null; // catalogue not reachable: send stats without highlights
-      }
-      const highlights = ids ? buildHighlights(workouts, from, to, (id) => ids!.has(id)) : [];
-      let res = await post(buildSummaryBody(period, unit, current, previous, highlights, skips, previousSkips));
-      // A highlight the route will not accept should not block the recap.
-      if (res.status === 400 && highlights.length) res = await post(buildSummaryBody(period, unit, current, previous, [], skips, previousSkips));
-      if (res.status === 503) {
-        setState({ kind: "error", message: MSG_UNAVAILABLE });
-        return;
-      }
-      if (!res.ok) {
-        setState({ kind: "error", message: MSG_FAILED });
-        return;
-      }
-      const recap = parseSummary(await res.json());
-      setState(recap ? { kind: "done", recap } : { kind: "error", message: MSG_FAILED });
-    } catch {
-      setState({ kind: "error", message: offline() ? MSG_OFFLINE : MSG_FAILED });
-    }
-  };
-
-  const label = period === "week" ? "weekly" : "monthly";
-
-  return (
-    <div className="mt-4 rounded-xl bg-surface-2 p-3" aria-label="Coach recap">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="font-semibold">Coach recap</h3>
-        <button type="button" className="btn-ghost text-sm" onClick={run} disabled={state.kind === "loading"}>
-          {state.kind === "loading" ? "Writing..." : state.kind === "done" ? "Refresh" : "Get recap"}
-        </button>
-      </div>
-      {state.kind === "idle" && (
-        <p className="text-xs text-muted mt-1">A short {label} recap with what to try next time.</p>
-      )}
-      {state.kind === "error" && (
-        <p role="status" className="text-sm text-muted mt-2">
-          {state.message}
-        </p>
-      )}
-      {state.kind === "done" && (
-        <div className="mt-2 space-y-2">
-          <div className="space-y-1 text-sm">
-            {state.recap.recap.map((l) => (
-              <p key={l}>{l}</p>
-            ))}
-          </div>
-          {state.recap.advice.length > 0 && (
-            <>
-              <h4 className="text-xs font-semibold text-muted uppercase tracking-wide">Next time</h4>
-              <ul aria-label="Overload advice" className="space-y-1 text-sm list-disc pl-5">
-                {state.recap.advice.map((a) => (
-                  <li key={a.text}>{a.text}</li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
