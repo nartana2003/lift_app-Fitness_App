@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exerciseCaption, exerciseThumb, recordsByWorkout, type FeedWorkout } from "../homeFeed";
+import { exerciseCaption, exerciseThumb, recordsBySet, recordsByWorkout, type FeedWorkout } from "../homeFeed";
 import type { SetLike } from "../prs";
 
 const sets = (n: number, weight: number, reps = 8, is_warmup = false): SetLike[] =>
@@ -95,5 +95,58 @@ describe("exercise thumbnail", () => {
 
   it("uses a neutral mark when the name has no letter or digit", () => {
     expect(exerciseThumb([], " -- ")).toEqual({ kind: "letter", letter: "?" });
+  });
+});
+
+describe("records per set", () => {
+  const ex = (id: string, exercise_id: string, s: SetLike[]) => ({ id, exercise_id, sets: s });
+  const wk = (id: string, day: number, exercises: ReturnType<typeof ex>[]) => ({ id, started_at: `2026-10-${String(day).padStart(2, "0")}T10:00:00.000Z`, exercises });
+
+  it("gives no records the first time an exercise is logged", () => {
+    const r = recordsBySet([wk("a", 1, [ex("a1", "bench", sets(3, 50))])]);
+    expect(r.get("a1")).toEqual([[], [], []]);
+  });
+
+  it("puts each record on the set that earned it, in set order", () => {
+    const r = recordsBySet([
+      wk("a", 1, [ex("a1", "bench", sets(3, 50))]),
+      wk("b", 8, [ex("b1", "bench", sets(3, 60))]),
+    ]);
+    const per = r.get("b1")!;
+    expect(per).toHaveLength(3);
+    // 60x8 beats 50x8 on the first set (weight and est. 1RM); the session volume record lands on the first set that beats the old session.
+    expect(per[0]).toEqual(expect.arrayContaining(["weight", "e1rm"]));
+    expect(per[0].length + per[1].length + per[2].length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("agrees with the per-workout count", () => {
+    const all = [
+      wk("a", 1, [ex("a1", "bench", sets(3, 50)), ex("a2", "row", sets(2, 40))]),
+      wk("b", 8, [ex("b1", "bench", sets(3, 60)), ex("b2", "row", sets(2, 45, 10))]),
+    ];
+    const perSet = recordsBySet(all);
+    const perWorkout = recordsByWorkout(all);
+    for (const wo of all) {
+      const n = wo.exercises.reduce((sum, e) => sum + perSet.get(e.id)!.reduce((a, p) => a + p.length, 0), 0);
+      expect(n).toBe(perWorkout.get(wo.id));
+    }
+  });
+
+  it("never gives a warm-up a record, and keeps exercises separate", () => {
+    const r = recordsBySet([
+      wk("a", 1, [ex("a1", "bench", sets(2, 50)), ex("a2", "row", sets(2, 30))]),
+      wk("b", 8, [ex("b1", "bench", [...sets(1, 100, 5, true), ...sets(2, 55)]), ex("b2", "row", sets(2, 30))]),
+    ]);
+    expect(r.get("b1")![0]).toEqual([]);
+    expect(r.get("b1")![1].length).toBeGreaterThan(0);
+    // The row did not improve, so it earned nothing.
+    expect(r.get("b2")).toEqual([[], []]);
+  });
+
+  it("is oldest first regardless of input order", () => {
+    const a = wk("a", 1, [ex("a1", "bench", sets(1, 50))]);
+    const b = wk("b", 8, [ex("b1", "bench", sets(1, 60))]);
+    expect(recordsBySet([b, a]).get("b1")![0].length).toBeGreaterThan(0);
+    expect(recordsBySet([b, a]).get("a1")).toEqual([[]]);
   });
 });

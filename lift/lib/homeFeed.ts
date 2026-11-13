@@ -1,5 +1,5 @@
 // Data helpers for the history cards on Home (Lyfta-style feed).
-import { applySet, bestsFromHistory, emptyBests, prsForNewSets, type Bests, type SetLike } from "./prs";
+import { applySet, bestsFromHistory, emptyBests, prsForNewSets, type Bests, type PrType, type SetLike } from "./prs";
 
 export type FeedWorkout = {
   id: string;
@@ -29,6 +29,28 @@ export function recordsByWorkout(workouts: FeedWorkout[]): Map<string, number> {
       });
     }
     out.set(w.id, n);
+  }
+  return out;
+}
+
+/**
+ * The records each set earned, by workout_exercises id: one PrType[] per set, in set order.
+ * Same replay as recordsByWorkout, so the counts agree.
+ */
+export function recordsBySet(workouts: (FeedWorkout & { exercises: { id: string }[] })[]): Map<string, PrType[][]> {
+  const sorted = [...workouts].sort((a, b) => a.started_at.localeCompare(b.started_at));
+  const bests = new Map<string, Bests>();
+  const out = new Map<string, PrType[][]>();
+  for (const w of sorted) {
+    for (const e of w.exercises) {
+      const prior = bests.get(e.exercise_id) ?? emptyBests();
+      const hadHistory = prior.weight > 0 || Object.keys(prior.repsAtWeight).length > 0;
+      out.set(e.id, prsForNewSets(e.sets, prior, hadHistory));
+      bests.set(e.exercise_id, {
+        ...e.sets.reduce(applySet, prior),
+        volume: Math.max(prior.volume, bestsFromHistory([e.sets]).volume),
+      });
+    }
   }
   return out;
 }

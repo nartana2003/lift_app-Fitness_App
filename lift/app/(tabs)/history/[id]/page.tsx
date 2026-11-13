@@ -14,7 +14,9 @@ import { useSettings } from "@/lib/settings";
 import { dispNum, fmtVolume } from "@/lib/units";
 import { SaveRoutineSheet } from "@/components/routines/SaveRoutineSheet";
 import { repRangeFrom } from "@/lib/routines";
-import { exerciseCaption, exerciseThumb, recordsByWorkout } from "@/lib/homeFeed";
+import { exerciseThumb, recordsBySet, recordsByWorkout } from "@/lib/homeFeed";
+import { e1rm, type PrType } from "@/lib/prs";
+import { BodyMap } from "@/components/MuscleIcon";
 import { TrophyIcon } from "@/components/HistoryList";
 
 export default function WorkoutDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -30,7 +32,10 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     return row ? workoutDetail(row) : undefined;
   }, [id], null);
   // Records compare against every earlier workout, like the Home list.
-  const records = useLiveQuery(async () => recordsByWorkout(await allWorkouts()), []);
+  const records = useLiveQuery(async () => {
+    const all = await allWorkouts();
+    return { perWorkout: recordsByWorkout(all), perSet: recordsBySet(all) };
+  }, []);
 
   if (w === null) return null;
   if (!w) return <PageHeader title="Workout not found" back="/" />;
@@ -91,96 +96,92 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         {start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
       </p>
 
-      <div className="flex gap-6 mb-5">
-        <Stat label="Duration" value={formatDuration(dur)} />
-        <Stat label="Volume" value={fmtVolume(w.volume, unit)} />
-        <div className="ml-auto text-right">
-          <p className="text-[11px] text-muted">Records</p>
-          <p className="text-lg font-semibold inline-flex items-center gap-1">
-            <TrophyIcon />
-            {records?.get(w.id) ?? 0}
-          </p>
+      <div className="flex items-center gap-3 mb-6">
+        <div className="min-w-0 flex-1">
+          <BodyMap setsByGroup={Object.fromEntries(muscles)} className="h-44" />
+        </div>
+        <div className="w-[36%] shrink-0 space-y-4">
+          <Stat label="Duration" value={formatDuration(dur)} />
+          <Stat label="Volume" value={fmtVolume(w.volume, unit)} />
+          <div>
+            <p className="text-[11px] text-muted">Records</p>
+            <p className="text-lg font-semibold inline-flex items-center gap-1">
+              <TrophyIcon />
+              {records?.perWorkout.get(w.id) ?? 0}
+            </p>
+          </div>
         </div>
       </div>
 
-      {w.exercises.length > 0 && (
-        <ul className="grid grid-cols-3 gap-x-2 gap-y-4 mb-5" aria-label="Exercises done">
-          {w.exercises.map((e) => {
-            const info = get(e.exercise_id);
-            const name = info?.name ?? e.exercise_id;
-            const thumb = exerciseThumb(info?.image_urls, name);
-            return (
-              <li key={e.id} className="flex flex-col items-center text-center">
-                {thumb.kind === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={thumb.src} alt="" loading="lazy" className="size-24 rounded-2xl object-cover bg-white border border-border" />
-                ) : (
-                  <span aria-hidden className="size-24 rounded-2xl bg-surface-2 text-muted flex items-center justify-center text-3xl font-semibold">
-                    {thumb.letter}
-                  </span>
-                )}
-                <p className="text-xs text-muted mt-1.5 line-clamp-2">{exerciseCaption(e.sets, name)}</p>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      <div className="flex flex-wrap gap-1.5 mb-4">
-        {[...muscles.entries()].map(([m, n]) => (
-          <span key={m} className="chip text-xs">{m} · {n}</span>
-        ))}
-      </div>
-
+      <h2 className="text-lg font-semibold mb-3">Exercises</h2>
       <div className="space-y-3">
         {w.exercises.map((e) => {
           const info = get(e.exercise_id);
           const name = info?.name ?? e.exercise_id;
           const thumb = exerciseThumb(info?.image_urls, name);
+          const working = e.sets.filter((x) => !x.is_warmup).length || e.sets.length;
+          const earned = records?.perSet.get(e.id);
           return (
-          <section key={e.id} className="card p-3">
-            <div className="flex items-center gap-3 mb-2">
-              {thumb.kind === "image" ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={thumb.src}
-                  alt={name}
-                  loading="lazy"
-                  className="size-10 rounded-full object-cover bg-white border border-border"
-                />
-              ) : (
-                <span
-                  aria-hidden
-                  className="size-10 rounded-full bg-surface-2 text-muted flex items-center justify-center font-semibold"
-                >
-                  {thumb.letter}
-                </span>
-              )}
-              <h3 className="font-semibold">{name}</h3>
-            </div>
-            <ul className="space-y-1">
-              {e.sets.map((s, i) => (
-                <li key={s.id} className="flex items-center gap-3 text-sm">
-                  <span className={`w-5 ${s.is_warmup ? "text-warn" : "text-muted"}`}>{s.is_warmup ? "W" : i + 1}</span>
-                  {editing ? (
-                    <>
-                      <WeightInput
-                        className="field w-20 py-1 text-center"
-                        kg={s.weight}
-                        unit={unit}
-                        onChangeKg={(kg) => void saveSet(s, { weight: kg === "" ? 0 : kg })}
-                      />
-                      <span className="text-muted">×</span>
-                      <input className="field w-16 py-1 text-center" inputMode="numeric" defaultValue={s.reps}
-                        onBlur={(ev) => saveSet(s, { reps: Number(ev.target.value) || 0 })} />
-                    </>
-                  ) : (
-                    <span className="flex-1">{dispNum(s.weight, unit)}{unit} × {s.reps}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
+            <section key={e.id} className="card p-4" aria-label={name}>
+              <div className="flex items-center gap-3">
+                {thumb.kind === "image" ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={thumb.src} alt={name} loading="lazy" className="size-14 shrink-0 rounded-xl object-cover bg-white border border-border" />
+                ) : (
+                  <span aria-hidden className="size-14 shrink-0 rounded-xl bg-surface-2 text-muted flex items-center justify-center text-xl font-semibold">
+                    {thumb.letter}
+                  </span>
+                )}
+                <div className="min-w-0">
+                  <h3 className="font-semibold leading-tight">{name}</h3>
+                  <p className="text-sm text-muted">
+                    {working} set{working === 1 ? "" : "s"}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-[1.5rem_1fr_auto] gap-x-3 px-2 mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <span>Set</span>
+                <span>Weight &amp; reps</span>
+                <span>1RM</span>
+              </div>
+              <ul className="mt-1">
+                {e.sets.map((s, i) => (
+                  <li key={s.id} className={`grid grid-cols-[1.5rem_1fr_auto] gap-x-3 items-start rounded-lg px-2 py-2 ${i % 2 === 1 ? "bg-surface-2" : ""}`}>
+                    <span className="text-sm font-semibold text-muted">{s.is_warmup ? "W" : i + 1}</span>
+                    <div className="min-w-0">
+                      {editing ? (
+                        <div className="flex items-center gap-2">
+                          <WeightInput
+                            className="field w-20 py-1 text-center"
+                            kg={s.weight}
+                            unit={unit}
+                            onChangeKg={(kg) => void saveSet(s, { weight: kg === "" ? 0 : kg })}
+                          />
+                          <span className="text-muted">×</span>
+                          <input className="field w-16 py-1 text-center" inputMode="numeric" defaultValue={s.reps}
+                            onBlur={(ev) => saveSet(s, { reps: Number(ev.target.value) || 0 })} />
+                        </div>
+                      ) : (
+                        <p className="text-sm font-medium">{dispNum(s.weight, unit)}{unit} × {s.reps}</p>
+                      )}
+                      {!!earned?.[i]?.length && (
+                        <ul className="flex flex-wrap gap-1 mt-1" aria-label="Records">
+                          {earned[i].map((t) => (
+                            <li key={t} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] font-medium">
+                              <TrophyIcon />
+                              {PR_SHORT[t]}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums text-right">
+                      {s.is_warmup || s.reps <= 0 ? "–" : dispNum(e1rm(s.weight, s.reps), unit)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           );
         })}
       </div>
@@ -217,6 +218,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     </>
   );
 }
+
+const PR_SHORT: Record<PrType, string> = { weight: "Weight", reps: "Reps", e1rm: "1RM", volume: "Volume" };
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (

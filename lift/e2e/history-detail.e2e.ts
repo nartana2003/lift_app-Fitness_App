@@ -1,9 +1,10 @@
 import { test, expect } from "@playwright/test";
 
 // History detail: no weekday title, date and time of start, then Duration,
-// Volume and Records, and each exercise shows its round picture. All local.
+// Volume and Records, a body map, and each exercise as a card with its picture, a SET / WEIGHT & REPS / 1RM
+// table and a badge for each record a set earned. All local.
 
-test("history detail shows date, Duration, Volume, Records and exercise pictures", async ({ page }) => {
+test("history detail shows the summary, body map, set table and record badges", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await expect
@@ -17,7 +18,12 @@ test("history detail shows date, Duration, Volume, Records and exercise pictures
       r.onerror = () => reject(r.error);
     });
     const start = new Date(Date.now() - 3 * 864e5);
+    const before = new Date(Date.now() - 9 * 864e5);
     const tx = db.transaction(["workouts", "workout_exercises", "sets"], "readwrite");
+    // An earlier session of the same exercise, so the later one can beat it.
+    tx.objectStore("workouts").put({ id: "e2e-hd-old", started_at: before.toISOString(), ended_at: new Date(before.getTime() + 40 * 60e3).toISOString(), notes: null, routine_id: null });
+    tx.objectStore("workout_exercises").put({ id: "e2e-hd-old-we", workout_id: "e2e-hd-old", exercise_id: "3_4_Sit-Up", position: 0 });
+    tx.objectStore("sets").put({ id: "e2e-hd-old-s0", workout_exercise_id: "e2e-hd-old-we", set_no: 1, reps: 5, weight: 8, is_warmup: false, rir: 2, completed_at: before.toISOString() });
     tx.objectStore("workouts").put({
       id: "e2e-hd",
       started_at: start.toISOString(),
@@ -48,8 +54,8 @@ test("history detail shows date, Duration, Volume, Records and exercise pictures
   const weekday = new Date(Date.now() - 3 * 864e5).toLocaleDateString("en-US", { weekday: "long" });
   await expect(page.getByRole("heading", { name: weekday })).toHaveCount(0);
   await expect(page.getByText("Duration")).toBeVisible();
-  await expect(page.getByText("Volume")).toBeVisible();
-  await expect(page.getByText("Records")).toBeVisible();
+  await expect(page.getByText("Volume").first()).toBeVisible();
+  await expect(page.getByText("Records", { exact: true })).toBeVisible();
   await expect(page.getByText("Sets", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("img", { name: "3/4 Sit-Up" })).toBeVisible();
   // The options button is three dots stacked vertically.
@@ -60,7 +66,27 @@ test("history detail shows date, Duration, Volume, Records and exercise pictures
   expect(ys[1]).toBeLessThan(ys[2]);
   // A logged RIR is not shown on the detail page.
   await expect(page.getByText(/RIR/)).toHaveCount(0);
-  // Lyfta-style summary: a picture grid with "N x name" captions.
-  const grid = page.getByRole("list", { name: "Exercises done" });
-  await expect(grid.getByText("1 x 3/4 Sit-Up")).toBeVisible();
+  // Body map next to the stats.
+  await expect(page.getByText("Front", { exact: true })).toBeVisible();
+  await expect(page.getByText("Back", { exact: true })).toBeVisible();
+
+  // The exercise is a card: name, set count, and a SET / WEIGHT & REPS / 1RM table.
+  await expect(page.getByRole("heading", { name: "Exercises" })).toBeVisible();
+  const card = page.getByRole("region", { name: "3/4 Sit-Up" });
+  await expect(card.getByText("1 set", { exact: true })).toBeVisible();
+  for (const h of ["Set", "Weight & reps", "1RM"]) await expect(card.getByText(h, { exact: true }).first()).toBeVisible();
+  await expect(card.getByText("10kg × 5")).toBeVisible();
+  // 10 kg x 5 is an est. 1RM of 11.7.
+  await expect(card.getByText("11.7")).toBeVisible();
+
+  // 10 kg beats the earlier 8 kg: the set carries record badges.
+  const badges = card.getByRole("list", { name: "Records" });
+  await expect(badges.getByText("Weight", { exact: true })).toBeVisible();
+  await expect(badges.getByText("1RM", { exact: true })).toBeVisible();
+
+  // Editing still swaps the set row for weight and reps inputs.
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(card.getByRole("textbox")).toHaveCount(2);
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(card.getByRole("textbox")).toHaveCount(0);
 });
