@@ -186,7 +186,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       </div>
 
       <button
-        className="w-full mt-8 text-sm text-bad py-3"
+        className="w-full mt-8 flex items-center justify-center gap-2 rounded-xl border border-border text-sm font-semibold text-bad py-3.5"
         onClick={async () => {
           if (confirm("Delete this workout permanently?")) {
             await deleteWorkout(w.id);
@@ -194,6 +194,9 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           }
         }}
       >
+        <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5L18 7M9 7V4.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V7" />
+        </svg>
         Delete workout
       </button>
 
