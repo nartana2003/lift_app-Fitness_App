@@ -7,6 +7,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/muscles";
 import { clearSplit, saveSplit, splitGaps, useSplit, type Split, type SplitDay } from "@/lib/splits";
 import { linkRoutineToDay, listRoutines, type Routine } from "@/lib/routines";
+import { isCatchUpRoutine } from "@/lib/catchUp";
 import { routinesForDay, unassignedRoutines } from "@/lib/splitRoutines";
 import { MuscleCapsules } from "@/components/routines/MiniWorkoutCard";
 import { startRoutine } from "@/components/routines/RoutineList";
@@ -118,7 +119,7 @@ function DayRoutines({ day, routines, unassigned }: { day: SplitDay & { id: stri
 /** Build a split: name each day and tick the muscles it covers. */
 export function SplitEditor() {
   const split = useSplit();
-  const routines = useLiveQuery(() => listRoutines(), []) ?? [];
+  const routines = useLiveQuery(async () => (await listRoutines()).filter((r) => !isCatchUpRoutine(r.name)), []) ?? [];
   const [editing, setEditing] = useState<number | null>(null);
   const has = split.days.length > 0;
 

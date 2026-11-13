@@ -16,7 +16,7 @@ import { dayKey, getDay, planDay, weekDays } from "@/lib/planner";
 import { createRoutine, deleteRoutine, getRoutine, listRoutines } from "@/lib/routines";
 import { CATCH_UP_NAME, CATCH_UP_SUFFIX, historyCounts, isCatchUpRoutine, planCatchUp, sessionsThisWeek, type CatchUpPlan as CatchUpPlanData } from "@/lib/catchUp";
 import { addExercises, getActive } from "@/lib/workout";
-import { applySwaps, loadSwaps, swapKey, type Swaps } from "@/lib/catchUpSwaps";
+import { applySwaps, loadSwaps, rememberScroll, restoreScroll, swapKey, type Swaps } from "@/lib/catchUpSwaps";
 
 /** Done vs target sets per muscle this week, with a plan for what's behind. */
 export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
@@ -62,6 +62,13 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
     equipment: equipment ?? [],
   });
 
+  // Sets still to come this week: what the planned routines cover plus the catch-up additions.
+  const projected = new Map<string, number>();
+  if (ready && !plan.noSessionsLeft) {
+    for (const c of plan.covered) projected.set(c.muscle, (projected.get(c.muscle) ?? 0) + c.sets);
+    for (const a of plan.additions) projected.set(a.muscle, (projected.get(a.muscle) ?? 0) + a.sets);
+  }
+
   return (
     <section className="card p-4">
       <div className="flex items-start justify-between gap-2 mb-3">
@@ -78,9 +85,15 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
 
       <ul className="space-y-2">
         {rows.map((r) => (
-          <GoalRow key={r.muscle} row={r} focus={goals.focusMuscles.includes(r.muscle as never)} />
+          <GoalRow key={r.muscle} row={r} focus={goals.focusMuscles.includes(r.muscle as never)} projected={projected.get(r.muscle) ?? 0} />
         ))}
       </ul>
+      {projected.size > 0 && (
+        <p className="flex items-center gap-2 text-xs text-muted mt-3">
+          <span aria-hidden className="inline-block h-2 w-5 rounded-full" style={HATCH} />
+          Striped is projected from your planned routines and catch-up plan.
+        </p>
+      )}
 
       {focusFirst.length === 0 && <p className="text-xs text-muted mt-4">All weekly targets are met.</p>}
       {focusFirst.length > 0 && (
@@ -104,17 +117,27 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
   );
 }
 
-function GoalRow({ row, focus }: { row: GoalProgress; focus: boolean }) {
-  const pct = Math.min(100, (row.done / Math.max(1, row.target)) * 100);
+const HATCH = { backgroundImage: "repeating-linear-gradient(135deg, var(--muted) 0 2px, transparent 2px 5px)" };
+
+function GoalRow({ row, focus, projected }: { row: GoalProgress; focus: boolean; projected: number }) {
+  const target = Math.max(1, row.target);
+  const pct = Math.min(100, (row.done / target) * 100);
+  // Only the part of the projection that fits under the target is drawn.
+  const ahead = Math.min(Math.max(0, projected), Math.max(0, target - row.done));
+  const aheadPct = (ahead / target) * 100;
   return (
     <li className="flex items-center gap-2 text-sm">
       <span className="w-28 shrink-0 truncate">
         {row.muscle}
         {focus && <span className="text-muted"> ★</span>}
       </span>
-      <span className="flex-1 h-2 rounded-full bg-surface-2 overflow-hidden">
+      <span
+        className="relative flex-1 h-2 rounded-full bg-surface-2 overflow-hidden"
+        aria-label={ahead > 0 ? `${row.done} of ${row.target} done, ${ahead} more projected` : undefined}
+      >
+        {ahead > 0 && <span className="absolute inset-y-0" style={{ left: `${pct}%`, width: `${aheadPct}%`, ...HATCH }} />}
         <span
-          className={`block h-full rounded-full ${row.status === "met" ? "bg-accent" : "bg-muted"}`}
+          className={`absolute inset-y-0 left-0 rounded-full ${row.status === "met" ? "bg-accent" : "bg-muted"}`}
           style={{ width: `${pct}%` }}
         />
       </span>
@@ -206,6 +229,8 @@ function CatchUpPlan({ plan, week, nameOf }: { plan: CatchUpPlanData; week: stri
   // Exercises picked on the Exercises tab to replace a suggestion (read after mount: browser storage).
   const [swaps, setSwaps] = useState<Swaps>({});
   useEffect(() => setSwaps(loadSwaps(week)), [week]);
+  // Back from picking a swap, the Progress tab opens where it was left instead of at the top.
+  useEffect(() => restoreScroll(), []);
 
   const base = frozen ?? plan;
   const shown = useMemo(() => ({ ...base, additions: applySwaps(base.additions, swaps) }), [base, swaps]);
@@ -290,6 +315,7 @@ function CatchUpPlan({ plan, week, nameOf }: { plan: CatchUpPlanData; week: stri
                               href={`/exercises?m=${encodeURIComponent(a.muscle)}&swap=${encodeURIComponent(swapKey(a.date, a.orig ?? a.exercise_id))}&week=${week}&back=/progress`}
                               className="inline-block text-xs font-semibold underline mt-0.5"
                               aria-label={`Swap ${nameOf(a.exercise_id)}`}
+                              onClick={rememberScroll}
                             >
                               Swap
                             </Link>
@@ -335,15 +361,36 @@ function CatchUpPlan({ plan, week, nameOf }: { plan: CatchUpPlanData; week: stri
         <p className="text-xs text-muted">No exercises could be placed this week.</p>
       )}
       {shown.covered.length > 0 && (
-        <p className="text-xs text-muted mt-3 rounded-xl bg-surface-2 px-3 py-2.5">
-          <span className="font-semibold text-text">Covered by your routines:</span> {shown.covered.map((c) => `${c.muscle} (${c.sets} set${c.sets === 1 ? "" : "s"})`).join(", ")}
-        </p>
+        <NoteBlock title="Already planned" text="Your planned workouts already bring these to target, so nothing is added." items={shown.covered} check />
       )}
       {shown.unmet.length > 0 && (
-        <p className="text-xs text-muted mt-2 rounded-xl bg-surface-2 px-3 py-2.5">
-          <span className="font-semibold text-text">No room this week:</span> {shown.unmet.map((u) => `${u.muscle} (${u.sets} set${u.sets === 1 ? "" : "s"})`).join(", ")}
-        </p>
+        <NoteBlock title="Could not fit" text="Not enough training days left this week for these." items={shown.unmet} />
       )}
+    </div>
+  );
+}
+
+/** A short note under the plan: a title, one line of why, and a pill per muscle with its sets. */
+function NoteBlock({ title, text, items, check }: { title: string; text: string; items: { muscle: string; sets: number }[]; check?: boolean }) {
+  return (
+    <div className="mt-3 rounded-2xl bg-surface-2 p-3" aria-label={title}>
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="text-xs text-muted mt-0.5">{text}</p>
+      <ul className="mt-2 flex flex-wrap gap-1.5">
+        {items.map((c) => (
+          <li key={c.muscle} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-xs font-semibold">
+            {check && (
+              <svg viewBox="0 0 24 24" className="size-3" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5 12l5 5L20 7" />
+              </svg>
+            )}
+            {c.muscle}
+            <span className="text-muted font-normal tabular-nums">
+              {c.sets} set{c.sets === 1 ? "" : "s"}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

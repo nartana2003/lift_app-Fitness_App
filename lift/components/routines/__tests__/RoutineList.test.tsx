@@ -267,3 +267,13 @@ describe("RoutineList search and layout", () => {
     expect(chest).toHaveAttribute("aria-pressed", "false");
   });
 });
+
+describe("catch-up copies", () => {
+  it("are not listed under routines", async () => {
+    await seed([routine("a", "Push", "2026-01-01"), routine("b", "Push + catch up", "2026-01-02", { source: "ai" }), routine("c", "Catch up", "2026-01-03", { source: "ai" })]);
+    render(<RoutineList />);
+    await waitFor(() => expect(screen.getByText("Push")).toBeInTheDocument());
+    expect(screen.queryByText("Push + catch up")).not.toBeInTheDocument();
+    expect(screen.queryByText("Catch up")).not.toBeInTheDocument();
+  });
+});

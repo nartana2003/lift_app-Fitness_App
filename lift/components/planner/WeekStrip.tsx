@@ -32,6 +32,7 @@ import {
   weekDays,
 } from "@/lib/planner";
 import { listRoutines, type Routine } from "@/lib/routines";
+import { isCatchUpRoutine } from "@/lib/catchUp";
 import { useSettings } from "@/lib/settings";
 import { useSplit, type Split } from "@/lib/splits";
 import { lastDoneByRoutine, nextRoutineForDay, routinesForDay, splitDayIds, type LastDone } from "@/lib/splitRoutines";
@@ -390,7 +391,9 @@ function DayPanel({
   onClose: () => void;
 }) {
   const split = useSplit();
-  const choices = planChoices(split, routines, lastDone);
+  // Catch-up copies belong to their planned day, so the picker leaves them out.
+  const pickable = routines.filter((r) => !isCatchUpRoutine(r.name));
+  const choices = planChoices(split, pickable, lastDone);
   const [moving, setMoving] = useState(false);
   const [changing, setChanging] = useState(false);
   const label = new Date(date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
@@ -410,7 +413,7 @@ function DayPanel({
     >
       <option value="">Select a routine</option>
       {choices.groups.length === 0 ? (
-        routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)
+        pickable.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)
       ) : (
         <>
           {choices.groups.map((g) => (

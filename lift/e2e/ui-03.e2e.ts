@@ -92,7 +92,16 @@ test("catch-up adds sets to the planned routine as a copy and does not star exer
   await expect(todayBlock.getByText("Brings Chest to target")).toBeVisible();
 
   // The routine's 4 planned bench sets already count toward chest, so they are not asked for again.
-  await expect(c.getByText(/Covered by your routines:.*Chest \(4 sets\)/)).toBeVisible();
+  const planned = c.getByLabel("Already planned");
+  await expect(planned.getByText("Chest")).toBeVisible();
+  await expect(planned.getByText("4 sets")).toBeVisible();
+  // Chest shows the planned sets as a striped projection on its bar.
+  await expect(c.getByLabel(/done, \d+ more projected$/).first()).toBeVisible();
+  // Catch-up copies never show up under My routines.
+  await page.goto("/exercises?view=routines");
+  await expect(page.getByText(/\+ catch up$/)).toHaveCount(0);
+  await page.goto("/progress");
+  await page.waitForLoadState("networkidle");
 
   await todayBlock.getByRole("button", { name: /Add to/ }).click();
   await expect(c.getByText(`Added to E2E Push on ${today}.`)).toBeVisible();
@@ -123,9 +132,9 @@ test("catch-up adds sets to the planned routine as a copy and does not star exer
   });
   expect(result.names).toEqual(["E2E Push", "E2E Push + catch up"]);
   expect(result.originalSets).toEqual([4]);
-  // The planned exercise gets the extra sets; at most 3 additions land on one day.
+  // The planned exercise gets the extra sets; at most 6 exercises (counting the routine's own) land on one day.
   expect(result.copy.find((e) => e.id === BENCH)!.sets).toBeGreaterThan(4);
-  expect(result.copy.length).toBeLessThanOrEqual(3);
+  expect(result.copy.length).toBeLessThanOrEqual(6);
   // The plan's own picks are never starred.
   expect(result.favourites === null || (result.favourites as string[]).length === 0).toBe(true);
 });

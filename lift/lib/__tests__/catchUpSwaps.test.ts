@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applySwaps, loadSwaps, saveSwap, swapKey } from "../catchUpSwaps";
 
 const WEEK = "2026-10-12";
@@ -60,5 +60,22 @@ describe("applySwaps", () => {
   it("changes nothing without swaps", () => {
     const list = [add("curl")];
     expect(applySwaps(list, {})).toEqual(list);
+  });
+});
+
+describe("scroll memory", () => {
+  it("restores the remembered position once, then forgets it", async () => {
+    const { rememberScroll, restoreScroll } = await import("../catchUpSwaps");
+    const store = new Map<string, string>();
+    const to = vi.fn();
+    vi.stubGlobal("sessionStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), removeItem: (k: string) => store.delete(k) });
+    vi.stubGlobal("window", { scrollY: 640, scrollTo: to });
+    rememberScroll();
+    restoreScroll();
+    expect(to).toHaveBeenCalledWith(0, 640);
+    to.mockClear();
+    restoreScroll();
+    expect(to).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

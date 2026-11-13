@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCatalogue } from "@/lib/catalogue";
 import { listRoutines, type Routine } from "@/lib/routines";
+import { isCatchUpRoutine } from "@/lib/catchUp";
 import { useSplit, type Split } from "@/lib/splits";
 import { routinesForDay, splitDayIds, unassignedRoutines } from "@/lib/splitRoutines";
 import { startWorkout } from "@/lib/workout";
@@ -79,7 +80,8 @@ export function groupRoutinesBySplit<T extends { id: string; created_at: string;
 export function RoutineList() {
   const router = useRouter();
   const { get } = useCatalogue();
-  const routines = useLiveQuery(() => listRoutines(), []);
+  // Catch-up copies belong to their planned day, so they are not listed here.
+  const routines = useLiveQuery(async () => (await listRoutines()).filter((r) => !isCatchUpRoutine(r.name)), []);
   const split = useSplit();
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<RoutineFilter>(NO_FILTER);

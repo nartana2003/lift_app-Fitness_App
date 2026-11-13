@@ -49,3 +49,27 @@ export function applySwaps<A extends Addition>(additions: A[], swaps: Swaps): (A
   }
   return out;
 }
+
+const SCROLL_KEY = "lift.catchUpScroll";
+
+/** Remembers where the page is scrolled, so coming back from the Exercises tab lands in the same place. */
+export function rememberScroll() {
+  try {
+    sessionStorage.setItem(SCROLL_KEY, String(Math.round(window.scrollY)));
+  } catch {
+    // Storage can be unavailable; the page then opens at the top as before.
+  }
+}
+
+/** Scrolls back to the remembered spot once (the page may still be growing, so it tries again shortly). */
+export function restoreScroll() {
+  try {
+    const y = Number(sessionStorage.getItem(SCROLL_KEY));
+    sessionStorage.removeItem(SCROLL_KEY);
+    if (!y) return;
+    window.scrollTo(0, y);
+    setTimeout(() => window.scrollTo(0, y), 150);
+  } catch {
+    // Nothing to restore.
+  }
+}

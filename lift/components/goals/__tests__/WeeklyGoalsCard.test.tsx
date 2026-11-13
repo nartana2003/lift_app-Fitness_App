@@ -168,7 +168,11 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     const push = await createRoutine({ name: "Push", exercises: [{ exercise_id: "bench", target_sets: 11 }] });
     await planDay(FRI, push);
     await renderCard();
-    expect(screen.getByText((_, el) => el?.tagName === "P" && /Covered by your routines:.*Chest \(11 sets\)/.test(el.textContent ?? ""))).toBeInTheDocument();
+    const note = screen.getByLabelText("Already planned");
+    expect(within(note).getByText("Chest")).toBeInTheDocument();
+    expect(within(note).getByText("11 sets")).toBeInTheDocument();
+    // The Chest bar shows those sets as projected.
+    expect(screen.getAllByLabelText("0 of 11 done, 11 more projected").length).toBeGreaterThan(0);
     // No chest sets are suggested on any day.
     expect(within(plan()).queryByRole("link", { name: "Bench Press" })).not.toBeInTheDocument();
   });
@@ -250,7 +254,7 @@ describe("WeeklyGoalsCard catch-up plan", () => {
     // One glute set done this week, so Glutes is met and Chest is behind.
     const done: WorkoutLite = { ...workoutOn(WED), exercises: [{ exercise_id: "hip-thrust", sets: [{ is_warmup: false }] as never }] };
     await renderCard([done]);
-    expect(screen.getByText("Chest")).toBeInTheDocument();
+    expect(screen.getAllByText("Chest").length).toBeGreaterThan(0);
     expect(screen.getByText("Glutes")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show all muscles/i })).not.toBeInTheDocument();
   });
