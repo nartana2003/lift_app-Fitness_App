@@ -7,8 +7,8 @@ import type { Equipment, MuscleGroup } from "./muscles";
 import { suggestForMuscle } from "./suggest";
 import { addDays, startOfWeek } from "./stats";
 
-/** At most this many additions on one day. */
-export const MAX_PER_DAY = 3;
+/** At most this many exercises on one day, counting those already in the day's routine. Extra sets on an exercise already there are always fine. */
+export const MAX_PER_DAY = 6;
 /** Most sets one addition carries. */
 export const MAX_SETS = 6;
 /** Sets per addition before a muscle's remaining sets are split across days. */
@@ -166,7 +166,8 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
   // Sets still needed per muscle. An exercise that trains two behind muscles counts toward both.
   const left = new Map(needs.map((n) => [n.muscle, n.remaining]));
   const pieces = needs.reduce((n, x) => n + splitSets(x.remaining).length, 0);
-  const scarce = pieces > trainingDays.length * MAX_PER_DAY;
+  const slots = trainingDays.reduce((n, d) => n + Math.max(0, MAX_PER_DAY - onDay.get(d)!.size), 0);
+  const scarce = pieces > slots;
   const alsoOf = new Map<CatchUpAddition, Set<MuscleGroup>>();
 
   for (const need of needs) {
@@ -191,9 +192,10 @@ export function planCatchUp(input: CatchUpInput): CatchUpPlan {
       for (const { d } of open) {
         const list = added.get(d)!;
         const mineHere = dayRoutine.get(d)?.exercises.find((e) => trains(byId.get(e.exercise_id), need.muscle) && usable(byId.get(e.exercise_id)));
-        // A full day only takes more sets on an exercise it already has for this muscle.
+        // A full day (routine plus additions) only takes more sets on an exercise it already has for this muscle.
+        const full = onDay.get(d)!.size + list.filter((a) => !a.in_routine).length >= MAX_PER_DAY;
         let id: string | undefined;
-        if (list.length >= MAX_PER_DAY) id = list.find((a) => a.muscle === need.muscle && a.sets < MAX_SETS)?.exercise_id;
+        if (full) id = list.find((a) => a.muscle === need.muscle && a.sets < MAX_SETS)?.exercise_id ?? mineHere?.exercise_id;
         else if (mineHere) id = mineHere.exercise_id;
         else {
           // Among the first few fresh picks, prefer equipment the day does not use yet, for variety.

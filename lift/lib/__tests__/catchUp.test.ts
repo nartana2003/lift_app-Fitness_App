@@ -295,17 +295,43 @@ describe("planCatchUp: exercises that hit two muscles", () => {
   });
 
   it("when slots are short, prefers the exercise that covers two behind muscles so more muscles fit", () => {
-    const catalogue = [ex("row", "Back"), pullUp, ex("curl", "Biceps", "Dumbbell"), ex("squat", "Quads"), ex("hip-thrust", "Glutes")];
-    const behind: CatchUpInput["behind"] = [
-      { muscle: "Back", remaining: 3 },
-      { muscle: "Biceps", remaining: 3 },
-      { muscle: "Quads", remaining: 3 },
-      { muscle: "Glutes", remaining: 3 },
+    const catalogue = [
+      ex("row", "Back"), pullUp, ex("curl", "Biceps", "Dumbbell"), ex("squat", "Quads"), ex("hip-thrust", "Glutes"),
+      ex("bench", "Chest"), ex("press", "Shoulders"), ex("dip", "Triceps"),
     ];
-    // One training day: 3 slots for 4 muscles.
+    const behind: CatchUpInput["behind"] = (["Back", "Biceps", "Quads", "Glutes", "Chest", "Shoulders", "Triceps"] as MuscleGroup[]).map((muscle) => ({ muscle, remaining: 3 }));
+    // One training day: 6 slots for 7 muscles, so the pull-up (Back and Biceps) has to carry two.
     const plan = planCatchUp(input({ catalogue, behind, planned: [row(WED, null)], sessionsPerWeek: 1 }));
-    expect(plan.additions.map((a) => a.exercise_id).sort()).toEqual(["hip-thrust", "squat", "weighted-pull-up"]);
+    expect(plan.additions).toHaveLength(MAX_PER_DAY);
+    expect(plan.additions.map((a) => a.exercise_id).sort()).toEqual(["bench", "dip", "hip-thrust", "press", "squat", "weighted-pull-up"]);
     expect(plan.unmet).toEqual([]);
+  });
+
+  it("fits six behind muscles into one day: six exercises of three sets each", () => {
+    const catalogue = [ex("row", "Back"), ex("curl", "Biceps", "Dumbbell"), ex("dip", "Triceps"), ex("squat", "Quads"), ex("hip-thrust", "Glutes"), ex("bench", "Chest")];
+    const behind: CatchUpInput["behind"] = (["Back", "Biceps", "Triceps", "Quads", "Glutes", "Chest"] as MuscleGroup[]).map((muscle) => ({ muscle, remaining: 3 }));
+    const plan = planCatchUp(input({ catalogue, behind, planned: [row(WED, null)], sessionsPerWeek: 1 }));
+    expect(plan.additions).toHaveLength(6);
+    expect(plan.additions.every((a) => a.sets === 3)).toBe(true);
+    expect(plan.unmet).toEqual([]);
+  });
+
+  it("counts the day's routine toward the six: 4 planned exercises leave room for 2 new ones, but extra sets on the 4 are fine", () => {
+    const catalogue = [
+      ex("bench", "Chest"), ex("row", "Back"), ex("squat", "Quads"), ex("curl", "Biceps", "Dumbbell"),
+      ex("hip-thrust", "Glutes"), ex("dip", "Triceps"), ex("press", "Shoulders"), ex("crunch", "Abs/Core" as MuscleGroup, "Bodyweight"),
+    ];
+    const routines = new Map([["full", routine("Full", ["bench", "row", "squat", "curl"])]]);
+    const behind: CatchUpInput["behind"] = (["Chest", "Back", "Quads", "Biceps", "Glutes", "Triceps", "Shoulders", "Abs/Core"] as MuscleGroup[]).map((muscle) => ({ muscle, remaining: 4 }));
+    const plan = planCatchUp(input({ catalogue, routines, behind, planned: [row(WED, "full")], sessionsPerWeek: 1 }));
+    const fresh = plan.additions.filter((a) => !a.in_routine);
+    const extra = plan.additions.filter((a) => a.in_routine);
+    expect(fresh.length).toBeLessThanOrEqual(2);
+    expect(4 + fresh.length).toBeLessThanOrEqual(MAX_PER_DAY);
+    // More sets on the exercises already in the routine are still suggested.
+    expect(extra.map((a) => a.exercise_id).sort()).toEqual(["bench", "curl", "row", "squat"]);
+    // What does not fit is reported, not squeezed in.
+    expect(plan.unmet.length).toBeGreaterThan(0);
   });
 
   it("with plenty of slots, keeps the user's own order of exercises", () => {
@@ -342,11 +368,11 @@ describe("planCatchUp: rules for picks", () => {
 
   it("never puts more than MAX_PER_DAY additions on a day", () => {
     const behind: CatchUpInput["behind"] = [
-      { muscle: "Chest", remaining: 9 },
-      { muscle: "Back", remaining: 9 },
-      { muscle: "Quads", remaining: 9 },
-      { muscle: "Glutes", remaining: 9 },
-      { muscle: "Biceps", remaining: 9 },
+      { muscle: "Chest", remaining: 30 },
+      { muscle: "Back", remaining: 30 },
+      { muscle: "Quads", remaining: 30 },
+      { muscle: "Glutes", remaining: 30 },
+      { muscle: "Biceps", remaining: 30 },
     ];
     const plan = planCatchUp(input({ behind, planned: [row(WED, null), row(FRI, null)] }));
     for (const d of plan.trainingDays) expect(plan.additions.filter((a) => a.date === d).length).toBeLessThanOrEqual(MAX_PER_DAY);
@@ -356,13 +382,13 @@ describe("planCatchUp: rules for picks", () => {
   it("never exceeds the per-day cap even when one muscle has several pieces and many exercises", () => {
     const many = [...CATALOGUE, ex("glute-a", "Glutes"), ex("glute-b", "Glutes"), ex("glute-c", "Glutes"), ex("glute-d", "Glutes")];
     const behind: CatchUpInput["behind"] = [
-      { muscle: "Glutes", remaining: 24 },
-      { muscle: "Chest", remaining: 12 },
+      { muscle: "Glutes", remaining: 60 },
+      { muscle: "Chest", remaining: 60 },
     ];
     const plan = planCatchUp(input({ catalogue: many, behind, planned: [row(WED, null), row(FRI, null)], sessionsPerWeek: 2 }));
     for (const d of plan.trainingDays) expect(plan.additions.filter((a) => a.date === d).length).toBeLessThanOrEqual(MAX_PER_DAY);
     const placed = plan.additions.reduce((n, a) => n + a.sets, 0);
-    expect(placed + plan.unmet.reduce((n, u) => n + u.sets, 0)).toBe(36);
+    expect(placed + plan.unmet.reduce((n, u) => n + u.sets, 0)).toBe(120);
     expect(plan.unmet.length).toBeGreaterThan(0);
   });
 

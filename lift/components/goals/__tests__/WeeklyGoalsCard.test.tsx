@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { db } from "@/lib/offline/db";
 import { createRoutine, getRoutine, listRoutines } from "@/lib/routines";
 import { getDay, planDay } from "@/lib/planner";
@@ -63,6 +63,7 @@ const short = (key: string) => new Date(key + "T00:00:00").toLocaleDateString(un
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
+  localStorage.clear();
   vi.useFakeTimers({ toFake: ["Date"], now: NOW });
   await Promise.all(db.tables.map((t) => t.clear()));
   fetchMock = vi.fn();
@@ -89,6 +90,48 @@ const workoutOn = (date: string): WorkoutLite => ({
   volume: 0,
   setCount: 0,
   exercises: [],
+});
+
+describe("WeeklyGoalsCard catch-up swap", () => {
+  it("each suggestion has a Swap link to the Exercises tab on its muscle, in pick mode", async () => {
+    await renderCard();
+    const swap = (await screen.findAllByRole("link", { name: "Swap Bench Press" }))[0];
+    const url = new URL(swap.getAttribute("href")!, "http://x");
+    expect(url.pathname).toBe("/exercises");
+    expect(url.searchParams.get("m")).toBe("Chest");
+    expect(url.searchParams.get("swap")).toMatch(/^2026-10-\d\d\|bench$/);
+    expect(url.searchParams.get("week")).toBe(MON);
+    expect(url.searchParams.get("back")).toBe("/progress");
+  });
+
+  it("shows the exercise picked on the Exercises tab in place of the suggestion", async () => {
+    await renderCard();
+    const swap = (await screen.findAllByRole("link", { name: "Swap Bench Press" }))[0];
+    const key = new URL(swap.getAttribute("href")!, "http://x").searchParams.get("swap")!;
+    const [date] = key.split("|");
+    localStorage.setItem("lift.catchUpSwaps", JSON.stringify({ week: MON, swaps: { [key]: "row" } }));
+    cleanup();
+    await renderCard();
+    await waitFor(() => expect(within(day(date)).getByRole("link", { name: "Barbell Row" })).toBeInTheDocument());
+    expect(within(day(date)).getByText("Your pick for Chest")).toBeInTheDocument();
+    expect(within(day(date)).queryByRole("link", { name: "Bench Press" })).not.toBeInTheDocument();
+    // Swapping again starts from the original suggestion, so the new pick replaces the old one.
+    const keys = within(day(date)).getAllByRole("link", { name: "Swap Barbell Row" }).map((l) => new URL(l.getAttribute("href")!, "http://x").searchParams.get("swap"));
+    expect(keys).toContain(key);
+  });
+
+  it("adds the picked exercise, not the suggestion, to the workout", async () => {
+    await renderCard();
+    const swap = (await screen.findAllByRole("link", { name: "Swap Bench Press" }))[0];
+    const key = new URL(swap.getAttribute("href")!, "http://x").searchParams.get("swap")!;
+    const [date] = key.split("|");
+    localStorage.setItem("lift.catchUpSwaps", JSON.stringify({ week: MON, swaps: { [key]: "row" } }));
+    cleanup();
+    await renderCard();
+    fireEvent.click(await within(day(date)).findByRole("button", { name: `Add Barbell Row to ${short(date)}` }));
+    await waitFor(async () => expect((await getRoutine((await getDay(date))!.routine_id!))!.exercises.map((e) => e.exercise_id)).toContain("row"));
+    expect((await getRoutine((await getDay(date))!.routine_id!))!.exercises.map((e) => e.exercise_id)).not.toContain("bench");
+  });
 });
 
 describe("WeeklyGoalsCard catch-up plan", () => {
@@ -179,7 +222,11 @@ describe("WeeklyGoalsCard catch-up plan", () => {
 
   it("does not reshuffle the other days after one is added", async () => {
     await renderCard();
-    const picks = () => within(plan()).getAllByRole("link").map((l) => l.textContent);
+    const picks = () =>
+      within(plan())
+        .getAllByRole("link")
+        .filter((l) => l.getAttribute("href")?.startsWith("/exercises/"))
+        .map((l) => l.textContent);
     const before = picks();
     fireEvent.click(within(plan()).getByRole("button", { name: "Add to next workout" }));
     await screen.findByText(`Planned a catch-up workout on ${short(WED)}.`);

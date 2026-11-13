@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCatalogue } from "@/lib/catalogue";
 import { usePreferred } from "@/lib/favorites";
@@ -16,6 +16,7 @@ import { dayKey, getDay, planDay, weekDays } from "@/lib/planner";
 import { createRoutine, deleteRoutine, getRoutine, listRoutines } from "@/lib/routines";
 import { CATCH_UP_NAME, CATCH_UP_SUFFIX, historyCounts, isCatchUpRoutine, planCatchUp, sessionsThisWeek, type CatchUpPlan as CatchUpPlanData } from "@/lib/catchUp";
 import { addExercises, getActive } from "@/lib/workout";
+import { applySwaps, loadSwaps, swapKey, type Swaps } from "@/lib/catchUpSwaps";
 
 /** Done vs target sets per muscle this week, with a plan for what's behind. */
 export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
@@ -94,7 +95,7 @@ export function WeeklyGoalsCard({ workouts }: { workouts: WorkoutLite[] }) {
               <p className="text-xs text-muted mb-2">
                 Sets to add on your {plan.trainingDays.length} remaining training day{plan.trainingDays.length === 1 ? "" : "s"}.
               </p>
-              <CatchUpPlan key={plan.trainingDays.join()} plan={plan} nameOf={(id) => get(id)?.name ?? id} />
+              <CatchUpPlan key={plan.trainingDays.join()} plan={plan} week={from} nameOf={(id) => get(id)?.name ?? id} />
             </>
           )}
         </>
@@ -197,13 +198,17 @@ export async function addToDay(date: string, additions: GapAddition[], now = new
  * The plan by training day, with a one-tap add per day (or all days). The plan is
  * frozen at the first add, so adding never reshuffles the other days.
  */
-function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: string) => string }) {
+function CatchUpPlan({ plan, week, nameOf }: { plan: CatchUpPlanData; week: string; nameOf: (id: string) => string }) {
   const [frozen, setFrozen] = useState<CatchUpPlanData | null>(null);
   const [done, setDone] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // Exercises picked on the Exercises tab to replace a suggestion (read after mount: browser storage).
+  const [swaps, setSwaps] = useState<Swaps>({});
+  useEffect(() => setSwaps(loadSwaps(week)), [week]);
 
-  const shown = frozen ?? plan;
+  const base = frozen ?? plan;
+  const shown = useMemo(() => ({ ...base, additions: applySwaps(base.additions, swaps) }), [base, swaps]);
   const todayKey = dayKey(new Date());
   const keyOf = (a: GapAddition) => `${a.date}|${a.exercise_id}`;
   const groups = shown.trainingDays.map((date) => ({ date, items: shown.additions.filter((a) => a.date === date) })).filter((g) => g.items.length > 0);
@@ -280,6 +285,15 @@ function CatchUpPlan({ plan, nameOf }: { plan: CatchUpPlanData; nameOf: (id: str
                             {nameOf(a.exercise_id)}
                           </Link>
                           {a.reason && <p className="text-xs text-muted leading-snug">{a.reason}</p>}
+                          {!done.has(keyOf(a)) && (
+                            <Link
+                              href={`/exercises?m=${encodeURIComponent(a.muscle)}&swap=${encodeURIComponent(swapKey(a.date, a.orig ?? a.exercise_id))}&week=${week}&back=/progress`}
+                              className="inline-block text-xs font-semibold underline mt-0.5"
+                              aria-label={`Swap ${nameOf(a.exercise_id)}`}
+                            >
+                              Swap
+                            </Link>
+                          )}
                         </div>
                         <span
                           className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${a.in_routine ? "bg-surface-2 border border-border" : "bg-accent text-accent-ink"}`}
