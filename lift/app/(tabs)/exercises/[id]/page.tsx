@@ -4,7 +4,8 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { ExerciseDemo } from "@/components/ExerciseDemo";
-import { ExerciseHistory } from "@/components/ExerciseHistory";
+import { AddToWorkoutButton } from "@/components/AddToWorkoutButton";
+import { ExerciseHistory, SessionLog } from "@/components/ExerciseHistory";
 import { PrHistory } from "@/components/PrHistory";
 import { useCatalogue } from "@/lib/catalogue";
 import { renameExercise } from "@/lib/renames";
@@ -55,7 +56,8 @@ export default function ExerciseDetail({
         }
       />
       {ex.original_name && <p className="text-xs text-muted -mt-2 mb-2">Originally &ldquo;{ex.original_name}&rdquo;</p>}
-      <ExerciseDemo urls={ex.image_urls} alt={ex.name} />
+      {/* No photos (custom exercises): skip the empty grey box. */}
+      {ex.image_urls.length > 0 && <ExerciseDemo urls={ex.image_urls} alt={ex.name} />}
 
       <div className="flex flex-wrap gap-2 mt-3">
         {ex.muscle_groups.map((m) => (
@@ -67,9 +69,11 @@ export default function ExerciseDetail({
         <span className="chip text-muted">{ex.equipment}</span>
       </div>
 
+      <AddToWorkoutButton exerciseId={ex.id} />
+
       {/* Custom exercises saved from a video link: only http(s) links are shown. */}
       {originalVideo && (
-        <a href={originalVideo} target="_blank" rel="noopener noreferrer" className="btn-primary w-full mt-4">
+        <a href={originalVideo} target="_blank" rel="noopener noreferrer" className="btn-ghost w-full mt-2">
           ▶ {platform ? `Watch original ${PLATFORM_NAMES[platform]} video` : "Watch the original video"}
         </a>
       )}
@@ -79,7 +83,7 @@ export default function ExerciseDetail({
           href={ex.tiktok_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="btn w-full mt-4 bg-[#fe2c55] text-white"
+          className="btn-ghost w-full mt-2"
           onClick={(e) => {
             // Phones: try the TikTok app first; if this page stays in front, open the web search.
             if (!/iPhone|iPad|Android/i.test(navigator.userAgent)) return;
@@ -100,6 +104,8 @@ export default function ExerciseDetail({
       <ExerciseHistory exerciseId={ex.id} />
 
       <PrHistory exerciseId={ex.id} />
+
+      <SessionLog exerciseId={ex.id} />
 
       {isCustomId(ex.id) && (
         <button className="btn-ghost w-full mt-4" onClick={() => setDeleting(true)}>

@@ -1,12 +1,16 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { exerciseSessions } from "@/lib/history";
-import { bestsFromHistory, e1rm } from "@/lib/prs";
-import { formatSets } from "@/lib/overload";
+import { e1rm } from "@/lib/prs";
+import { exerciseSeries } from "@/lib/progress";
 import { useSettings } from "@/lib/settings";
-import { dispNum, fmtWeight } from "@/lib/units";
+import { dispNum } from "@/lib/units";
 
+const dayMonth = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+
+/** A trend of estimated 1RM once there are two or more sessions. Last time is shown in the workout, not here. */
 export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
   const { unit } = useSettings();
   const sessions = useLiveQuery(() => exerciseSessions(exerciseId, 200), [exerciseId]);
@@ -15,43 +19,63 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
     return <p className="card p-4 mt-4 text-sm text-muted">You haven&apos;t logged this exercise yet.</p>;
   }
 
-  const last = sessions[0];
-  const bests = bestsFromHistory(sessions.map((s) => s.sets));
-  const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const data = exerciseSeries(sessions, "e1rm").map((p) => ({ label: dayMonth(p.date), value: dispNum(p.value, unit) }));
 
   return (
-    <section className="card p-4 mt-4 space-y-3">
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <Stat label="Last time" value={formatSets(last.sets, unit)} sub={date(last.workout.started_at)} />
-        <Stat label="Heaviest" value={fmtWeight(bests.weight, unit)} />
-        <Stat label="Est. 1RM" value={fmtWeight(bests.e1rm, unit)} />
-      </div>
-      <details>
-        <summary className="text-sm text-muted">History ({sessions.length} sessions)</summary>
-        <ul className="mt-2 space-y-1 text-sm">
+    <section className="card p-4 mt-4">
+        <h2 className="font-semibold">Progress</h2>
+        <p className="text-xs text-muted">Est. 1RM over time</p>
+        {data.length < 2 ? (
+          <p className="mt-2.5 rounded-xl bg-surface-2 px-3 py-2.5 text-xs text-muted">Log one more session to see your trend.</p>
+        ) : (
+          <div className="h-36 mt-2" role="img" aria-label={`Estimated 1RM went from ${data[0].value} to ${data[data.length - 1].value} ${unit}`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={{ stroke: "#e5e7eb" }} minTickGap={24} />
+                <YAxis width={40} tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
+                <Tooltip formatter={(v) => [`${v} ${unit}`, "Est. 1RM"]} contentStyle={{ borderRadius: 12, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <Line type="monotone" dataKey="value" stroke="#111111" strokeWidth={2} dot={{ r: 3, fill: "#111111" }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+    </section>
+  );
+}
+
+/** Every logged session for the exercise, collapsed until opened. */
+export function SessionLog({ exerciseId }: { exerciseId: string }) {
+  const { unit } = useSettings();
+  const sessions = useLiveQuery(() => exerciseSessions(exerciseId, 200), [exerciseId]);
+  if (!sessions || sessions.length === 0) return null;
+
+  return (
+    <section className="card p-4 mt-4">
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between [&::-webkit-details-marker]:hidden">
+          <span>
+            <span className="block font-semibold">History</span>
+            <span className="block text-xs text-muted">
+              {sessions.length} session{sessions.length === 1 ? "" : "s"}
+            </span>
+          </span>
+          <svg viewBox="0 0 24 24" className="size-[18px] text-muted transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </summary>
+        <ul className="mt-3 space-y-1.5 text-sm">
           {sessions.slice(0, 20).map((s) => (
-            <li key={s.workout.id} className="flex justify-between gap-2">
-              <span className="text-muted">{date(s.workout.started_at)}</span>
+            <li key={s.workout.id} className="flex justify-between gap-2 rounded-xl bg-surface-2 px-3 py-2">
+              <span className="text-muted">{dayMonth(s.workout.started_at)}</span>
               <span className="truncate">
                 {s.sets.filter((x) => !x.is_warmup).map((x) => `${x.reps}×${dispNum(x.weight, unit)}`).join(", ")}
               </span>
-              <span className="text-muted">
-                {dispNum(Math.max(...s.sets.map((x) => e1rm(x.weight, x.reps))), unit)}
-              </span>
+              <span className="text-muted">{dispNum(Math.max(...s.sets.map((x) => e1rm(x.weight, x.reps))), unit)}</span>
             </li>
           ))}
         </ul>
       </details>
     </section>
-  );
-}
-
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div>
-      <p className="text-[11px] uppercase tracking-wide text-muted">{label}</p>
-      <p className="font-semibold">{value || "—"}</p>
-      {sub && <p className="text-[11px] text-muted">{sub}</p>}
-    </div>
   );
 }
