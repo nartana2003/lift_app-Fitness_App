@@ -3,14 +3,13 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { exerciseSessions } from "@/lib/history";
-import { e1rm } from "@/lib/prs";
 import { exerciseSeries } from "@/lib/progress";
 import { useSettings } from "@/lib/settings";
 import { dispNum } from "@/lib/units";
 
 const dayMonth = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
-/** A trend of estimated 1RM once there are two or more sessions. Last time is shown in the workout, not here. */
+/** A trend of the heaviest set once there are two or more sessions. Last time is shown in the workout, not here. */
 export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
   const { unit } = useSettings();
   const sessions = useLiveQuery(() => exerciseSessions(exerciseId, 200), [exerciseId]);
@@ -19,22 +18,22 @@ export function ExerciseHistory({ exerciseId }: { exerciseId: string }) {
     return <p className="card p-4 mt-4 text-sm text-muted">You haven&apos;t logged this exercise yet.</p>;
   }
 
-  const data = exerciseSeries(sessions, "e1rm").map((p) => ({ label: dayMonth(p.date), value: dispNum(p.value, unit) }));
+  const data = exerciseSeries(sessions, "weight").map((p) => ({ label: dayMonth(p.date), value: dispNum(p.value, unit) }));
 
   return (
     <section className="card p-4 mt-4">
         <h2 className="font-semibold">Progress</h2>
-        <p className="text-xs text-muted">Est. 1RM over time</p>
+        <p className="text-xs text-muted">Heaviest set over time</p>
         {data.length < 2 ? (
           <p className="mt-2.5 rounded-xl bg-surface-2 px-3 py-2.5 text-xs text-muted">Log one more session to see your trend.</p>
         ) : (
-          <div className="h-36 mt-2" role="img" aria-label={`Estimated 1RM went from ${data[0].value} to ${data[data.length - 1].value} ${unit}`}>
+          <div className="h-36 mt-2" role="img" aria-label={`Heaviest set went from ${data[0].value} to ${data[data.length - 1].value} ${unit}`}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={{ stroke: "#e5e7eb" }} minTickGap={24} />
                 <YAxis width={40} tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
-                <Tooltip formatter={(v) => [`${v} ${unit}`, "Est. 1RM"]} contentStyle={{ borderRadius: 12, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <Tooltip formatter={(v) => [`${v} ${unit}`, "Heaviest set"]} contentStyle={{ borderRadius: 12, border: "1px solid #e5e7eb", fontSize: 12 }} />
                 <Line type="monotone" dataKey="value" stroke="#111111" strokeWidth={2} dot={{ r: 3, fill: "#111111" }} />
               </LineChart>
             </ResponsiveContainer>
@@ -71,7 +70,6 @@ export function SessionLog({ exerciseId }: { exerciseId: string }) {
               <span className="truncate">
                 {s.sets.filter((x) => !x.is_warmup).map((x) => `${x.reps}×${dispNum(x.weight, unit)}`).join(", ")}
               </span>
-              <span className="text-muted">{dispNum(Math.max(...s.sets.map((x) => e1rm(x.weight, x.reps))), unit)}</span>
             </li>
           ))}
         </ul>

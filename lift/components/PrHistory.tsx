@@ -2,13 +2,12 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { exerciseSessions } from "@/lib/history";
-import { e1rm } from "@/lib/prs";
 import { useSettings } from "@/lib/settings";
-import { fmtWeight, fmtVolume } from "@/lib/units";
+import { fmtWeight } from "@/lib/units";
 
 type Record = { label: string; value: string; when: string; detail?: string };
 
-/** Your records for one exercise: heaviest, best reps, best estimated 1RM, best session volume. */
+/** Your records for one exercise: heaviest set and most reps. */
 export function PrHistory({ exerciseId }: { exerciseId: string }) {
   const { unit } = useSettings();
   const sessions = useLiveQuery(() => exerciseSessions(exerciseId, 500), [exerciseId]);
@@ -22,20 +21,13 @@ export function PrHistory({ exerciseId }: { exerciseId: string }) {
 
   let heaviest = { weight: 0, reps: 0, when: "" };
   let mostReps = { weight: 0, reps: 0, when: "" };
-  let best1rm = { value: 0, weight: 0, reps: 0, when: "" };
-  let bestVolume = { value: 0, when: "" };
 
   for (const s of sessions) {
-    let volume = 0;
     for (const set of s.sets) {
       if (set.is_warmup || set.reps <= 0) continue;
-      volume += set.reps * set.weight;
       if (set.weight > heaviest.weight) heaviest = { weight: set.weight, reps: set.reps, when: s.workout.started_at };
       if (set.reps > mostReps.reps) mostReps = { weight: set.weight, reps: set.reps, when: s.workout.started_at };
-      const est = e1rm(set.weight, set.reps);
-      if (est > best1rm.value) best1rm = { value: est, weight: set.weight, reps: set.reps, when: s.workout.started_at };
     }
-    if (volume > bestVolume.value) bestVolume = { value: volume, when: s.workout.started_at };
   }
 
   const records: Record[] = [];
@@ -43,10 +35,6 @@ export function PrHistory({ exerciseId }: { exerciseId: string }) {
     records.push({ label: "Heaviest", value: fmtWeight(heaviest.weight, unit), detail: `${heaviest.reps} reps`, when: heaviest.when });
   if (mostReps.reps > 0)
     records.push({ label: "Most reps", value: `${mostReps.reps} reps`, detail: `at ${fmtWeight(mostReps.weight, unit)}`, when: mostReps.when });
-  if (best1rm.value > 0)
-    records.push({ label: "Best est. 1RM", value: fmtWeight(best1rm.value, unit), detail: mostRepsLabel(best1rm, unit), when: best1rm.when });
-  if (bestVolume.value > 0)
-    records.push({ label: "Best volume", value: fmtVolume(bestVolume.value, unit), when: bestVolume.when });
 
   if (records.length === 0) return null;
 
@@ -73,5 +61,3 @@ export function PrHistory({ exerciseId }: { exerciseId: string }) {
     </section>
   );
 }
-
-const mostRepsLabel = (r: { weight: number; reps: number }, unit: "kg" | "lb") => `${fmtWeight(r.weight, unit)} × ${r.reps}`;

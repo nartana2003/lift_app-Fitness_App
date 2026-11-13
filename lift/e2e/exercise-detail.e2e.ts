@@ -37,9 +37,10 @@ test("exercise detail shows progress, records and history, and adds to a workout
   // One session is not a trend.
   await expect(page.getByText("Log one more session to see your trend.")).toBeVisible();
 
-  // Records appear once, as four cards.
+  // Records are two cards, heaviest and most reps. Est. 1RM and volume are gone.
   await expect(page.getByRole("heading", { name: "Records" })).toBeVisible();
-  for (const label of ["Heaviest", "Most reps", "Best est. 1RM", "Best volume"]) await expect(page.getByText(label, { exact: true })).toHaveCount(1);
+  for (const label of ["Heaviest", "Most reps"]) await expect(page.getByText(label, { exact: true })).toHaveCount(1);
+  await expect(page.getByText(/1RM|Best volume/)).toHaveCount(0);
 
   // History is collapsed and says 1 session.
   await expect(page.getByText("1 session", { exact: true })).toBeVisible();

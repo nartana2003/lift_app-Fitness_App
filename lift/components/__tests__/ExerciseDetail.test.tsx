@@ -35,14 +35,14 @@ describe("ExerciseHistory", () => {
     expect(await screen.findByText("You haven't logged this exercise yet.")).toBeInTheDocument();
   });
 
-  it("does not repeat last time, heaviest or est. 1RM: the workout and Records already show them", async () => {
+  it("does not repeat last time or the records: the workout and Records already show them", async () => {
     await session("2026-11-10T09:00:00.000Z", [[5, 10, true], [8, 23], [9, 23], [10, 23]]);
     render(<ExerciseHistory exerciseId={EX} />);
     await screen.findByText("Progress");
     expect(screen.queryByText("Last time")).not.toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "Sets last time" })).not.toBeInTheDocument();
     expect(screen.queryByText("Heaviest")).not.toBeInTheDocument();
-    expect(screen.queryByText("Est. 1RM")).not.toBeInTheDocument();
+    expect(screen.queryByText(/1RM/)).not.toBeInTheDocument();
   });
 
   it("asks for another session instead of drawing a one-point trend", async () => {
@@ -52,11 +52,11 @@ describe("ExerciseHistory", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
-  it("draws the est. 1RM trend from two sessions", async () => {
-    await session("2026-11-03T09:00:00.000Z", [[10, 20]]);
-    await session("2026-11-10T09:00:00.000Z", [[10, 23]]);
+  it("draws the heaviest-set trend from two sessions", async () => {
+    await session("2026-11-03T09:00:00.000Z", [[15, 15], [10, 12.5]]);
+    await session("2026-11-10T09:00:00.000Z", [[9, 17.5]]);
     render(<ExerciseHistory exerciseId={EX} />);
-    expect(await screen.findByRole("img", { name: "Estimated 1RM went from 26.7 to 30.7 kg" })).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "Heaviest set went from 15 to 17.5 kg" })).toBeInTheDocument();
     expect(screen.queryByText("Log one more session to see your trend.")).not.toBeInTheDocument();
   });
 });
@@ -81,24 +81,33 @@ describe("SessionLog", () => {
     const details = container.querySelector("details")!;
     expect(details.open).toBe(false);
     expect(within(details).getByText("8×23, 9×23")).toBeInTheDocument();
+    // Just the date and the sets: no est. 1RM column.
+    expect(details.textContent).not.toMatch(/30|1RM/);
   });
 });
 
 describe("PrHistory", () => {
-  it("shows the four records once, as a grid", async () => {
-    await session("2026-11-10T09:00:00.000Z", [[8, 23], [9, 23], [10, 23]]);
+  it("shows only heaviest and most reps, not est. 1RM or volume", async () => {
+    await session("2026-11-04T09:00:00.000Z", [[15, 15], [10, 15]]);
+    await session("2026-11-10T09:00:00.000Z", [[9, 17.5], [10, 17.5]]);
     render(<PrHistory exerciseId={EX} />);
     await screen.findByText("Records");
     const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(4);
+    expect(items).toHaveLength(2);
     const text = (label: string) => items.find((li) => within(li).queryByText(label))!.textContent;
-    expect(text("Heaviest")).toContain("23kg");
-    expect(text("Heaviest")).toContain("8 reps");
-    expect(text("Most reps")).toContain("10 reps");
-    expect(text("Most reps")).toContain("at 23kg");
-    expect(text("Best est. 1RM")).toContain("30.7kg");
-    expect(text("Best est. 1RM")).toContain("23kg × 10");
-    expect(text("Best volume")).toContain("621kg");
+    expect(text("Heaviest")).toContain("17.5kg");
+    expect(text("Heaviest")).toContain("9 reps");
+    expect(text("Most reps")).toContain("15 reps");
+    expect(text("Most reps")).toContain("at 15kg");
+    expect(screen.queryByText(/1RM/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Best volume")).not.toBeInTheDocument();
+  });
+
+  it("ignores warm-ups", async () => {
+    await session("2026-11-10T09:00:00.000Z", [[12, 40, true], [8, 23]]);
+    render(<PrHistory exerciseId={EX} />);
+    await screen.findByText("Records");
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent).join(" ")).not.toContain("40kg");
   });
 });
 
